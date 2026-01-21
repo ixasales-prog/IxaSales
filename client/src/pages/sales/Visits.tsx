@@ -23,6 +23,26 @@ import { useI18n } from '../../i18n';
 import toast from '../../components/Toast';
 import QuickVisitModal from './QuickVisitModal';
 
+// API base URL for constructing absolute image URLs
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+// Helper to get absolute image URL
+const getImageUrl = (url: string | null): string => {
+    if (!url) return '';
+    // If already absolute, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+
+    // If URL starts with /uploads, it's a static asset served from root, not /api
+    if (url.startsWith('/uploads')) {
+        // Strip '/api' from the end of API_BASE_URL if present
+        const baseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+        return `${baseUrl}${url}`;
+    }
+
+    // Fallback for other paths
+    return `${API_BASE_URL}${url}`;
+};
+
 interface Visit {
     id: string;
     customerId: string;
@@ -384,9 +404,9 @@ const Visits: Component = () => {
 
                                             <Show when={visit.status === 'completed' && visit.outcome}>
                                                 <div class={`flex items-center gap-1 text-sm ${visit.outcome === 'order_placed' ? 'text-green-400' :
-                                                        visit.outcome === 'no_order' ? 'text-orange-400' :
-                                                            visit.outcome === 'follow_up' ? 'text-blue-400' :
-                                                                'text-slate-400'
+                                                    visit.outcome === 'no_order' ? 'text-orange-400' :
+                                                        visit.outcome === 'follow_up' ? 'text-blue-400' :
+                                                            'text-slate-400'
                                                     }`}>
                                                     <Show when={visit.outcome === 'order_placed'}>
                                                         <Package class="w-4 h-4" />
@@ -549,7 +569,7 @@ const CompleteVisitModal: Component<{
                         <For each={photos()}>
                             {(photo, index) => (
                                 <div class="relative w-20 h-20 rounded-xl overflow-hidden shrink-0 group">
-                                    <img src={photo} class="w-full h-full object-cover" />
+                                    <img src={getImageUrl(photo)} class="w-full h-full object-cover" />
                                     <button
                                         onClick={() => removePhoto(index())}
                                         class="absolute inset-0 bg-black/40 items-center justify-center hidden group-hover:flex"

@@ -17,6 +17,26 @@ import { api } from '../../lib/api';
 import { useI18n } from '../../i18n';
 import toast from '../../components/Toast';
 
+// API base URL for constructing absolute image URLs
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+// Helper to get absolute image URL
+const getImageUrl = (url: string | null): string => {
+    if (!url) return '';
+    // If already absolute, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+
+    // If URL starts with /uploads, it's a static asset served from root, not /api
+    if (url.startsWith('/uploads')) {
+        // Strip '/api' from the end of API_BASE_URL if present
+        const baseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+        return `${baseUrl}${url}`;
+    }
+
+    // Fallback for other paths
+    return `${API_BASE_URL}${url}`;
+};
+
 interface Customer {
     id: string;
     name: string;
@@ -63,6 +83,7 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
     // Selected data
     const [selectedCustomer, setSelectedCustomer] = createSignal<Customer | null>(null);
     const [photo, setPhoto] = createSignal<string | null>(null);
+    const [photoPreview, setPhotoPreview] = createSignal<string | null>(null);
     const [photoUploading, setPhotoUploading] = createSignal(false);
 
     // GPS coordinates
@@ -171,7 +192,8 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
             const compressedBlob = await compressImage(file);
             const compressedFile = new File([compressedBlob], 'photo.jpg', { type: 'image/jpeg' });
 
-            console.log(`Original size: ${(file.size / 1024).toFixed(1)}KB, Compressed: ${(compressedFile.size / 1024).toFixed(1)}KB`);
+            // Set local preview immediately
+            setPhotoPreview(URL.createObjectURL(compressedBlob));
 
             const formData = new FormData();
             formData.append('file', compressedFile);
@@ -242,7 +264,6 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
                 payload.longitude = longitude();
             }
 
-            console.log('Quick visit payload:', payload);
             await api.post('/visits/quick', payload);
 
             toast.success(t('salesApp.quickVisit.visitCompleted'));
@@ -384,11 +405,14 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
                     </div>
 
                     {/* Photo preview */}
-                    <Show when={photo()}>
+                    <Show when={photoPreview() || photo()}>
                         <div class="relative mb-4 rounded-xl overflow-hidden">
-                            <img src={photo()!} class="w-full h-48 object-cover" />
+                            <img src={photoPreview() || getImageUrl(photo())} class="w-full h-48 object-cover" />
                             <button
-                                onClick={() => setPhoto(null)}
+                                onClick={() => {
+                                    setPhoto(null);
+                                    setPhotoPreview(null);
+                                }}
                                 class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white"
                             >
                                 <X class="w-4 h-4" />
@@ -397,7 +421,7 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
                     </Show>
 
                     {/* Camera button */}
-                    <Show when={!photo()}>
+                    <Show when={!photo() && !photoPreview()}>
                         <button
                             onClick={() => fileInputRef?.click()}
                             disabled={photoUploading()}
@@ -414,6 +438,7 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
                         type="file"
                         ref={fileInputRef}
                         accept="image/*"
+                        capture="environment"
                         class="hidden"
                         onChange={handlePhotoCapture}
                     />

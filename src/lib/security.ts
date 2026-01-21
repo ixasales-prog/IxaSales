@@ -85,8 +85,8 @@ export const securityHeadersPlugin = new Elysia({ name: 'security-headers' })
         // Referrer policy
         set.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
 
-        // Permissions policy
-        set.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()';
+        // Permissions policy - Allow camera/location for app functionality
+        set.headers['Permissions-Policy'] = 'geolocation=(self), camera=(self), microphone=()';
 
         // In production, add HSTS
         if (process.env.NODE_ENV === 'production') {

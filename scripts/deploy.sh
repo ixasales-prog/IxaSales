@@ -79,7 +79,8 @@ EOF
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}[4/5] Running database migrations...${NC}"
 # Use -t to force PTY for interactive prompts (drizzle-kit push)
-ssh -t $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && export PATH=\"\$HOME/.bun/bin:\$PATH\" && bun run db:push"
+# ssh -t $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && export PATH=\"\$HOME/.bun/bin:\$PATH\" && bun run db:push"
+echo "Skipping migrations for stability..."
 
 # -----------------------------------------------------------------------------
 # 5. Fix Permissions & Restart Service
