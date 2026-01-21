@@ -45,7 +45,7 @@ fi
 echo -e "${GREEN}[1/5] Building frontend...${NC}"
 cd client
 npm install || bun install
-npm run build || bun run build
+npm run build
 cd ..
 
 # -----------------------------------------------------------------------------

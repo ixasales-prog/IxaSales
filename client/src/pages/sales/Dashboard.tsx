@@ -13,7 +13,6 @@ import {
     Mail,
     Phone,
     Building2,
-    ChevronDown,
     Globe
 } from 'lucide-solid';
 import { api } from '../../lib/api';
