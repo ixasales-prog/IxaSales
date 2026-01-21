@@ -1,4 +1,4 @@
-import { type Component, For, Show, createResource } from 'solid-js';
+import { type Component, For, Show, createResource, createSignal } from 'solid-js';
 import { A, useNavigate } from '@solidjs/router';
 import {
     TrendingUp,
@@ -8,11 +8,18 @@ import {
     Package,
     Users,
     ShoppingCart,
-    Loader2
+    Loader2,
+    LogOut,
+    Mail,
+    Phone,
+    Building2,
+    ChevronDown,
+    Globe
 } from 'lucide-solid';
 import { api } from '../../lib/api';
-import { currentUser } from '../../stores/auth';
+import { currentUser, logout } from '../../stores/auth';
 import { formatCurrency, formatDate } from '../../stores/settings';
+import { useBranding } from '../../stores/branding';
 import { useI18n } from '../../i18n';
 
 interface DashboardStats {
@@ -39,9 +46,27 @@ interface Customer {
 }
 
 const Dashboard: Component = () => {
-    const { t } = useI18n();
+    const { t, language, setLanguage, availableLanguages } = useI18n();
     const navigate = useNavigate();
     const user = currentUser();
+    const branding = useBranding();
+
+    // Profile dropdown state
+    const [showProfile, setShowProfile] = createSignal(false);
+
+    const handleLogout = () => {
+        logout();
+    };
+
+    const getRoleDisplay = () => {
+        const role = user?.role || 'sales_rep';
+        switch (role) {
+            case 'sales_rep': return t('salesApp.menu.forSales');
+            case 'supervisor': return 'Supervisor';
+            case 'tenant_admin': return 'Administrator';
+            default: return role;
+        }
+    };
 
     // Get time of day for greeting
     const getTimeOfDay = () => {
@@ -170,10 +195,90 @@ const Dashboard: Component = () => {
                     </h1>
                     <p class="text-slate-400 text-sm">{getCurrentDate()}</p>
                 </div>
-                <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+                <button
+                    onClick={() => setShowProfile(!showProfile())}
+                    class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm active:scale-95 transition-transform"
+                >
                     {getInitials()}
-                </div>
+                </button>
             </div>
+
+            {/* Profile Dropdown */}
+            <Show when={showProfile()}>
+                <div class="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 mb-6 animate-fade-in">
+                    {/* User Info */}
+                    <div class="flex items-center gap-3 pb-4 border-b border-slate-800">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg shrink-0">
+                            {getInitials()}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-white font-semibold truncate">{user?.name || 'User'}</h3>
+                            <span class="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20 uppercase">
+                                {getRoleDisplay()}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Contact Info */}
+                    <div class="py-3 space-y-2 border-b border-slate-800">
+                        <Show when={user?.email}>
+                            <div class="flex items-center gap-2 text-sm">
+                                <Mail class="w-4 h-4 text-slate-500" />
+                                <span class="text-slate-400 truncate">{user?.email}</span>
+                            </div>
+                        </Show>
+                        <Show when={user?.phone}>
+                            <div class="flex items-center gap-2 text-sm">
+                                <Phone class="w-4 h-4 text-slate-500" />
+                                <span class="text-slate-400">{user?.phone}</span>
+                            </div>
+                        </Show>
+                        <Show when={branding.platformName}>
+                            <div class="flex items-center gap-2 text-sm">
+                                <Building2 class="w-4 h-4 text-slate-500" />
+                                <span class="text-slate-400">{branding.platformName}</span>
+                            </div>
+                        </Show>
+                    </div>
+
+                    {/* Language Selector */}
+                    <div class="py-3 border-b border-slate-800">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <Globe class="w-4 h-4 text-slate-500" />
+                                <span class="text-slate-400 text-sm">{t('salesApp.menu.language')}</span>
+                            </div>
+                            <div class="flex gap-1">
+                                {availableLanguages.map((lang) => (
+                                    <button
+                                        onClick={() => setLanguage(lang)}
+                                        class={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${language() === lang
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-slate-800 text-slate-400 hover:text-white'
+                                            }`}
+                                    >
+                                        {lang.toUpperCase()}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Logout */}
+                    <button
+                        onClick={handleLogout}
+                        class="w-full mt-3 flex items-center justify-center gap-2 py-2.5 bg-red-500/10 text-red-400 rounded-xl text-sm font-medium active:scale-[0.98] transition-all"
+                    >
+                        <LogOut class="w-4 h-4" />
+                        {t('salesApp.menu.signOut')}
+                    </button>
+
+                    {/* Version */}
+                    <p class="text-center text-slate-600 text-[10px] mt-3">
+                        {branding.platformName} v1.0.0
+                    </p>
+                </div>
+            </Show>
 
             {/* Stats Row */}
             <Show when={!stats.loading} fallback={

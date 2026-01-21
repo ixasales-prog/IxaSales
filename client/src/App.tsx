@@ -17,7 +17,6 @@ import Cart from './pages/sales/Cart';
 import SalesVisits from './pages/sales/Visits';
 import SalesCustomers from './pages/sales/Customers';
 import SalesOrders from './pages/sales/Orders';
-import Menu from './pages/sales/Menu';
 
 // Driver Pages
 import Trips from './pages/driver/Trips';
@@ -112,7 +111,6 @@ const App: Component = () => {
           <Route path="/visits" component={SalesVisits} />
           <Route path="/orders" component={SalesOrders} />
           <Route path="/customers" component={SalesCustomers} />
-          <Route path="/menu" component={Menu} />
         </Route>
 
         {/* Driver App Routes */}

@@ -1,6 +1,6 @@
 import { type Component, onMount } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
-import { Home, ShoppingBag, Users, Menu, MapPin } from 'lucide-solid';
+import { Home, ShoppingBag, Users, MapPin } from 'lucide-solid';
 import { initSettings } from '../../stores/settings';
 import { useI18n } from '../../i18n';
 
@@ -29,31 +29,26 @@ const MobileSalesLayout: Component<{ children: any }> = (props) => {
                 {props.children}
             </main>
 
-            {/* Bottom Navigation */}
-            <nav class="fixed bottom-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-t border-slate-800/50 flex items-center justify-around px-2 z-50 pb-safe">
-                <A href="/sales" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/sales', true)}`}>
+            {/* Bottom Navigation - 4 tabs */}
+            <nav class="fixed bottom-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-t border-slate-800/50 flex items-center justify-around px-4 z-50 pb-safe">
+                <A href="/sales" class={`flex flex-col items-center gap-1 p-3 transition-all ${activeClass('/sales', true)}`}>
                     <Home size={22} />
                     <span class="text-[10px] font-medium">{t('salesApp.nav.home')}</span>
                 </A>
 
-                <A href="/sales/visits" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/sales/visits')}`}>
+                <A href="/sales/visits" class={`flex flex-col items-center gap-1 p-3 transition-all ${activeClass('/sales/visits')}`}>
                     <MapPin size={22} />
                     <span class="text-[10px] font-medium">{t('salesApp.visits.title')}</span>
                 </A>
 
-                <A href="/sales/catalog" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/sales/catalog')}`}>
+                <A href="/sales/catalog" class={`flex flex-col items-center gap-1 p-3 transition-all ${activeClass('/sales/catalog')}`}>
                     <ShoppingBag size={22} />
                     <span class="text-[10px] font-medium">{t('salesApp.nav.catalog')}</span>
                 </A>
 
-                <A href="/sales/customers" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/sales/customers')}`}>
+                <A href="/sales/customers" class={`flex flex-col items-center gap-1 p-3 transition-all ${activeClass('/sales/customers')}`}>
                     <Users size={22} />
                     <span class="text-[10px] font-medium">{t('salesApp.nav.customers')}</span>
-                </A>
-
-                <A href="/sales/menu" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/sales/menu')}`}>
-                    <Menu size={22} />
-                    <span class="text-[10px] font-medium">{t('salesApp.nav.menu')}</span>
                 </A>
             </nav>
         </div>
