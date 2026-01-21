@@ -167,7 +167,6 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
      * Update tenant business settings
      */
     .put('/settings', async ({ user, body }: any) => {
-        console.log('[Tenant Settings] Received body:', JSON.stringify(body));
         const updates: Partial<typeof schema.tenants.$inferInsert> = {};
 
         if (body.currency) updates.currency = body.currency;
@@ -179,7 +178,6 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
         // Allow empty string to clear the key, only use null if explicitly undefined
         if (body.yandexGeocoderApiKey !== undefined) updates.yandexGeocoderApiKey = body.yandexGeocoderApiKey;
 
-        console.log('[Tenant Settings] Updates to apply:', JSON.stringify(updates));
         updates.updatedAt = new Date();
 
         const [updated] = await db
@@ -188,7 +186,6 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
             .where(eq(schema.tenants.id, user.tenantId))
             .returning();
 
-        console.log('[Tenant Settings] Saved, yandexGeocoderApiKey:', updated?.yandexGeocoderApiKey);
         return { success: true, data: updated };
     }, {
         body: t.Object({

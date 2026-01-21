@@ -1,4 +1,4 @@
-import { type Component, createSignal, Show } from 'solid-js';
+import { type Component, createSignal, Show, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import {
     X,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { toast } from '../../components/Toast';
-import { getYandexGeocoderApiKey } from '../../stores/settings';
+import { getYandexGeocoderApiKey, initSettings } from '../../stores/settings';
 
 interface AddCustomerModalProps {
     onClose: () => void;
@@ -32,6 +32,11 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
         longitude: ''
     });
     const [geoLoading, setGeoLoading] = createSignal(false);
+
+    // Refresh settings when modal opens to get latest API key
+    onMount(() => {
+        initSettings();
+    });
 
     const getLocation = () => {
         if (!navigator.geolocation) {
@@ -53,7 +58,6 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                     // Reverse geocoding using Yandex Geocoder API (better coverage for Uzbekistan)
                     // Uses tenant-specific API key from settings
                     const apiKey = getYandexGeocoderApiKey();
-                    console.log('[Geocoding] API Key from settings:', apiKey ? `${apiKey.substring(0, 8)}...` : 'NOT SET');
                     if (!apiKey) {
                         toast.error('Yandex API key not configured. Ask your admin to set it in Business Settings.');
                         setGeoLoading(false);
