@@ -38,6 +38,30 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
         initSettings();
     });
 
+    const distanceKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const toRad = (value: number) => (value * Math.PI) / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return 6371 * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    };
+
+    const fetchGeocode = async (lon: number, lat: number, apiKey: string) => {
+        const response = await fetch(
+            `https://geocode-maps.yandex.ru/1.x/?apikey=${apiKey}&format=json&geocode=${lon},${lat}&lang=uz_UZ`
+        );
+        const data = await response.json();
+        const geoObject = data?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+        const address = geoObject?.metaDataProperty?.GeocoderMetaData?.text || geoObject?.name || '';
+        const pointStr = geoObject?.Point?.pos || '';
+        const [pointLon, pointLat] = pointStr.split(' ').map(Number);
+        const point = Number.isFinite(pointLat) && Number.isFinite(pointLon)
+            ? { lat: pointLat, lon: pointLon }
+            : null;
+        return { address, point };
+    };
+
     const getLocation = () => {
         if (!navigator.geolocation) {
             toast.error('Geolocation is not supported by your browser');
@@ -57,23 +81,44 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                 try {
                     // Reverse geocoding using Yandex Geocoder API (better coverage for Uzbekistan)
                     // Uses tenant-specific API key from settings
-                    const apiKey = getYandexGeocoderApiKey();
+                    let apiKey = getYandexGeocoderApiKey();
+
+                    // Fallback: Cache-busting fetch if store is stale (fixes PWA caching issues)
+                    if (!apiKey) {
+                        try {
+                            const res = await api<any>(`/display-settings?_t=${Date.now()}`);
+                            const resolved = res?.data ?? res;
+                            if (resolved?.yandexGeocoderApiKey) {
+                                apiKey = resolved.yandexGeocoderApiKey;
+                                console.log('[Geocoding] Fixed: Fetched API key via fallback:', apiKey);
+                                initSettings();
+                            }
+                        } catch (e) {
+                            console.error('Settings fallback failed', e);
+                        }
+                    }
+
                     if (!apiKey) {
                         toast.error('Yandex API key not configured. Ask your admin to set it in Business Settings.');
                         setGeoLoading(false);
                         return;
                     }
-                    const response = await fetch(
-                        `https://geocode-maps.yandex.ru/1.x/?apikey=${apiKey}&format=json&geocode=${longitude},${latitude}&lang=uz_UZ`
-                    );
-                    const data = await response.json();
-
-                    const geoObject = data?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
-                    if (geoObject?.metaDataProperty?.GeocoderMetaData?.text) {
-                        setFormData(prev => ({ ...prev, address: geoObject.metaDataProperty.GeocoderMetaData.text }));
-                        toast.success('Address updated from location');
-                    } else if (geoObject?.name) {
-                        setFormData(prev => ({ ...prev, address: geoObject.name }));
+                    const primary = await fetchGeocode(longitude, latitude, apiKey);
+                    let best = primary;
+                    if (primary.point) {
+                        const dist = distanceKm(latitude, longitude, primary.point.lat, primary.point.lon);
+                        if (dist > 5) {
+                            const swapped = await fetchGeocode(latitude, longitude, apiKey);
+                            if (swapped.point) {
+                                const swappedDist = distanceKm(latitude, longitude, swapped.point.lat, swapped.point.lon);
+                                if (swappedDist < dist) {
+                                    best = swapped;
+                                }
+                            }
+                        }
+                    }
+                    if (best.address) {
+                        setFormData(prev => ({ ...prev, address: best.address }));
                         toast.success('Address updated from location');
                     }
                 } catch (error) {
@@ -115,6 +160,22 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                     delete payload[key];
                 }
             });
+            if (payload.latitude !== undefined) {
+                const parsedLatitude = Number(payload.latitude);
+                if (Number.isFinite(parsedLatitude)) {
+                    payload.latitude = parsedLatitude;
+                } else {
+                    delete payload.latitude;
+                }
+            }
+            if (payload.longitude !== undefined) {
+                const parsedLongitude = Number(payload.longitude);
+                if (Number.isFinite(parsedLongitude)) {
+                    payload.longitude = parsedLongitude;
+                } else {
+                    delete payload.longitude;
+                }
+            }
 
             const result = await api.post('/customers', payload);
             toast.success('Customer created successfully');

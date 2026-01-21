@@ -66,21 +66,22 @@ function createSettingsStore() {
         setLoading(true);
 
         try {
-            const data = await api<any>('/display-settings', {
+            const data = await api<any>(`/display-settings?_t=${Date.now()}`, {
                 headers: {
                     'Authorization': token ? `Bearer ${token}` : '',
                 },
                 skipAuth: true // Manually handling auth header above for safety
             });
 
-            if (data.success && data.data) {
+            const resolved = data?.data ?? data;
+            if (resolved) {
                 setSettings({
-                    currency: data.data.currency ?? '',  // Allow empty string
-                    timezone: data.data.timezone || 'Asia/Tashkent',
-                    orderNumberPrefix: data.data.orderNumberPrefix || 'ORD-',
-                    invoiceNumberPrefix: data.data.invoiceNumberPrefix || 'INV-',
-                    defaultPaymentTerms: data.data.defaultPaymentTerms || 7,
-                    yandexGeocoderApiKey: data.data.yandexGeocoderApiKey || '',
+                    currency: resolved.currency ?? '',  // Allow empty string
+                    timezone: resolved.timezone ?? 'Asia/Tashkent',
+                    orderNumberPrefix: resolved.orderNumberPrefix ?? 'ORD-',
+                    invoiceNumberPrefix: resolved.invoiceNumberPrefix ?? 'INV-',
+                    defaultPaymentTerms: resolved.defaultPaymentTerms ?? 7,
+                    yandexGeocoderApiKey: resolved.yandexGeocoderApiKey ?? '',
                 });
             }
         } catch (error) {

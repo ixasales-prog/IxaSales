@@ -7,8 +7,8 @@
 import { Elysia } from 'elysia';
 import { db } from '../../db';
 import * as schema from '../../db/schema';
-import { eq, and, desc, avg, count, sql } from 'drizzle-orm';
-import { requireAuth } from './middleware';
+import { eq, and, desc, avg, count } from 'drizzle-orm';
+import { verifyCustomerToken } from '../../lib/customer-auth';
 import { createErrorResponse } from '../../lib/error-codes';
 
 export const reviewsRoutes = new Elysia()
@@ -16,10 +16,16 @@ export const reviewsRoutes = new Elysia()
      * GET /reviews/:productId - Get reviews for a product
      */
     .get('/reviews/:productId', async ({ headers, params, query, set }) => {
-        const auth = await requireAuth(headers);
-        if (!auth.success) {
-            set.status = auth.status;
-            return auth.response;
+        const authHeader = headers['authorization'];
+        const token = authHeader?.replace('Bearer ', '');
+        if (!token) {
+            set.status = 401;
+            return createErrorResponse('UNAUTHORIZED');
+        }
+        const payload = await verifyCustomerToken(token);
+        if (!payload) {
+            set.status = 401;
+            return createErrorResponse('INVALID_TOKEN');
         }
 
         const page = parseInt(query.page as string) || 1;
@@ -77,7 +83,7 @@ export const reviewsRoutes = new Elysia()
                 .from(schema.orderItems)
                 .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
                 .where(and(
-                    eq(schema.orders.customerId, auth.customerId),
+                    eq(schema.orders.customerId, payload.customerId),
                     eq(schema.orderItems.productId, params.productId),
                     eq(schema.orders.status, 'delivered')
                 ))
@@ -88,7 +94,7 @@ export const reviewsRoutes = new Elysia()
                 .select({ id: schema.productReviews.id })
                 .from(schema.productReviews)
                 .where(and(
-                    eq(schema.productReviews.customerId, auth.customerId),
+                    eq(schema.productReviews.customerId, payload.customerId),
                     eq(schema.productReviews.productId, params.productId)
                 ))
                 .limit(1);
@@ -122,10 +128,16 @@ export const reviewsRoutes = new Elysia()
      * POST /reviews/:productId - Add a review
      */
     .post('/reviews/:productId', async ({ headers, params, body, set }) => {
-        const auth = await requireAuth(headers);
-        if (!auth.success) {
-            set.status = auth.status;
-            return auth.response;
+        const authHeader = headers['authorization'];
+        const token = authHeader?.replace('Bearer ', '');
+        if (!token) {
+            set.status = 401;
+            return createErrorResponse('UNAUTHORIZED');
+        }
+        const payload = await verifyCustomerToken(token);
+        if (!payload) {
+            set.status = 401;
+            return createErrorResponse('INVALID_TOKEN');
         }
 
         const { rating, comment } = body as { rating: number; comment?: string };
@@ -143,7 +155,7 @@ export const reviewsRoutes = new Elysia()
                 .from(schema.orderItems)
                 .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
                 .where(and(
-                    eq(schema.orders.customerId, auth.customerId),
+                    eq(schema.orders.customerId, payload.customerId),
                     eq(schema.orderItems.productId, params.productId),
                     eq(schema.orders.status, 'delivered')
                 ))
@@ -165,7 +177,7 @@ export const reviewsRoutes = new Elysia()
                 .select({ id: schema.productReviews.id })
                 .from(schema.productReviews)
                 .where(and(
-                    eq(schema.productReviews.customerId, auth.customerId),
+                    eq(schema.productReviews.customerId, payload.customerId),
                     eq(schema.productReviews.productId, params.productId)
                 ))
                 .limit(1);
@@ -186,8 +198,8 @@ export const reviewsRoutes = new Elysia()
                 .insert(schema.productReviews)
                 .values({
                     productId: params.productId,
-                    customerId: auth.customerId,
-                    tenantId: auth.tenantId,
+                    customerId: payload.customerId,
+                    tenantId: payload.tenantId,
                     rating,
                     comment: comment?.trim() || null,
                     isApproved: true, // Auto-approve for now
@@ -230,10 +242,16 @@ export const reviewsRoutes = new Elysia()
      * DELETE /reviews/:reviewId - Delete own review
      */
     .delete('/reviews/:reviewId', async ({ headers, params, set }) => {
-        const auth = await requireAuth(headers);
-        if (!auth.success) {
-            set.status = auth.status;
-            return auth.response;
+        const authHeader = headers['authorization'];
+        const token = authHeader?.replace('Bearer ', '');
+        if (!token) {
+            set.status = 401;
+            return createErrorResponse('UNAUTHORIZED');
+        }
+        const payload = await verifyCustomerToken(token);
+        if (!payload) {
+            set.status = 401;
+            return createErrorResponse('INVALID_TOKEN');
         }
 
         try {
@@ -243,7 +261,7 @@ export const reviewsRoutes = new Elysia()
                 .from(schema.productReviews)
                 .where(and(
                     eq(schema.productReviews.id, params.reviewId),
-                    eq(schema.productReviews.customerId, auth.customerId)
+                    eq(schema.productReviews.customerId, payload.customerId)
                 ))
                 .limit(1);
 

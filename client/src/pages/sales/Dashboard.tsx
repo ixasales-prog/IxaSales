@@ -25,7 +25,7 @@ interface DashboardStats {
     todaysSales: number;
     pendingOrders: number;
     customerCount: number;
-    visits: { total: number; completed: number; planned: number };
+    visits: { total: number; completed: number; inProgress: number };
 }
 
 interface RecentOrder {
@@ -35,6 +35,24 @@ interface RecentOrder {
     totalAmount: string;
     status: string;
     createdAt: string;
+}
+
+interface OrdersResponse {
+    data?: Array<{
+        id: string;
+        orderNumber: string;
+        customer?: { name: string } | null;
+        customerName?: string;
+        totalAmount: string;
+        status: string;
+        createdAt: string;
+    }>;
+    meta?: { total?: number };
+}
+
+interface CustomersResponse {
+    data?: Customer[];
+    meta?: { total?: number };
 }
 
 interface Customer {
@@ -49,6 +67,7 @@ const Dashboard: Component = () => {
     const navigate = useNavigate();
     const user = currentUser();
     const branding = useBranding();
+    const baseUrl = import.meta.env.VITE_API_URL || '/api';
 
     // Profile dropdown state
     const [showProfile, setShowProfile] = createSignal(false);
@@ -84,39 +103,67 @@ const Dashboard: Component = () => {
         });
     };
 
+    const fetchRaw = async <T,>(path: string, params: Record<string, string> = {}): Promise<T> => {
+        const token = localStorage.getItem('token');
+        const headers = new Headers();
+        headers.set('Content-Type', 'application/json');
+        if (token) {
+            headers.set('Authorization', `Bearer ${token}`);
+        }
+
+        const url = new URL(`${baseUrl}${path}`, window.location.origin);
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined && value !== null) {
+                url.searchParams.set(key, value);
+            }
+        });
+
+        const response = await fetch(url.toString(), { headers });
+        if (response.status === 401 && token && !path.startsWith('/auth/')) {
+            logout();
+            throw new Error('Unauthorized');
+        }
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error?.message || result.message || 'API Error');
+        }
+        return result as T;
+    };
+
     // Fetch dashboard stats
     const [stats] = createResource<DashboardStats>(async () => {
         try {
-            // Get today's date range
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayStr = today.toISOString().split('T')[0];
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const todayEnd = new Date();
+            todayEnd.setHours(23, 59, 59, 999);
 
-            // Fetch orders created today
-            const ordersRes = await api.get('/orders', {
-                params: {
-                    startDate: todayStr,
-                    limit: '100'
-                }
-            }) as any;
+            const ordersRes = await fetchRaw<OrdersResponse>('/orders', {
+                startDate: todayStart.toISOString(),
+                endDate: todayEnd.toISOString(),
+                status: 'delivered',
+                limit: '500'
+            });
 
-            const orders = ordersRes?.data || ordersRes || [];
+            const orders = ordersRes.data || [];
 
             // Calculate today's sales
             const todaysSales = orders.reduce((sum: number, o: any) => {
                 return sum + parseFloat(o.totalAmount || '0');
             }, 0);
 
-            // Count pending orders
-            const pendingOrders = orders.filter((o: any) => o.status === 'pending').length;
+            const pendingRes = await fetchRaw<OrdersResponse>('/orders', {
+                status: 'pending',
+                limit: '1'
+            });
+            const pendingOrders = pendingRes.meta?.total ?? pendingRes.data?.length ?? 0;
 
-            // Get customer count
-            const customersRes = await api.get('/customers', { params: { limit: '1' } }) as any;
-            const customerCount = customersRes?.meta?.total || customersRes?.length || 0;
+            const customersRes = await fetchRaw<CustomersResponse>('/customers', { limit: '1' });
+            const customerCount = customersRes.meta?.total ?? customersRes.data?.length ?? 0;
 
             // Get visits stats
             const visitsRes = await api.get('/visits/stats') as any;
-            const visits = visitsRes?.data?.today || { total: 0, completed: 0, planned: 0 };
+            const visits = visitsRes?.today || { total: 0, completed: 0, inProgress: 0 };
 
             return {
                 todaysSales,
@@ -125,7 +172,7 @@ const Dashboard: Component = () => {
                 visits
             };
         } catch (e) {
-            return { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, planned: 0 } };
+            return { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, inProgress: 0 } };
         }
     });
 
@@ -142,8 +189,16 @@ const Dashboard: Component = () => {
     // Fetch recent orders
     const [recentOrders] = createResource<RecentOrder[]>(async () => {
         try {
-            const res = await api.get('/orders', { params: { limit: '5' } }) as any;
-            return res?.data || res || [];
+            const res = await api.get('/orders', { params: { limit: '5' } }) as OrdersResponse | any;
+            const orders = res?.data || res || [];
+            return orders.map((order: any) => ({
+                id: order.id,
+                orderNumber: order.orderNumber,
+                customerName: order.customer?.name || order.customerName || 'Unknown',
+                totalAmount: order.totalAmount,
+                status: order.status,
+                createdAt: order.createdAt
+            }));
         } catch (e) {
             return [];
         }

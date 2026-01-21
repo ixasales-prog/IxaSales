@@ -55,10 +55,10 @@ export const httpsEnforcementPlugin = new Elysia({ name: 'https-enforcement' })
         url.protocol = 'https:';
 
         set.status = 301;
-        set.headers = {
-            ...set.headers,
-            'Location': url.toString()
-        };
+        if (!set.headers) {
+            set.headers = {};
+        }
+        set.headers['Location'] = url.toString();
 
         return { redirecting: true };
     });

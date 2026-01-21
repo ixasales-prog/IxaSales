@@ -352,7 +352,7 @@ export const visitRoutes = new Elysia({ prefix: '/visits' })
             };
 
             // Optional fields
-            if (body.latitude) {
+            if (body.latitude !== undefined) {
                 insertValues.startLatitude = body.latitude.toString();
                 insertValues.startLongitude = body.longitude?.toString();
                 insertValues.endLatitude = body.latitude.toString();
