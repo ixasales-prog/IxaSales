@@ -53,6 +53,7 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                     // Reverse geocoding using Yandex Geocoder API (better coverage for Uzbekistan)
                     // Uses tenant-specific API key from settings
                     const apiKey = getYandexGeocoderApiKey();
+                    console.log('[Geocoding] API Key from settings:', apiKey ? `${apiKey.substring(0, 8)}...` : 'NOT SET');
                     if (!apiKey) {
                         toast.error('Yandex API key not configured. Ask your admin to set it in Business Settings.');
                         setGeoLoading(false);
