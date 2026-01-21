@@ -33,6 +33,9 @@ export const tenants = pgTable('tenants', {
   paymeMerchantId: varchar('payme_merchant_id', { length: 100 }),
   paymeSecretKey: varchar('payme_secret_key', { length: 255 }),
 
+  // Location Services
+  yandexGeocoderApiKey: varchar('yandex_geocoder_api_key', { length: 100 }),
+
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

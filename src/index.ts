@@ -90,7 +90,7 @@ const app = new Elysia()
             // Returns tenant's currency/timezone for frontend display formatting
             .get('/display-settings', async ({ user }: any) => {
                 if (!user || !user.tenantId) {
-                    return { success: true, data: { currency: '', timezone: 'Asia/Tashkent' } };
+                    return { success: true, data: { currency: '', timezone: 'Asia/Tashkent', yandexGeocoderApiKey: '' } };
                 }
 
                 const { db, schema } = await import('./db');
@@ -100,6 +100,7 @@ const app = new Elysia()
                     .select({
                         currency: schema.tenants.currency,
                         timezone: schema.tenants.timezone,
+                        yandexGeocoderApiKey: schema.tenants.yandexGeocoderApiKey,
                     })
                     .from(schema.tenants)
                     .where(eq(schema.tenants.id, user.tenantId))
@@ -110,6 +111,7 @@ const app = new Elysia()
                     data: {
                         currency: tenant?.currency ?? '',
                         timezone: tenant?.timezone ?? 'Asia/Tashkent',
+                        yandexGeocoderApiKey: tenant?.yandexGeocoderApiKey ?? '',
                     }
                 };
             })

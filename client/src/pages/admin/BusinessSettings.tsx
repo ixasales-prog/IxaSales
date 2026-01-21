@@ -2,7 +2,7 @@ import { type Component, createSignal, createResource, Show, createEffect } from
 import { createStore } from 'solid-js/store';
 import { A } from '@solidjs/router';
 import {
-    ArrowLeft, Settings, Save, Loader2, DollarSign, Hash, Clock
+    ArrowLeft, Settings, Save, Loader2, DollarSign, Hash, Clock, MapPin
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { toast } from '../../components/Toast';
@@ -13,6 +13,7 @@ interface BusinessSettings {
     orderNumberPrefix: string;
     invoiceNumberPrefix: string;
     defaultPaymentTerms: number;
+    yandexGeocoderApiKey: string;
 }
 
 const CURRENCIES = [
@@ -52,6 +53,7 @@ const BusinessSettingsPage: Component = () => {
         orderNumberPrefix: 'ORD-',
         invoiceNumberPrefix: 'INV-',
         defaultPaymentTerms: 7,
+        yandexGeocoderApiKey: '',
     });
 
     createEffect(() => {
@@ -63,6 +65,7 @@ const BusinessSettingsPage: Component = () => {
                 orderNumberPrefix: d.orderNumberPrefix ?? 'ORD-',
                 invoiceNumberPrefix: d.invoiceNumberPrefix ?? 'INV-',
                 defaultPaymentTerms: d.defaultPaymentTerms ?? 7,
+                yandexGeocoderApiKey: d.yandexGeocoderApiKey ?? '',
             });
         }
     });
@@ -227,6 +230,28 @@ const BusinessSettingsPage: Component = () => {
                             </div>
                             <p class="text-xs text-slate-500 mt-2">
                                 Number of days customers have to pay their invoices. Common values: 7, 14, 30 days.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Location Services */}
+                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
+                        <h3 class="text-white font-medium mb-4 flex items-center gap-2">
+                            <MapPin class="w-5 h-5 text-red-400" />
+                            Location Services
+                        </h3>
+                        <div>
+                            <label class="block text-sm text-slate-400 mb-1.5">Yandex Geocoder API Key</label>
+                            <input
+                                type="text"
+                                value={form.yandexGeocoderApiKey}
+                                onInput={(e) => setForm('yandexGeocoderApiKey', e.currentTarget.value)}
+                                placeholder="Enter your Yandex Geocoder API key"
+                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                            />
+                            <p class="text-xs text-slate-500 mt-2">
+                                Get your API key from <a href="https://developer.tech.yandex.ru/" target="_blank" class="text-blue-400 hover:underline">Yandex Developer Console</a>.
+                                Used for accurate address lookup in Uzbekistan.
                             </p>
                         </div>
                     </div>

@@ -12,6 +12,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { toast } from '../../components/Toast';
+import { getYandexGeocoderApiKey } from '../../stores/settings';
 
 interface AddCustomerModalProps {
     onClose: () => void;
@@ -49,17 +50,29 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                 });
 
                 try {
-                    // Reverse geocoding using Nominatim (OpenStreetMap)
+                    // Reverse geocoding using Yandex Geocoder API (better coverage for Uzbekistan)
+                    // Uses tenant-specific API key from settings
+                    const apiKey = getYandexGeocoderApiKey();
+                    if (!apiKey) {
+                        toast.error('Yandex API key not configured. Ask your admin to set it in Business Settings.');
+                        setGeoLoading(false);
+                        return;
+                    }
                     const response = await fetch(
-                        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+                        `https://geocode-maps.yandex.ru/1.x/?apikey=${apiKey}&format=json&geocode=${longitude},${latitude}&lang=uz_UZ`
                     );
                     const data = await response.json();
 
-                    if (data.display_name) {
-                        setFormData(prev => ({ ...prev, address: data.display_name }));
+                    const geoObject = data?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+                    if (geoObject?.metaDataProperty?.GeocoderMetaData?.text) {
+                        setFormData(prev => ({ ...prev, address: geoObject.metaDataProperty.GeocoderMetaData.text }));
+                        toast.success('Address updated from location');
+                    } else if (geoObject?.name) {
+                        setFormData(prev => ({ ...prev, address: geoObject.name }));
                         toast.success('Address updated from location');
                     }
                 } catch (error) {
+                    console.error('Yandex geocoding error:', error);
                     toast.error('Failed to get address from coordinates');
                 } finally {
                     setGeoLoading(false);

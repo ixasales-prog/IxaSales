@@ -142,6 +142,7 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
                 orderNumberPrefix: schema.tenants.orderNumberPrefix,
                 invoiceNumberPrefix: schema.tenants.invoiceNumberPrefix,
                 defaultPaymentTerms: schema.tenants.defaultPaymentTerms,
+                yandexGeocoderApiKey: schema.tenants.yandexGeocoderApiKey,
             })
             .from(schema.tenants)
             .where(eq(schema.tenants.id, user.tenantId))
@@ -157,6 +158,7 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
                 orderNumberPrefix: tenant?.orderNumberPrefix ?? 'ORD-',
                 invoiceNumberPrefix: tenant?.invoiceNumberPrefix ?? 'INV-',
                 defaultPaymentTerms: tenant?.defaultPaymentTerms ?? 7,
+                yandexGeocoderApiKey: tenant?.yandexGeocoderApiKey ?? '',
             }
         };
     })
@@ -173,6 +175,7 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
         if (body.orderNumberPrefix !== undefined) updates.orderNumberPrefix = body.orderNumberPrefix;
         if (body.invoiceNumberPrefix !== undefined) updates.invoiceNumberPrefix = body.invoiceNumberPrefix;
         if (body.defaultPaymentTerms !== undefined) updates.defaultPaymentTerms = parseInt(String(body.defaultPaymentTerms)) || 7;
+        if (body.yandexGeocoderApiKey !== undefined) updates.yandexGeocoderApiKey = body.yandexGeocoderApiKey || null;
 
         updates.updatedAt = new Date();
 
@@ -191,6 +194,7 @@ export const tenantSelfRoutes = new Elysia({ prefix: '/tenant' })
             orderNumberPrefix: t.Optional(t.String()),
             invoiceNumberPrefix: t.Optional(t.String()),
             defaultPaymentTerms: t.Optional(t.Union([t.Number(), t.String()])),
+            yandexGeocoderApiKey: t.Optional(t.String()),
         })
     })
 

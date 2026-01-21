@@ -14,6 +14,7 @@ export interface TenantSettings {
     orderNumberPrefix: string;
     invoiceNumberPrefix: string;
     defaultPaymentTerms: number;
+    yandexGeocoderApiKey: string;
 }
 
 // Currency symbols mapping
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: TenantSettings = {
     orderNumberPrefix: 'ORD-',
     invoiceNumberPrefix: 'INV-',
     defaultPaymentTerms: 7,
+    yandexGeocoderApiKey: '',
 };
 
 // Create a singleton store
@@ -78,6 +80,7 @@ function createSettingsStore() {
                     orderNumberPrefix: data.data.orderNumberPrefix || 'ORD-',
                     invoiceNumberPrefix: data.data.invoiceNumberPrefix || 'INV-',
                     defaultPaymentTerms: data.data.defaultPaymentTerms || 7,
+                    yandexGeocoderApiKey: data.data.yandexGeocoderApiKey || '',
                 });
             }
         } catch (error) {
@@ -103,6 +106,7 @@ export const settingsStore = createRoot(createSettingsStore);
 export const useSettings = () => settingsStore.settings();
 export const getCurrency = () => settingsStore.settings().currency;
 export const getTimezone = () => settingsStore.settings().timezone;
+export const getYandexGeocoderApiKey = () => settingsStore.settings().yandexGeocoderApiKey;
 
 /**
  * Initialize settings store - call this after login
