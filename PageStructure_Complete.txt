@@ -1,0 +1,357 @@
+================================================================================
+                    IxaSales - Page Structure (Complete)
+================================================================================
+
+Total Pages: ~85
+
+================================================================================
+                              AUTH (Shared)
+================================================================================
+
+1. Login
+2. Forgot Password
+3. Reset Password
+4. Two-Factor Verification (future)
+
+================================================================================
+                          SUPER ADMIN (Platform)
+================================================================================
+
+Dashboard
+├── 5. Platform Overview (tenant count, MRR, active users)
+
+Tenants
+├── 6. Tenants List
+├── 7. Tenant Create
+├── 8. Tenant Edit
+├── 9. Tenant Detail (usage stats)
+
+Billing
+├── 10. Subscription Plans List
+├── 11. Plan Create/Edit
+├── 12. Billing History
+
+System
+├── 13. System Settings
+├── 14. Platform Audit Logs
+
+================================================================================
+                            TENANT ADMIN
+================================================================================
+
+Dashboard
+├── 15. Overview (sales, orders, debts, alerts)
+├── 16. Daily Snapshot
+├── 17. KPI Charts
+
+────────────────────────────────────────────────────────────────────────────────
+                                  USERS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 18. Users List
+├── 19. User Create
+├── 20. User Edit
+├── 21. User Brand Assignment
+├── 22. User Territory Assignment
+├── 23. User Activity Log
+
+────────────────────────────────────────────────────────────────────────────────
+                                PRODUCTS
+────────────────────────────────────────────────────────────────────────────────
+
+Categories
+├── 24. Categories List
+├── 25. Category Create/Edit
+
+Subcategories
+├── 26. Subcategories List
+├── 27. Subcategory Create/Edit
+
+Brands
+├── 28. Brands List
+├── 29. Brand Create/Edit
+
+Products
+├── 30. Products List
+├── 31. Product Create
+├── 32. Product Edit
+├── 33. Product Import (CSV/Excel)
+├── 34. Product Export
+
+────────────────────────────────────────────────────────────────────────────────
+                               INVENTORY
+────────────────────────────────────────────────────────────────────────────────
+
+├── 35. Stock Levels Overview
+├── 36. Low Stock Alerts
+├── 37. Stock Adjustments List
+├── 38. Stock Adjustment Create
+├── 39. Stock Movement History
+├── 40. Stock Movement Detail
+
+────────────────────────────────────────────────────────────────────────────────
+                               CUSTOMERS
+────────────────────────────────────────────────────────────────────────────────
+
+Tiers
+├── 41. Customer Tiers List
+├── 42. Tier Create/Edit
+├── 43. Tier Downgrade Rules
+
+Customers
+├── 44. Customers List
+├── 45. Customer Create
+├── 46. Customer Edit
+├── 47. Customer Detail (orders, payments, debt)
+├── 48. Customer Import (CSV/Excel)
+├── 49. Customer Debt Report
+
+────────────────────────────────────────────────────────────────────────────────
+                                ORDERS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 50. All Orders List
+├── 51. Order Detail
+├── 52. Order Approve/Reject
+├── 53. Order Status History
+├── 54. Order Export
+
+────────────────────────────────────────────────────────────────────────────────
+                             TRIPS & DELIVERY
+────────────────────────────────────────────────────────────────────────────────
+
+Vehicles
+├── 55. Vehicles List
+├── 56. Vehicle Create/Edit
+
+Trips
+├── 57. Trips List
+├── 58. Trip Create
+├── 59. Trip Detail
+├── 60. Assign Orders to Trip
+
+────────────────────────────────────────────────────────────────────────────────
+                                RETURNS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 61. Returns List
+├── 62. Return Detail
+├── 63. Process Return
+
+────────────────────────────────────────────────────────────────────────────────
+                              PROCUREMENT
+────────────────────────────────────────────────────────────────────────────────
+
+Suppliers
+├── 64. Suppliers List
+├── 65. Supplier Create/Edit
+├── 66. Supplier Detail (POs, balance)
+
+Purchase Orders
+├── 67. Purchase Orders List
+├── 68. PO Create
+├── 69. PO Edit
+├── 70. PO Detail
+├── 71. PO Receive Goods
+
+Supplier Payments
+├── 72. Supplier Payments List
+├── 73. Supplier Payment Create
+
+────────────────────────────────────────────────────────────────────────────────
+                               PAYMENTS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 74. Payment Methods List/Edit
+├── 75. Customer Payments List
+├── 76. Payment Detail
+├── 77. Record Advance Payment
+
+────────────────────────────────────────────────────────────────────────────────
+                               DISCOUNTS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 78. Discounts List
+├── 79. Discount Create
+├── 80. Discount Edit
+├── 81. Volume Tiers Config
+
+────────────────────────────────────────────────────────────────────────────────
+                              TERRITORIES
+────────────────────────────────────────────────────────────────────────────────
+
+├── 82. Territories Tree View
+├── 83. Territory Create/Edit
+
+────────────────────────────────────────────────────────────────────────────────
+                                REPORTS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 84. Sales by Rep
+├── 85. Sales by Product
+├── 86. Sales by Period
+├── 87. Sales by Territory
+├── 88. Customer Debts Report
+├── 89. Customer Credit Report
+├── 90. Driver Performance
+├── 91. Inventory Valuation
+├── 92. Profit Margins
+
+────────────────────────────────────────────────────────────────────────────────
+                                SETTINGS
+────────────────────────────────────────────────────────────────────────────────
+
+├── 93. General Settings (currency, timezone, tax)
+├── 94. Order Settings (approval, numbering)
+├── 95. Notification Settings
+├── 96. Audit Logs Viewer
+
+================================================================================
+                              SUPERVISOR
+================================================================================
+
+├── 97.  Dashboard (team stats)
+├── 98.  Team Members List
+├── 99.  Team Orders List
+├── 100. Order Approve/Reject
+├── 101. Team Performance Report
+├── 102. Team Customer Debts
+
+================================================================================
+                          SALES REP (Mobile-First)
+================================================================================
+
+├── 103. Dashboard (my stats, targets)
+├── 104. Products List (filtered by brand)
+├── 105. Product Search
+├── 106. Product Detail
+├── 107. Customers List (my territory)
+├── 108. Customer Detail
+├── 109. Customer Create (quick add)
+├── 110. Create Order
+├── 111. Order Cart
+├── 112. My Orders List
+├── 113. Order Detail
+├── 114. Collect Payment
+├── 115. My Performance
+
+================================================================================
+                          WAREHOUSE (Tablet/Desktop)
+================================================================================
+
+Dashboard
+├── 116. Warehouse Dashboard (pending picks, low stock)
+
+Picking
+├── 117. Orders to Pick (approved)
+├── 118. Pick Order (checklist UI)
+
+Loading
+├── 119. Trips to Load
+├── 120. Load Trip (scan/confirm)
+
+Receiving
+├── 121. POs Pending Receipt
+├── 122. Receive Goods (checklist UI)
+
+Stock
+├── 123. Stock Adjustment Create
+├── 124. Stock Levels Quick View
+
+================================================================================
+                           DRIVER (Mobile-First)
+================================================================================
+
+├── 125. Dashboard (today's summary)
+├── 126. My Trips List
+├── 127. Trip Detail (route view)
+├── 128. Delivery List (sequence)
+├── 129. Delivery Detail
+├── 130. Confirm Delivery (signature capture)
+├── 131. Record Return
+├── 132. Collect Payment
+├── 133. Trip Summary (end of day)
+├── 134. My Delivery History
+
+================================================================================
+                        CUSTOMER PORTAL (B2B Web)
+================================================================================
+
+├── 135. Dashboard (my balance, recent orders)
+├── 136. Products List (browse catalog)
+├── 137. Product Detail
+├── 138. Shopping Cart
+├── 139. Create Order (checkout)
+├── 140. My Orders List
+├── 141. Order Detail
+├── 142. Payment History
+├── 143. My Debt Balance
+├── 144. My Credit Balance
+├── 145. Account Settings
+├── 146. Contact Support
+
+================================================================================
+                            PAGE SUMMARY
+================================================================================
+
+Section                 │ Pages
+────────────────────────┼───────
+Auth                    │   4
+Super Admin             │  10
+Tenant Admin            │  82
+  ├─ Dashboard          │   3
+  ├─ Users              │   6
+  ├─ Products           │  11
+  ├─ Inventory          │   6
+  ├─ Customers          │   9
+  ├─ Orders             │   5
+  ├─ Trips & Delivery   │   6
+  ├─ Returns            │   3
+  ├─ Procurement        │  10
+  ├─ Payments           │   4
+  ├─ Discounts          │   4
+  ├─ Territories        │   2
+  ├─ Reports            │   9
+  └─ Settings           │   4
+Supervisor              │   6
+Sales Rep (Mobile)      │  13
+Warehouse               │   9
+Driver (Mobile)         │  10
+Customer Portal         │  12
+────────────────────────┼───────
+TOTAL                   │ ~146
+
+================================================================================
+                         MOBILE vs DESKTOP MATRIX
+================================================================================
+
+Role            │ Primary Device │ Secondary
+────────────────┼────────────────┼────────────
+Super Admin     │ Desktop        │ -
+Tenant Admin    │ Desktop        │ Tablet
+Supervisor      │ Desktop        │ Mobile
+Sales Rep       │ Mobile         │ Tablet
+Warehouse       │ Tablet         │ Desktop
+Driver          │ Mobile         │ -
+Customer        │ Desktop        │ Mobile
+
+================================================================================
+                           OFFLINE-CAPABLE PAGES
+================================================================================
+
+Sales Rep (Must work offline in field):
+├── Products List & Detail
+├── Customers List & Detail
+├── Create Order (queue for sync)
+├── My Orders List
+└── Collect Payment (queue for sync)
+
+Driver (Must work offline during deliveries):
+├── My Trips List
+├── Delivery List
+├── Delivery Detail
+├── Confirm Delivery (queue for sync)
+├── Record Return (queue for sync)
+└── Collect Payment (queue for sync)
+
+================================================================================

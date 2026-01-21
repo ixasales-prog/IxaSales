@@ -1,0 +1,67 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  SERVER_IP: 176.96.241.152
+  SERVER_USER: ilhom1983
+  TARGET_DIR: /var/www/ixasales/staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build frontend
+        run: |
+          cd client
+          export VITE_API_URL=https://dev-api.ixasales.uz
+          bun install
+          bun run build
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          # Sync files
+          rsync -avz --progress \
+            --exclude 'node_modules' \
+            --exclude 'client/node_modules' \
+            --exclude '.env' \
+            --exclude 'uploads/*' \
+            --exclude '.git' \
+            --exclude 'backups' \
+            ./ ${{ env.SERVER_USER }}@${{ env.SERVER_IP }}:${{ env.TARGET_DIR }}/
+
+      - name: Install & Restart on Server
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            cd ${{ env.TARGET_DIR }}
+            ~/.bun/bin/bun install --production
+            ~/.bun/bin/bun run db:push
+            sudo systemctl restart ixasales-staging
+          EOF
+
+      - name: Health Check
+        run: |
+          sleep 5
+          curl -f https://dev-api.ixasales.uz/api/health || echo "Health check failed - server may still be starting"

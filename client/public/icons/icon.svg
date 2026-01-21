@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#3b82f6"/>
+  <path d="M256 100L100 400L412 400z" fill="white"/>
+  <text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="100" fill="#1e293b">IxaSales</text>
+</svg>

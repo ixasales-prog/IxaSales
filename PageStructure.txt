@@ -1,0 +1,94 @@
+IxaSales - Page Structure
+Auth (Shared)
+Login
+Forgot Password
+Reset Password
+Super Admin (Platform)
+Dashboard (tenant stats)
+Tenants List
+Tenant Create/Edit
+Subscription Plans
+System Settings
+Tenant Admin
+Dashboard
+Overview (sales, orders, debts)
+Users
+Users List
+User Create/Edit
+User Brand Assignment
+User Territory Assignment
+Products
+Categories List/Edit
+Subcategories List/Edit
+Brands List/Edit
+Products List
+Product Create/Edit
+Inventory
+Stock Levels
+Low Stock Alerts
+Stock Adjustments
+Customers
+Customer Tiers List/Edit
+Customers List
+Customer Create/Edit
+Customer Debt Report
+Orders
+All Orders List
+Order Detail
+Order Approve/Cancel
+Procurement
+Suppliers List/Edit
+Purchase Orders List
+PO Create/Edit
+PO Receive
+Supplier Payments
+Discounts
+Discounts List
+Discount Create/Edit
+Territories
+Territories Tree
+Territory Create/Edit
+Reports
+Sales by Rep
+Sales by Period
+Customer Debts
+Driver Performance
+Settings
+Tenant Settings
+Auto-Downgrade Rules
+Order Minimums
+Supervisor
+Dashboard (team stats)
+Team Orders List
+Team Performance Report
+Sales Rep (Mobile)
+Dashboard (my stats)
+Products List (filtered)
+Product Search
+Customers List (my territory)
+Customer Detail
+Create Order
+My Orders List
+Order Detail
+Warehouse
+Dashboard
+Approved Orders (to pick)
+Pick Order
+PO Create (Pending)
+Receive Goods
+Driver (Mobile)
+Dashboard
+My Deliveries (Loaded)
+Delivery Detail
+Confirm Delivery
+Collect Payment
+My Delivery History
+Customer Portal (B2B)
+Dashboard (my balance)
+Products List
+Create Order
+My Orders History
+Order Detail
+Payment History
+My Debt Balance
+Total: ~60 pages

@@ -1,0 +1,24 @@
+/* ============================================================================
+   CUSTOMER PORTAL STYLES - MODULAR INDEX
+   ============================================================================
+   This file imports all modular CSS components.
+   
+   Structure:
+   - variables.css     : CSS custom properties for theming
+   - base.css          : Skeleton loading, animations, utility classes
+   - login.css         : Login page styles
+   - dashboard.css     : Dashboard layout, tabs, search
+   - CustomerPortal.css: Component styles (imported directly by components)
+   ============================================================================ */
+
+/* Core theme variables - must be first */
+@import 'variables.css';
+
+/* Base utilities and animations */
+@import 'base.css';
+
+/* Page-specific styles */
+@import 'login.css';
+@import 'dashboard.css';
+
+/* Note: CustomerPortal.css is imported directly by components that need it */

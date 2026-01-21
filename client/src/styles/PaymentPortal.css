@@ -1,0 +1,272 @@
+/* Payment Portal Styles */
+
+.payment-portal {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #fff;
+}
+
+/* Loading State */
+.payment-portal.loading {
+    gap: 20px;
+}
+
+.payment-portal .spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00d9ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Error/Success/Expired States */
+.payment-portal.error,
+.payment-portal.success,
+.payment-portal.expired,
+.payment-portal.cancelled {
+    text-align: center;
+    max-width: 400px;
+}
+
+.payment-portal .error-icon,
+.payment-portal .success-icon,
+.payment-portal .expired-icon,
+.payment-portal .cancelled-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    animation: bounce 0.5s ease;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+.payment-portal.success .success-icon {
+    color: #00ff88;
+}
+
+.payment-portal.error .error-icon {
+    color: #ff4444;
+}
+
+.payment-portal h2 {
+    font-size: 24px;
+    margin-bottom: 16px;
+    font-weight: 600;
+}
+
+.payment-portal .order-details {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 20px;
+    border-radius: 12px;
+    margin: 20px 0;
+}
+
+.payment-portal .order-details p {
+    margin: 8px 0;
+}
+
+.payment-portal .thank-you {
+    font-size: 18px;
+    color: #00d9ff;
+    margin-top: 20px;
+}
+
+.payment-portal .btn-back {
+    display: inline-block;
+    margin-top: 20px;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: #fff;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.payment-portal .btn-back:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Pending Payment State */
+.payment-portal.pending {
+    max-width: 420px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 32px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.payment-portal.pending .header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.payment-portal.pending .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0;
+}
+
+/* Order Summary */
+.payment-portal .order-summary {
+    background: rgba(0, 217, 255, 0.1);
+    border: 1px solid rgba(0, 217, 255, 0.2);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.payment-portal .order-summary .customer-info,
+.payment-portal .order-summary .order-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.payment-portal .order-summary .label {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.payment-portal .order-summary .value {
+    font-weight: 500;
+}
+
+.payment-portal .order-summary .amount-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.payment-portal .order-summary .amount-info .label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.payment-portal .order-summary .amount-info .amount {
+    font-size: 32px;
+    font-weight: 700;
+    color: #00ff88;
+    margin-top: 8px;
+}
+
+/* Payment Methods */
+.payment-portal .payment-methods {
+    margin-bottom: 24px;
+}
+
+.payment-portal .payment-methods h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.payment-portal .payment-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    margin-bottom: 12px;
+}
+
+.payment-portal .payment-btn img {
+    height: 24px;
+    width: auto;
+}
+
+/* Click Button */
+.payment-portal .payment-btn.click {
+    background: linear-gradient(135deg, #00c2ff 0%, #0099ff 100%);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(0, 194, 255, 0.3);
+}
+
+.payment-portal .payment-btn.click:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 30px rgba(0, 194, 255, 0.4);
+}
+
+/* Payme Button */
+.payment-portal .payment-btn.payme {
+    background: linear-gradient(135deg, #00c896 0%, #00a67e 100%);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(0, 200, 150, 0.3);
+}
+
+.payment-portal .payment-btn.payme:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 30px rgba(0, 200, 150, 0.4);
+}
+
+.payment-portal .no-methods {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 14px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+}
+
+/* Footer */
+.payment-portal .footer {
+    text-align: center;
+    margin-top: auto;
+    padding-top: 24px;
+}
+
+.payment-portal .security-note {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 8px;
+}
+
+.payment-portal .powered-by {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .payment-portal.pending {
+        padding: 24px;
+        border-radius: 20px;
+    }
+
+    .payment-portal.pending .header h1 {
+        font-size: 24px;
+    }
+
+    .payment-portal .order-summary .amount-info .amount {
+        font-size: 28px;
+    }
+}

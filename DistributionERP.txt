@@ -1,0 +1,65 @@
+IxaSales - Distribution ERP (Final)
+Stack
+Bun + ElysiaJS + SolidJS + PostgreSQL + Drizzle
+
+Roles
+Role	Access
+Super Admin	Platform: tenants, billing
+Tenant Admin	Full tenant control
+Supervisor	Team management
+Sales Rep	Create orders (territory/brand)
+Warehouse	PO, pick, load
+Driver	Deliver, collect
+Customer	B2B portal: create orders, view history
+Database Schema (22 Tables)
+Auth
+tenants: id, name, subdomain, plan, max_users, max_products, max_orders_per_month
+users: id, tenant_id, supervisor_id?, role, name, email, password_hash, phone, telegram_chat_id?, is_active
+customer_users: id, tenant_id, customer_id, name, email, password_hash, is_active
+sessions: id, user_id, user_type (user/customer), token, expires_at
+Territories
+territories: id, tenant_id, name, parent_id?, level
+user_territories: user_id, territory_id
+user_brands: user_id, brand_id
+Products
+categories: id, tenant_id, name
+subcategories: id, tenant_id, category_id, name
+brands: id, tenant_id, name
+suppliers: id, tenant_id, name, phone, address, balance
+products: id, tenant_id, subcategory_id, brand_id, supplier_id?, sku, name, price, stock_quantity, reserved_quantity, reorder_point, is_active
+Customers
+customer_tiers: id, tenant_id, name, color, credit_allowed, max_order_amount?, can_create_orders
+customers: id, tenant_id, territory_id, tier_id, name, phone, address, balance, last_order_date
+Discounts
+discounts: id, tenant_id, name, type, value, min_qty?, free_qty?, is_active, starts_at, ends_at
+discount_scopes: id, discount_id, scope_type, scope_id
+volume_tiers: id, discount_id, min_qty, discount_percent
+Logic: System picks single best (highest) discount per item.
+
+Orders
+orders: id, tenant_id, customer_id, sales_rep_id?, driver_id?, created_by_type (user/customer), status, payment_status, total_amount, paid_amount, discount_amount
+order_items: id, order_id, product_id, qty_ordered, qty_picked, qty_delivered, qty_returned, price, discount_id?, discount_amount
+Procurement
+purchase_orders: id, tenant_id, supplier_id, created_by, status, total_amount, paid_amount
+purchase_order_items: id, purchase_order_id, product_id, qty_ordered, qty_received, price
+Payments
+payments: id, order_id, amount, type, collected_by
+supplier_payments: id, purchase_order_id, supplier_id, amount, type, paid_by
+Settings
+tenant_settings: id, tenant_id, key, value
+notification_settings: id, user_id, event_type, telegram_enabled
+Customer Portal Features
+View products
+Create orders (Pending)
+View order history
+View payment history
+View debt balance
+Phases
+Foundation (Auth, Tenants)
+Products & Discounts
+Orders & Delivery
+Procurement
+Territories & Brands
+Customer Portal
+Offline PWA
+Telegram & Reports

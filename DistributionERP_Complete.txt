@@ -1,0 +1,693 @@
+================================================================================
+                    IxaSales - Distribution ERP (Complete Schema)
+================================================================================
+
+STACK: Bun + ElysiaJS + SolidJS + PostgreSQL + Drizzle
+
+================================================================================
+                                    ROLES
+================================================================================
+
+Role            │ Access
+────────────────┼──────────────────────────────────────────────────────────────
+Super Admin     │ Platform: tenants, billing, system settings
+Tenant Admin    │ Full tenant control, all modules
+Supervisor      │ Team management, approve orders, view team reports
+Sales Rep       │ Create orders (territory/brand filtered), manage customers
+Warehouse       │ PO, pick, load, receive goods, stock adjustments
+Driver          │ Deliver, collect payments, manage trips
+Customer        │ B2B portal: create orders, view history, check balance
+
+================================================================================
+                          DATABASE SCHEMA (30 Tables)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+                              AUTH & TENANTS
+────────────────────────────────────────────────────────────────────────────────
+
+tenants
+├── id                      UUID PRIMARY KEY
+├── name                    VARCHAR(255) NOT NULL
+├── subdomain               VARCHAR(100) UNIQUE NOT NULL
+├── plan                    ENUM('free','starter','pro','enterprise')
+├── max_users               INT DEFAULT 5
+├── max_products            INT DEFAULT 100
+├── max_orders_per_month    INT DEFAULT 500
+├── currency                VARCHAR(3) DEFAULT 'USD'
+├── timezone                VARCHAR(50) DEFAULT 'UTC'
+├── default_tax_rate        DECIMAL(5,2) DEFAULT 0
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+users
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── supervisor_id           UUID REFERENCES users(id) NULL
+├── role                    ENUM('tenant_admin','supervisor','sales_rep','warehouse','driver')
+├── name                    VARCHAR(255) NOT NULL
+├── email                   VARCHAR(255) UNIQUE NOT NULL
+├── password_hash           VARCHAR(255) NOT NULL
+├── phone                   VARCHAR(50)
+├── telegram_chat_id        VARCHAR(100)
+├── is_active               BOOLEAN DEFAULT true
+├── last_login_at           TIMESTAMP
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+customer_users (B2B Portal Users)
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── customer_id             UUID REFERENCES customers(id)
+├── name                    VARCHAR(255) NOT NULL
+├── email                   VARCHAR(255) UNIQUE NOT NULL
+├── password_hash           VARCHAR(255) NOT NULL
+├── is_active               BOOLEAN DEFAULT true
+├── last_login_at           TIMESTAMP
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+sessions
+├── id                      UUID PRIMARY KEY
+├── user_id                 UUID NOT NULL
+├── user_type               ENUM('user','customer_user')
+├── token                   VARCHAR(500) UNIQUE NOT NULL
+├── ip_address              VARCHAR(45)
+├── user_agent              TEXT
+├── expires_at              TIMESTAMP NOT NULL
+└── created_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                           TERRITORIES & ASSIGNMENTS
+────────────────────────────────────────────────────────────────────────────────
+
+territories
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── parent_id               UUID REFERENCES territories(id) NULL
+├── name                    VARCHAR(255) NOT NULL
+├── level                   INT DEFAULT 1  -- 1=region, 2=city, 3=area
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+user_territories
+├── user_id                 UUID REFERENCES users(id)
+├── territory_id            UUID REFERENCES territories(id)
+└── PRIMARY KEY (user_id, territory_id)
+
+user_brands
+├── user_id                 UUID REFERENCES users(id)
+├── brand_id                UUID REFERENCES brands(id)
+└── PRIMARY KEY (user_id, brand_id)
+
+────────────────────────────────────────────────────────────────────────────────
+                                  PRODUCTS
+────────────────────────────────────────────────────────────────────────────────
+
+categories
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(255) NOT NULL
+├── sort_order              INT DEFAULT 0
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+subcategories
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── category_id             UUID REFERENCES categories(id)
+├── name                    VARCHAR(255) NOT NULL
+├── sort_order              INT DEFAULT 0
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+brands
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(255) NOT NULL
+├── logo_url                VARCHAR(500)
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+suppliers
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(255) NOT NULL
+├── contact_person          VARCHAR(255)
+├── phone                   VARCHAR(50)
+├── email                   VARCHAR(255)
+├── address                 TEXT
+├── balance                 DECIMAL(15,2) DEFAULT 0  -- Negative = we owe them
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+products
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── subcategory_id          UUID REFERENCES subcategories(id)
+├── brand_id                UUID REFERENCES brands(id)
+├── supplier_id             UUID REFERENCES suppliers(id) NULL
+├── sku                     VARCHAR(100) UNIQUE NOT NULL
+├── name                    VARCHAR(255) NOT NULL
+├── description             TEXT
+├── unit                    ENUM('piece','kg','gram','liter','box','case','pack')
+├── price                   DECIMAL(15,2) NOT NULL
+├── cost_price              DECIMAL(15,2)
+├── stock_quantity          INT DEFAULT 0
+├── reserved_quantity       INT DEFAULT 0  -- Reserved for pending orders
+├── reorder_point           INT DEFAULT 10
+├── tax_rate                DECIMAL(5,2)  -- NULL = use tenant default
+├── barcode                 VARCHAR(100)
+├── image_url               VARCHAR(500)
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+COMPUTED: available_quantity = stock_quantity - reserved_quantity
+
+────────────────────────────────────────────────────────────────────────────────
+                                  CUSTOMERS
+────────────────────────────────────────────────────────────────────────────────
+
+customer_tiers
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(100) NOT NULL  -- e.g., Gold, Silver, Bronze
+├── color                   VARCHAR(7)  -- Hex color for UI
+├── credit_allowed          BOOLEAN DEFAULT false
+├── credit_limit            DECIMAL(15,2) DEFAULT 0
+├── max_order_amount        DECIMAL(15,2)  -- NULL = unlimited
+├── payment_terms_days      INT DEFAULT 0  -- 0 = cash only
+├── discount_percent        DECIMAL(5,2) DEFAULT 0  -- Tier-wide discount
+├── can_create_orders       BOOLEAN DEFAULT true  -- For B2B portal
+├── sort_order              INT DEFAULT 0
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+customers
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── territory_id            UUID REFERENCES territories(id)
+├── tier_id                 UUID REFERENCES customer_tiers(id)
+├── assigned_sales_rep_id   UUID REFERENCES users(id) NULL
+├── code                    VARCHAR(50) UNIQUE  -- Customer code
+├── name                    VARCHAR(255) NOT NULL
+├── contact_person          VARCHAR(255)
+├── phone                   VARCHAR(50)
+├── email                   VARCHAR(255)
+├── address                 TEXT
+├── latitude                DECIMAL(10,8)
+├── longitude               DECIMAL(11,8)
+├── credit_balance          DECIMAL(15,2) DEFAULT 0  -- Prepaid credit
+├── debt_balance            DECIMAL(15,2) DEFAULT 0  -- Amount owed to us
+├── notes                   TEXT
+├── last_order_date         DATE
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+tier_downgrade_rules
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── from_tier_id            UUID REFERENCES customer_tiers(id)
+├── to_tier_id              UUID REFERENCES customer_tiers(id)
+├── condition_type          ENUM('days_since_order','debt_over_limit','debt_overdue_days')
+├── condition_value         INT NOT NULL  -- e.g., 30 days, or amount
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                                  DISCOUNTS
+────────────────────────────────────────────────────────────────────────────────
+
+discounts
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(255) NOT NULL
+├── type                    ENUM('percentage','fixed','buy_x_get_y','volume')
+├── value                   DECIMAL(15,2)  -- Percent or fixed amount
+├── min_qty                 INT  -- Minimum quantity to trigger (for buy_x_get_y)
+├── free_qty                INT  -- Free items given (for buy_x_get_y)
+├── min_order_amount        DECIMAL(15,2)  -- Minimum order amount
+├── max_discount_amount     DECIMAL(15,2)  -- Cap on discount
+├── is_active               BOOLEAN DEFAULT true
+├── starts_at               TIMESTAMP
+├── ends_at                 TIMESTAMP
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+discount_scopes (What the discount applies to)
+├── id                      UUID PRIMARY KEY
+├── discount_id             UUID REFERENCES discounts(id)
+├── scope_type              ENUM('all','category','subcategory','brand','product','customer','customer_tier','territory')
+├── scope_id                UUID  -- ID of category/product/customer etc. NULL if scope_type='all'
+└── created_at              TIMESTAMP DEFAULT NOW()
+
+volume_tiers (For volume-based discounts)
+├── id                      UUID PRIMARY KEY
+├── discount_id             UUID REFERENCES discounts(id)
+├── min_qty                 INT NOT NULL
+├── discount_percent        DECIMAL(5,2) NOT NULL
+└── created_at              TIMESTAMP DEFAULT NOW()
+
+LOGIC: System picks single best (highest value) discount per line item.
+
+────────────────────────────────────────────────────────────────────────────────
+                                   ORDERS
+────────────────────────────────────────────────────────────────────────────────
+
+orders
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── order_number            VARCHAR(50) UNIQUE NOT NULL  -- Human-readable
+├── customer_id             UUID REFERENCES customers(id)
+├── sales_rep_id            UUID REFERENCES users(id) NULL
+├── driver_id               UUID REFERENCES users(id) NULL
+├── created_by_user_id      UUID REFERENCES users(id) NULL
+├── created_by_customer_id  UUID REFERENCES customer_users(id) NULL
+├── status                  ENUM('pending','approved','picking','picked','loaded','delivering','delivered','partial','cancelled')
+├── payment_status          ENUM('unpaid','partial','paid')
+├── subtotal_amount         DECIMAL(15,2) NOT NULL
+├── discount_amount         DECIMAL(15,2) DEFAULT 0
+├── tax_amount              DECIMAL(15,2) DEFAULT 0
+├── total_amount            DECIMAL(15,2) NOT NULL
+├── paid_amount             DECIMAL(15,2) DEFAULT 0
+├── notes                   TEXT
+├── delivery_notes          TEXT
+├── requested_delivery_date DATE
+├── delivered_at            TIMESTAMP
+├── cancelled_at            TIMESTAMP
+├── cancelled_by            UUID REFERENCES users(id)
+├── cancel_reason           TEXT
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+COMPUTED: remaining_amount = total_amount - paid_amount
+
+order_items
+├── id                      UUID PRIMARY KEY
+├── order_id                UUID REFERENCES orders(id)
+├── product_id              UUID REFERENCES products(id)
+├── unit_price              DECIMAL(15,2) NOT NULL  -- Price at time of order
+├── qty_ordered             INT NOT NULL
+├── qty_picked              INT DEFAULT 0
+├── qty_delivered           INT DEFAULT 0
+├── qty_returned            INT DEFAULT 0
+├── discount_id             UUID REFERENCES discounts(id) NULL
+├── discount_amount         DECIMAL(15,2) DEFAULT 0
+├── tax_amount              DECIMAL(15,2) DEFAULT 0
+├── line_total              DECIMAL(15,2) NOT NULL  -- (qty * price) - discount + tax
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+order_status_history
+├── id                      UUID PRIMARY KEY
+├── order_id                UUID REFERENCES orders(id)
+├── from_status             VARCHAR(50)
+├── to_status               VARCHAR(50) NOT NULL
+├── changed_by              UUID REFERENCES users(id)
+├── notes                   TEXT
+└── created_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                              TRIPS & DELIVERY
+────────────────────────────────────────────────────────────────────────────────
+
+vehicles
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(100) NOT NULL  -- e.g., "Truck #1"
+├── plate_number            VARCHAR(50)
+├── capacity                INT  -- Max items/weight
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+trips
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── trip_number             VARCHAR(50) UNIQUE NOT NULL
+├── driver_id               UUID REFERENCES users(id)
+├── vehicle_id              UUID REFERENCES vehicles(id) NULL
+├── status                  ENUM('planned','loading','in_progress','completed','cancelled')
+├── planned_date            DATE NOT NULL
+├── started_at              TIMESTAMP
+├── completed_at            TIMESTAMP
+├── notes                   TEXT
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+trip_orders (Orders assigned to a trip)
+├── id                      UUID PRIMARY KEY
+├── trip_id                 UUID REFERENCES trips(id)
+├── order_id                UUID REFERENCES orders(id) UNIQUE
+├── sequence                INT DEFAULT 0  -- Delivery order
+├── loaded_at               TIMESTAMP
+├── delivered_at            TIMESTAMP
+├── delivery_notes          TEXT
+└── created_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                                  RETURNS
+────────────────────────────────────────────────────────────────────────────────
+
+returns
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── order_id                UUID REFERENCES orders(id)
+├── order_item_id           UUID REFERENCES order_items(id)
+├── product_id              UUID REFERENCES products(id)
+├── qty_returned            INT NOT NULL
+├── reason                  ENUM('damaged','expired','wrong_item','customer_refused','other')
+├── reason_notes            TEXT
+├── condition               ENUM('resellable','damaged','expired','disposed')
+├── restock                 BOOLEAN DEFAULT false
+├── refund_amount           DECIMAL(15,2) DEFAULT 0
+├── processed_by            UUID REFERENCES users(id)
+├── processed_at            TIMESTAMP
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                                PROCUREMENT
+────────────────────────────────────────────────────────────────────────────────
+
+purchase_orders
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── po_number               VARCHAR(50) UNIQUE NOT NULL
+├── supplier_id             UUID REFERENCES suppliers(id)
+├── created_by              UUID REFERENCES users(id)
+├── status                  ENUM('draft','pending','approved','ordered','partial_received','received','cancelled')
+├── subtotal_amount         DECIMAL(15,2) NOT NULL
+├── tax_amount              DECIMAL(15,2) DEFAULT 0
+├── total_amount            DECIMAL(15,2) NOT NULL
+├── paid_amount             DECIMAL(15,2) DEFAULT 0
+├── expected_date           DATE
+├── received_at             TIMESTAMP
+├── notes                   TEXT
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+purchase_order_items
+├── id                      UUID PRIMARY KEY
+├── purchase_order_id       UUID REFERENCES purchase_orders(id)
+├── product_id              UUID REFERENCES products(id)
+├── qty_ordered             INT NOT NULL
+├── qty_received            INT DEFAULT 0
+├── unit_price              DECIMAL(15,2) NOT NULL
+├── tax_amount              DECIMAL(15,2) DEFAULT 0
+├── line_total              DECIMAL(15,2) NOT NULL
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                                  PAYMENTS
+────────────────────────────────────────────────────────────────────────────────
+
+payment_methods
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── name                    VARCHAR(100) NOT NULL  -- Cash, Bank Transfer, Check, etc.
+├── is_active               BOOLEAN DEFAULT true
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+payments (Customer payments for orders)
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── payment_number          VARCHAR(50) UNIQUE NOT NULL
+├── order_id                UUID REFERENCES orders(id) NULL  -- NULL for advance payments
+├── customer_id             UUID REFERENCES customers(id)
+├── payment_method_id       UUID REFERENCES payment_methods(id)
+├── amount                  DECIMAL(15,2) NOT NULL
+├── collected_by            UUID REFERENCES users(id)
+├── reference_number        VARCHAR(100)  -- Check number, bank ref, etc.
+├── notes                   TEXT
+├── collected_at            TIMESTAMP DEFAULT NOW()
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+supplier_payments (Payments to suppliers)
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── payment_number          VARCHAR(50) UNIQUE NOT NULL
+├── purchase_order_id       UUID REFERENCES purchase_orders(id) NULL
+├── supplier_id             UUID REFERENCES suppliers(id)
+├── payment_method_id       UUID REFERENCES payment_methods(id)
+├── amount                  DECIMAL(15,2) NOT NULL
+├── paid_by                 UUID REFERENCES users(id)
+├── reference_number        VARCHAR(100)
+├── notes                   TEXT
+├── paid_at                 TIMESTAMP DEFAULT NOW()
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                             STOCK MANAGEMENT
+────────────────────────────────────────────────────────────────────────────────
+
+stock_movements (Audit trail for all stock changes)
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── product_id              UUID REFERENCES products(id)
+├── movement_type           ENUM('in','out','adjust','reserve','unreserve','return')
+├── quantity                INT NOT NULL  -- Positive or negative
+├── quantity_before         INT NOT NULL
+├── quantity_after          INT NOT NULL
+├── reference_type          ENUM('purchase_order','order','return','adjustment','initial')
+├── reference_id            UUID  -- ID of PO, order, return, etc.
+├── notes                   TEXT
+├── created_by              UUID REFERENCES users(id)
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+stock_adjustments
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── adjustment_number       VARCHAR(50) UNIQUE NOT NULL
+├── product_id              UUID REFERENCES products(id)
+├── adjustment_type         ENUM('count','damage','loss','found','correction')
+├── qty_before              INT NOT NULL
+├── qty_after               INT NOT NULL
+├── reason                  TEXT NOT NULL
+├── approved_by             UUID REFERENCES users(id)
+├── created_by              UUID REFERENCES users(id)
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                           SETTINGS & NOTIFICATIONS
+────────────────────────────────────────────────────────────────────────────────
+
+tenant_settings
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── key                     VARCHAR(100) NOT NULL
+├── value                   TEXT
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+└── UNIQUE(tenant_id, key)
+
+-- Example settings keys:
+-- order_number_prefix, po_number_prefix, payment_number_prefix
+-- require_order_approval, allow_partial_delivery, auto_reserve_stock
+-- low_stock_notification_threshold, debt_warning_threshold
+
+notification_settings
+├── id                      UUID PRIMARY KEY
+├── user_id                 UUID REFERENCES users(id)
+├── event_type              VARCHAR(100) NOT NULL  -- e.g., 'new_order', 'low_stock', 'payment_received'
+├── telegram_enabled        BOOLEAN DEFAULT false
+├── email_enabled           BOOLEAN DEFAULT false
+├── push_enabled            BOOLEAN DEFAULT false
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+notification_logs
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── user_id                 UUID REFERENCES users(id) NULL
+├── channel                 ENUM('telegram','email','push')
+├── event_type              VARCHAR(100)
+├── message                 TEXT
+├── status                  ENUM('pending','sent','failed')
+├── error_message           TEXT
+├── sent_at                 TIMESTAMP
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+────────────────────────────────────────────────────────────────────────────────
+                                AUDIT LOGS
+────────────────────────────────────────────────────────────────────────────────
+
+audit_logs
+├── id                      UUID PRIMARY KEY
+├── tenant_id               UUID REFERENCES tenants(id)
+├── user_id                 UUID REFERENCES users(id) NULL
+├── user_type               ENUM('user','customer_user','system')
+├── action                  ENUM('create','update','delete','login','logout','approve','cancel')
+├── entity_type             VARCHAR(100)  -- e.g., 'order', 'product', 'customer'
+├── entity_id               UUID
+├── old_values              JSONB
+├── new_values              JSONB
+├── ip_address              VARCHAR(45)
+├── user_agent              TEXT
+├── created_at              TIMESTAMP DEFAULT NOW()
+└── updated_at              TIMESTAMP DEFAULT NOW()
+
+================================================================================
+                              ORDER STATUS WORKFLOW
+================================================================================
+
+    ┌─────────┐
+    │ pending │ ←── Created by sales rep or customer portal
+    └────┬────┘
+         │ (Admin/Supervisor approves)
+         ▼
+    ┌──────────┐
+    │ approved │
+    └────┬─────┘
+         │ (Warehouse starts picking)
+         ▼
+    ┌─────────┐
+    │ picking │
+    └────┬────┘
+         │ (Picking complete)
+         ▼
+    ┌────────┐
+    │ picked │
+    └────┬───┘
+         │ (Loaded onto trip/vehicle)
+         ▼
+    ┌────────┐
+    │ loaded │
+    └────┬───┘
+         │ (Driver starts delivery)
+         ▼
+    ┌────────────┐
+    │ delivering │
+    └─────┬──────┘
+          │
+          ├──────────────────┐
+          ▼                  ▼
+    ┌───────────┐      ┌─────────┐
+    │ delivered │      │ partial │ ←── Some items returned
+    └───────────┘      └─────────┘
+
+    Any status can → cancelled (with reason)
+
+================================================================================
+                           CUSTOMER PORTAL FEATURES
+================================================================================
+
+✓ View products (filtered by tier permissions)
+✓ Create orders (status: Pending, requires approval)
+✓ View order history
+✓ View payment history
+✓ View debt balance
+✓ View credit balance
+✓ Download invoices (future)
+
+================================================================================
+                            IMPLEMENTATION PHASES
+================================================================================
+
+Phase 1: Foundation
+├── Auth (login, sessions, password reset)
+├── Tenant management
+├── User management
+└── Basic settings
+
+Phase 2: Products & Inventory
+├── Categories/Subcategories/Brands
+├── Products CRUD
+├── Stock management
+├── Stock movements tracking
+└── Low stock alerts
+
+Phase 3: Customers
+├── Customer tiers
+├── Customers CRUD
+├── Territory assignment
+├── Tier downgrade rules
+└── Credit/Debt tracking
+
+Phase 4: Discounts
+├── Discount types (%, fixed, buy-x-get-y, volume)
+├── Discount scopes
+├── Volume tiers
+└── Best discount selection logic
+
+Phase 5: Orders & Delivery
+├── Order creation
+├── Order approval workflow
+├── Picking workflow
+├── Trip management
+├── Delivery confirmation
+├── Partial delivery handling
+└── Returns processing
+
+Phase 6: Procurement
+├── Suppliers management
+├── Purchase orders
+├── Receiving goods
+├── Supplier payments
+└── Supplier balance tracking
+
+Phase 7: Payments
+├── Payment methods
+├── Customer payments
+├── Advance payments
+├── Payment tracking
+└── Debt reconciliation
+
+Phase 8: Customer Portal (B2B)
+├── Customer user auth
+├── Product browsing
+├── Order creation
+├── Order/Payment history
+└── Balance view
+
+Phase 9: Offline PWA
+├── Service worker setup
+├── IndexedDB local storage
+├── Sync queue
+├── Conflict resolution
+└── Offline-first UI
+
+Phase 10: Notifications & Reports
+├── Telegram integration
+├── Email notifications
+├── Push notifications
+├── Sales reports
+├── Driver performance
+├── Customer debt reports
+└── Audit log viewer
+
+================================================================================
+                              TABLE COUNT: 30
+================================================================================
+
+Auth & Tenants:        4  (tenants, users, customer_users, sessions)
+Territories:           3  (territories, user_territories, user_brands)
+Products:              5  (categories, subcategories, brands, suppliers, products)
+Customers:             3  (customer_tiers, customers, tier_downgrade_rules)
+Discounts:             3  (discounts, discount_scopes, volume_tiers)
+Orders:                3  (orders, order_items, order_status_history)
+Trips & Delivery:      3  (vehicles, trips, trip_orders)
+Returns:               1  (returns)
+Procurement:           2  (purchase_orders, purchase_order_items)
+Payments:              3  (payment_methods, payments, supplier_payments)
+Stock:                 2  (stock_movements, stock_adjustments)
+Settings:              3  (tenant_settings, notification_settings, notification_logs)
+Audit:                 1  (audit_logs)
+
+================================================================================

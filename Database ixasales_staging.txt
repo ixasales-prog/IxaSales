@@ -1,0 +1,4 @@
+Database: ixasales_staging
+DB User: ixasales
+DB Password: Oxniizyi2A17wXHonM6GIwnB
+JWT Secret: 7d40723b28cfac28e460c4fa19302ffe8c73fe2b27b00a6a12518b3a31526298
