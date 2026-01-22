@@ -49,7 +49,7 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
 
     const fetchGeocode = async (lon: number, lat: number, apiKey: string) => {
         const response = await fetch(
-            `https://geocode-maps.yandex.ru/1.x/?apikey=${apiKey}&format=json&geocode=${lon},${lat}&lang=uz_UZ`
+            `https://geocode-maps.yandex.ru/1.x/?apikey=${apiKey}&format=json&geocode=${lon},${lat}&lang=uz_UZ&kind=house&results=1`
         );
         const data = await response.json();
         const geoObject = data?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
@@ -60,6 +60,33 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
             ? { lat: pointLat, lon: pointLon }
             : null;
         return { address, point };
+    };
+
+    const resolveYandexApiKey = async () => {
+        let apiKey = getYandexGeocoderApiKey();
+        if (apiKey) return apiKey;
+
+        try {
+            await initSettings();
+            apiKey = getYandexGeocoderApiKey();
+            if (apiKey) return apiKey;
+        } catch (e) {
+            console.error('Settings refresh failed', e);
+        }
+
+        try {
+            const res = await api<any>('/display-settings', {
+                params: { _t: Date.now().toString() }
+            });
+            const resolved = res?.data ?? res;
+            if (resolved?.yandexGeocoderApiKey) {
+                return resolved.yandexGeocoderApiKey;
+            }
+        } catch (e) {
+            console.error('Display settings fetch failed', e);
+        }
+
+        return '';
     };
 
     const getLocation = () => {
@@ -81,22 +108,7 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                 try {
                     // Reverse geocoding using Yandex Geocoder API (better coverage for Uzbekistan)
                     // Uses tenant-specific API key from settings
-                    let apiKey = getYandexGeocoderApiKey();
-
-                    // Fallback: Cache-busting fetch if store is stale (fixes PWA caching issues)
-                    if (!apiKey) {
-                        try {
-                            const res = await api<any>(`/display-settings?_t=${Date.now()}`);
-                            const resolved = res?.data ?? res;
-                            if (resolved?.yandexGeocoderApiKey) {
-                                apiKey = resolved.yandexGeocoderApiKey;
-                                console.log('[Geocoding] Fixed: Fetched API key via fallback:', apiKey);
-                                initSettings();
-                            }
-                        } catch (e) {
-                            console.error('Settings fallback failed', e);
-                        }
-                    }
+                    const apiKey = await resolveYandexApiKey();
 
                     if (!apiKey) {
                         toast.error('Yandex API key not configured. Ask your admin to set it in Business Settings.');
