@@ -7,6 +7,7 @@
 
 import { createSignal, createRoot } from 'solid-js';
 import { api } from '../lib/api';
+import { authToken } from './auth';
 
 export interface TenantSettings {
     currency: string;
@@ -57,7 +58,7 @@ function createSettingsStore() {
         if (loading()) return;
 
         // Check if user is logged in
-        const token = localStorage.getItem('token');
+        const token = authToken();
         if (!token) {
             setLoaded(true);
             return;
@@ -66,22 +67,18 @@ function createSettingsStore() {
         setLoading(true);
 
         try {
-            const data = await api<any>(`/display-settings?_t=${Date.now()}`, {
-                headers: {
-                    'Authorization': token ? `Bearer ${token}` : '',
-                },
-                skipAuth: true // Manually handling auth header above for safety
+            const data = await api<any>('/display-settings', {
+                params: { _t: Date.now().toString() }
             });
 
-            const resolved = data?.data ?? data;
-            if (resolved) {
+            if (data) {
                 setSettings({
-                    currency: resolved.currency ?? '',  // Allow empty string
-                    timezone: resolved.timezone ?? 'Asia/Tashkent',
-                    orderNumberPrefix: resolved.orderNumberPrefix ?? 'ORD-',
-                    invoiceNumberPrefix: resolved.invoiceNumberPrefix ?? 'INV-',
-                    defaultPaymentTerms: resolved.defaultPaymentTerms ?? 7,
-                    yandexGeocoderApiKey: resolved.yandexGeocoderApiKey ?? '',
+                    currency: data.currency ?? '',
+                    timezone: data.timezone ?? 'Asia/Tashkent',
+                    orderNumberPrefix: data.orderNumberPrefix ?? 'ORD-',
+                    invoiceNumberPrefix: data.invoiceNumberPrefix ?? 'INV-',
+                    defaultPaymentTerms: data.defaultPaymentTerms ?? 7,
+                    yandexGeocoderApiKey: data.yandexGeocoderApiKey ?? '',
                 });
             }
         } catch (error) {

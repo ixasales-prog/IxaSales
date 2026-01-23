@@ -49,6 +49,7 @@ export const customers = pgTable('customers', {
     phone: varchar('phone', { length: 50 }),
     email: varchar('email', { length: 255 }),
     address: text('address'),
+    waymark: varchar('waymark', { length: 255 }), // Landmark/reference point (Mo'ljal)
     latitude: decimal('latitude', { precision: 10, scale: 8 }),
     longitude: decimal('longitude', { precision: 11, scale: 8 }),
     creditBalance: decimal('credit_balance', { precision: 15, scale: 2 }).default('0'),

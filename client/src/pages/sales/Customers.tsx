@@ -12,7 +12,8 @@ import {
     AlertCircle,
     Star,
     Plus,
-    Calendar
+    Calendar,
+    Map
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../stores/settings';
@@ -25,9 +26,12 @@ interface Customer {
     name: string;
     phone: string | null;
     address: string | null;
+    waymark: string | null;
     creditLimit: string | null;
     currentDebt: string | null;
     tierName?: string;
+    territoryId?: string;
+    territoryName?: string;
 }
 
 const Customers: Component = () => {
@@ -144,12 +148,18 @@ const Customers: Component = () => {
                                             </div>
 
                                             <div class="flex-1 min-w-0">
-                                                <div class="flex items-center gap-2">
+                                                <div class="flex items-center gap-2 flex-wrap">
                                                     <h3 class="text-white font-medium text-[15px] truncate">{customer.name}</h3>
                                                     <Show when={customer.tierName}>
                                                         <span class="flex items-center gap-0.5 px-1.5 py-0.5 bg-yellow-500/10 text-yellow-400 text-[10px] font-bold rounded-full border border-yellow-500/20">
                                                             <Star class="w-2.5 h-2.5" />
                                                             {customer.tierName}
+                                                        </span>
+                                                    </Show>
+                                                    <Show when={customer.territoryName}>
+                                                        <span class="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] font-medium rounded-full border border-blue-500/20">
+                                                            <Map class="w-2.5 h-2.5" />
+                                                            {customer.territoryName}
                                                         </span>
                                                     </Show>
                                                 </div>

@@ -18,7 +18,7 @@ import {
     ChevronLeft,
     ChevronRight
 } from 'lucide-solid';
-import { api } from '../../lib/api';
+import { api, apiResponse } from '../../lib/api';
 import { useI18n } from '../../i18n';
 import toast from '../../components/Toast';
 import QuickVisitModal from './QuickVisitModal';
@@ -91,22 +91,10 @@ const Visits: Component = () => {
                 })();
 
             try {
-                // Use fetch directly to get full response with stats
-                const token = localStorage.getItem('token');
-                const baseUrl = import.meta.env.VITE_API_URL || '/api';
-                const response = await fetch(`${baseUrl}/visits/today?date=${targetDate}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to fetch visits');
-                }
-
-                const result = await response.json();
-
+                const result = await apiResponse<{ data?: Visit[]; stats?: VisitStats }>(
+                    '/visits/today',
+                    { params: { date: targetDate } }
+                );
                 return {
                     visits: result?.data || [],
                     stats: result?.stats || { total: 0, completed: 0, inProgress: 0, planned: 0 }
@@ -274,6 +262,7 @@ const Visits: Component = () => {
                         <div class="flex items-center justify-center gap-4 mt-3">
                             <button
                                 onClick={() => navigateDate('prev')}
+                                aria-label={t('salesApp.visits.previousDay')}
                                 class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white active:scale-95 transition-all"
                             >
                                 <ChevronLeft class="w-5 h-5" />
@@ -284,6 +273,7 @@ const Visits: Component = () => {
                             </div>
                             <button
                                 onClick={() => navigateDate('next')}
+                                aria-label={t('salesApp.visits.nextDay')}
                                 class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white active:scale-95 transition-all"
                             >
                                 <ChevronRight class="w-5 h-5" />
@@ -374,6 +364,7 @@ const Visits: Component = () => {
                                             <Show when={visit.customerPhone}>
                                                 <a
                                                     href={`tel:${visit.customerPhone}`}
+                                                    aria-label={`${t('salesApp.visits.callCustomer')} ${visit.customerName}`}
                                                     class="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400"
                                                 >
                                                     <Phone class="w-4 h-4" />
@@ -467,6 +458,7 @@ const Visits: Component = () => {
             {/* FAB - Quick Visit */}
             <button
                 onClick={() => setShowQuickVisitModal(true)}
+                aria-label={t('salesApp.quickVisit.title')}
                 class="fixed bottom-20 right-4 w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-600/30 active:scale-95 transition-all z-40"
             >
                 <Plus size={28} />
@@ -531,16 +523,20 @@ const CompleteVisitModal: Component<{
         <div class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={props.onClose}>
             <div
                 class="w-full max-w-lg bg-slate-900 rounded-t-3xl p-6 pb-safe animate-slide-up"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="complete-visit-title"
+                aria-describedby="complete-visit-customer"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-xl font-bold text-white">{t('salesApp.visits.completeVisit')}</h2>
-                    <button onClick={props.onClose} class="text-slate-400">
+                    <h2 id="complete-visit-title" class="text-xl font-bold text-white">{t('salesApp.visits.completeVisit')}</h2>
+                    <button onClick={props.onClose} aria-label={t('salesApp.common.close')} class="text-slate-400">
                         <X class="w-6 h-6" />
                     </button>
                 </div>
 
-                <p class="text-slate-400 text-sm mb-4">{props.visit.customerName}</p>
+                <p id="complete-visit-customer" class="text-slate-400 text-sm mb-4">{props.visit.customerName}</p>
 
                 {/* Outcome Selection */}
                 <div class="space-y-2 mb-4">
@@ -572,6 +568,7 @@ const CompleteVisitModal: Component<{
                                     <img src={getImageUrl(photo)} class="w-full h-full object-cover" />
                                     <button
                                         onClick={() => removePhoto(index())}
+                                        aria-label={t('salesApp.visits.removePhoto')}
                                         class="absolute inset-0 bg-black/40 items-center justify-center hidden group-hover:flex"
                                     >
                                         <Trash2 class="w-5 h-5 text-white" />
@@ -583,6 +580,7 @@ const CompleteVisitModal: Component<{
                         <button
                             onClick={() => fileInputRef?.click()}
                             disabled={uploading()}
+                            aria-label={t('salesApp.visits.addPhoto')}
                             class="w-20 h-20 bg-slate-800 border border-slate-700 rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 transition-colors shrink-0"
                         >
                             <Show when={uploading()} fallback={<Camera class="w-6 h-6" />}>

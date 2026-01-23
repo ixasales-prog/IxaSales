@@ -6,7 +6,7 @@ This guide covers deploying the Customer Portal to production with all security 
 
 ## Prerequisites
 
-- **Node.js 18+** or **Bun 1.0+**
+- **Node.js 20+**
 - **PostgreSQL 14+** database
 - **Redis 6+** (recommended for scaling)
 - **HTTPS certificate** (required for production)
@@ -149,9 +149,9 @@ Use this for load balancer health checks and monitoring.
 Run database migrations before starting:
 
 ```bash
-bun run db:push
+npm run db:push
 # Or for more control:
-bun run db:migrate
+npm run db:migrate
 ```
 
 ---
@@ -160,14 +160,14 @@ bun run db:migrate
 
 ```bash
 # Install dependencies
-bun install
+npm install
 cd client && npm install
 
 # Build frontend
 cd client && npm run build
 
 # Start production server
-NODE_ENV=production bun run src/index.ts
+NODE_ENV=production npm run build && npm run start
 ```
 
 ---

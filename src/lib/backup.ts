@@ -14,6 +14,7 @@ import { getBackupSettings } from './systemSettings';
 // Default path if not in ENV
 // We found it at this location during planning
 const DEFAULT_PG_DUMP_PATH = 'C:\\Program Files\\PostgreSQL\\17\\bin\\pg_dump.exe';
+const DEFAULT_PSQL_PATH = 'C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe';
 const BACKUP_DIR = join(process.cwd(), 'backups');
 
 export interface BackupFile {
@@ -122,6 +123,50 @@ export function getBackupPath(filename: string): string {
     // Basic security check to prevent directory traversal
     const safeFilename = filename.replace(/[\/\\]/g, '');
     return join(BACKUP_DIR, safeFilename);
+}
+
+export async function restoreBackup(filename: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    if (!filename.endsWith('.sql')) {
+        return { success: false, error: 'Only .sql backups can be restored' };
+    }
+
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+        return { success: false, error: 'DATABASE_URL not set' };
+    }
+
+    const filepath = getBackupPath(filename);
+    let fileStat;
+    try {
+        fileStat = await stat(filepath);
+    } catch {
+        return { success: false, error: 'Backup file not found' };
+    }
+
+    if (fileStat.size === 0) {
+        return { success: false, error: 'Backup file is empty' };
+    }
+
+    const psqlPath = process.env.PSQL_PATH || DEFAULT_PSQL_PATH;
+
+    return new Promise((resolve) => {
+        const proc = spawn(psqlPath, [dbUrl, '-f', filepath], {
+            env: { ...process.env },
+            shell: true
+        });
+
+        proc.on('close', (code) => {
+            if (code === 0) {
+                resolve({ success: true, message: 'Restore completed successfully' });
+            } else {
+                resolve({ success: false, error: `Restore failed with code ${code}` });
+            }
+        });
+
+        proc.on('error', (err) => {
+            resolve({ success: false, error: err.message });
+        });
+    });
 }
 
 /**

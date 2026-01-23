@@ -1,4 +1,4 @@
-import { type Component, createResource, Show, onCleanup, createSignal } from 'solid-js';
+import { type Component, createResource, Show, onCleanup, createSignal, For } from 'solid-js';
 import { api } from '../../lib/api';
 import {
     Activity,
@@ -29,6 +29,23 @@ interface HealthData {
     };
 }
 
+interface MetricsData {
+    windowMs: number;
+    totalRequests: number;
+    error4xx: number;
+    error5xx: number;
+    slowRequests: number;
+    avgResponseMs: number;
+    p95ResponseMs: number;
+    p99ResponseMs: number;
+    topSlowRoutes: {
+        path: string;
+        count: number;
+        avgResponseMs: number;
+        p95ResponseMs: number;
+    }[];
+}
+
 const SystemHealth: Component = () => {
     const [refreshTrigger, setRefreshTrigger] = createSignal(0);
 
@@ -38,6 +55,10 @@ const SystemHealth: Component = () => {
 
     const [health] = createResource(refreshTrigger, async () => {
         return await api<HealthData>('/super/health');
+    });
+
+    const [metrics] = createResource(refreshTrigger, async () => {
+        return await api<MetricsData>('/super/metrics');
     });
 
     const formatUptime = (seconds: number) => {
@@ -175,6 +196,67 @@ const SystemHealth: Component = () => {
                         </div>
                     </div>
                 </div>
+
+                <Show when={metrics()}>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 lg:col-span-2">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-slate-400 font-medium flex items-center gap-2">
+                                    <Activity class="w-4 h-4" />
+                                    API Performance (last {Math.round((metrics()?.windowMs || 0) / 60000)}m)
+                                </h3>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div>
+                                    <div class="text-xs text-slate-500">Requests</div>
+                                    <div class="text-white font-semibold">{metrics()?.totalRequests}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-slate-500">Slow &gt;1s</div>
+                                    <div class="text-white font-semibold">{metrics()?.slowRequests}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-slate-500">4xx</div>
+                                    <div class="text-white font-semibold">{metrics()?.error4xx}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-slate-500">5xx</div>
+                                    <div class="text-white font-semibold">{metrics()?.error5xx}</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-slate-500">Avg</div>
+                                    <div class="text-white font-semibold">{metrics()?.avgResponseMs} ms</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-slate-500">P95</div>
+                                    <div class="text-white font-semibold">{metrics()?.p95ResponseMs} ms</div>
+                                </div>
+                                <div>
+                                    <div class="text-xs text-slate-500">P99</div>
+                                    <div class="text-white font-semibold">{metrics()?.p99ResponseMs} ms</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                            <div class="text-slate-400 font-medium mb-4">Slowest Routes</div>
+                            <Show when={metrics()?.topSlowRoutes?.length} fallback={
+                                <div class="text-slate-500 text-sm">No data</div>
+                            }>
+                                <div class="space-y-3">
+                                    <For each={metrics()?.topSlowRoutes || []}>
+                                        {(route) => (
+                                            <div class="flex items-center justify-between">
+                                                <div class="text-slate-300 text-sm truncate max-w-[70%]">{route.path}</div>
+                                                <div class="text-slate-400 text-xs font-mono">{route.avgResponseMs} ms</div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            </Show>
+                        </div>
+                    </div>
+                </Show>
             </Show>
         </div>
     );

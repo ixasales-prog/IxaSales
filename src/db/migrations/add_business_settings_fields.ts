@@ -29,7 +29,10 @@ export async function down() {
     console.log('[Migration] Business settings fields removed');
 }
 
-if (import.meta.main) {
+// Run migration if called directly (CommonJS-safe)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _isMain = typeof require !== 'undefined' && (require as any).main === module;
+if (_isMain) {
     up()
         .then(() => {
             console.log('Migration complete');

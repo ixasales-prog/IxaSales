@@ -33,33 +33,35 @@ if ($Environment -eq "staging") {
 }
 
 # -----------------------------------------------------------------------------
-# 1. Build Frontend Locally
+# 1. Build Backend Locally
 # -----------------------------------------------------------------------------
-Write-Host "`n[1/5] Building frontend..." -ForegroundColor Green
+Write-Host "`n[1/7] Building backend..." -ForegroundColor Green
+npm install
+npm run build
+
+# -----------------------------------------------------------------------------
+# 2. Build Frontend Locally
+# -----------------------------------------------------------------------------
+Write-Host "`n[2/7] Building frontend..." -ForegroundColor Green
 Push-Location client
 try {
     # Set environment variable for the current process
     $env:VITE_API_URL = if ($Environment -eq "staging") { "https://dev-api.ixasales.uz/api" } else { "https://api.ixasales.uz/api" }
     Write-Host "Setting VITE_API_URL to $env:VITE_API_URL" -ForegroundColor Yellow
     
-    if (Get-Command bun -ErrorAction SilentlyContinue) {
-        bun install
-        bun run build
-    } else {
-        npm install
-        npm run build
-    }
+    npm install
+    npm run build
 } finally {
     Pop-Location
 }
 
 # -----------------------------------------------------------------------------
-# 2. Sync Files to Server using SCP (rsync alternative for Windows)
+# 3. Sync Files to Server using SCP (rsync alternative for Windows)
 # -----------------------------------------------------------------------------
-Write-Host "`n[2/5] Syncing files to server..." -ForegroundColor Green
+Write-Host "`n[3/7] Syncing files to server..." -ForegroundColor Green
 
 # Create a list of items to upload (excluding unwanted folders)
-$excludeDirs = @("node_modules", ".git", "backups", "dist")
+$excludeDirs = @("node_modules", ".git", "backups")
 $excludeFiles = @(".env")
 
 # Get all items except excluded ones
@@ -90,34 +92,57 @@ foreach ($item in $items) {
     }
 }
 
+# Copy backend build output
+if (Test-Path "dist") {
+    Copy-Item -Path "dist" -Destination $tempDir -Recurse -Force
+}
+
 # Copy important root files
 Copy-Item -Path "package.json" -Destination $tempDir -Force
 Copy-Item -Path "tsconfig.json" -Destination $tempDir -Force -ErrorAction SilentlyContinue
 Copy-Item -Path "drizzle.config.ts" -Destination $tempDir -Force -ErrorAction SilentlyContinue
 
-# Upload using SCP
+# Copy drizzle migrations folder if it exists
+if (Test-Path "drizzle") {
+    Copy-Item -Path "drizzle" -Destination $tempDir -Recurse -Force
+}
+
+# Upload using SCP (use relative path from temp directory for better Windows compatibility)
 Write-Host "Uploading files via SCP (this may take a few minutes)..." -ForegroundColor Yellow
-scp -r "$tempDir\*" "${SERVER_USER}@${SERVER_IP}:${TARGET_DIR}/"
+Push-Location $tempDir
+try {
+    # Use . to copy all contents, which works better with Windows SCP
+    scp -r . "${SERVER_USER}@${SERVER_IP}:${TARGET_DIR}/"
+} finally {
+    Pop-Location
+}
 
 # Cleanup temp directory
 Remove-Item -Recurse -Force $tempDir
 
 # -----------------------------------------------------------------------------
-# 3. Install Dependencies on Server
+# 4. Install Dependencies on Server (Production only)
 # -----------------------------------------------------------------------------
-Write-Host "`n[3/5] Installing dependencies on server..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && source ~/.bashrc && ~/.bun/bin/bun install --production"
+Write-Host "`n[4/7] Installing dependencies on server..." -ForegroundColor Green
+ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && npm install --omit=dev"
 
 # -----------------------------------------------------------------------------
-# 4. Run Database Migrations
+# 5. Run Database Migrations
 # -----------------------------------------------------------------------------
-Write-Host "`n[4/5] Running database migrations..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" -t "cd $TARGET_DIR && source ~/.bashrc && ~/.bun/bin/bun x drizzle-kit push"
+# Write-Host "`n[5/7] Running database migrations..." -ForegroundColor Green
+# ssh "${SERVER_USER}@${SERVER_IP}" -t "cd $TARGET_DIR && npm run db:push"
+Write-Host "`n[5/7] Skipping database migrations (uncomment to enable)..." -ForegroundColor Yellow
 
 # -----------------------------------------------------------------------------
-# 5. Fix Permissions & Restart Service
+# 6. Verify Installation
 # -----------------------------------------------------------------------------
-Write-Host "`n[5/5] Fixing permissions & restarting service..." -ForegroundColor Green
+Write-Host "`n[6/7] Verifying installation..." -ForegroundColor Green
+ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && test -f dist/index.js && echo 'Backend build found' || echo 'WARNING: Backend build not found'"
+
+# -----------------------------------------------------------------------------
+# 7. Fix Permissions & Restart Service
+# -----------------------------------------------------------------------------
+Write-Host "`n[7/7] Fixing permissions & restarting service..." -ForegroundColor Green
 ssh "${SERVER_USER}@${SERVER_IP}" -t "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME && sudo systemctl status $SERVICE_NAME --no-pager"
 
 Write-Host "`n======================================" -ForegroundColor Green

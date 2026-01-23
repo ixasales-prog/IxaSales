@@ -1,4 +1,7 @@
 import { Elysia, t } from 'elysia';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
+import { Readable } from 'stream';
 import { db, schema } from '../db';
 import { authPlugin } from '../lib/auth';
 import { eq, count, sum, desc, or, ilike } from 'drizzle-orm';
@@ -7,6 +10,7 @@ import * as settings from '../lib/systemSettings';
 
 import { logAudit } from '../lib/audit';
 import { getSystemHealth } from '../lib/health';
+import { getRequestMetrics } from '../lib/request-logger';
 
 // Basic in-memory rate limit for subscription checks (once per day per worker)
 let lastSubscriptionCheck = 0;
@@ -286,6 +290,9 @@ export const superRoutes = new Elysia({ prefix: '/super' })
     .get('/health', async () => {
         return { success: true, data: await getSystemHealth() };
     })
+    .get('/metrics', () => {
+        return { success: true, data: getRequestMetrics() };
+    })
 
     // ========== AUDIT LOGS ==========
     .get('/audit-logs', async (ctx: any) => {
@@ -388,6 +395,21 @@ export const superRoutes = new Elysia({ prefix: '/super' })
 
         return { success: true, filename: result.filename };
     })
+    .post('/backup/restore', async ({ body, set }) => {
+        const { restoreBackup } = await import('../lib/backup');
+        const result = await restoreBackup(body.filename);
+
+        if (!result.success) {
+            set.status = 400;
+            return { success: false, message: result.error };
+        }
+
+        return { success: true, message: result.message };
+    }, {
+        body: t.Object({
+            filename: t.String()
+        })
+    })
 
     // List backups
     .get('/backups', async () => {
@@ -402,12 +424,19 @@ export const superRoutes = new Elysia({ prefix: '/super' })
         const { filename } = params;
 
         const path = getBackupPath(filename);
-        const file = Bun.file(path);
-
-        if (!(await file.exists())) {
+        try {
+            const stats = await stat(path);
+            const stream = createReadStream(path);
+            const body = Readable.toWeb(stream) as unknown as ReadableStream;
+            return new Response(body, {
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Length': stats.size.toString(),
+                    'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
+                },
+            });
+        } catch {
             set.status = 404;
             return 'File not found';
         }
-
-        return file;
     });

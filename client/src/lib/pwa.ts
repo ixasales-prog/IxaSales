@@ -331,7 +331,7 @@ export async function promptInstall(): Promise<boolean> {
  * Check if app can be installed
  */
 export function canInstall(): boolean {
-    return deferredPrompt !== null && !wasInstalledPreviously();
+    return deferredPrompt !== null && !wasInstalledPreviously() && !isInstalledPWA();
 }
 
 /**

@@ -1,11 +1,123 @@
 import { Elysia, t } from 'elysia';
 import { db, schema } from '../db';
 import { authPlugin } from '../lib/auth';
-import { eq, and, sql, desc, inArray } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray, gte, lt } from 'drizzle-orm';
 import { generateNumber } from '../lib/password'; // Using as a helper for random string if needed, or I'll generic
 
 export const orderRoutes = new Elysia({ prefix: '/orders' })
     .use(authPlugin)
+
+    .get('/dashboard-stats', async (ctx) => {
+        const { user, isAuthenticated, set } = ctx as any;
+        if (!isAuthenticated) { set.status = 401; return { success: false, error: { code: 'UNAUTHORIZED' } }; }
+
+        const [tenant] = await db
+            .select({ timezone: schema.tenants.timezone })
+            .from(schema.tenants)
+            .where(eq(schema.tenants.id, user.tenantId))
+            .limit(1);
+
+        const timezone = tenant?.timezone || 'Asia/Tashkent';
+        const now = new Date();
+        let startOfDay: Date;
+        let endOfDay: Date;
+
+        try {
+            const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                timeZone: timezone,
+            });
+            const localDateStr = dayFormatter.format(now);
+            startOfDay = new Date(`${localDateStr}T00:00:00`);
+
+            const offsetFormatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone,
+                timeZoneName: 'shortOffset',
+            });
+            const offsetMatch = offsetFormatter.format(now).match(/GMT([+-]\d+)/);
+            if (offsetMatch) {
+                const offsetHours = parseInt(offsetMatch[1]);
+                startOfDay = new Date(startOfDay.getTime() - offsetHours * 60 * 60 * 1000);
+            }
+        } catch {
+            startOfDay = new Date(now);
+            startOfDay.setHours(0, 0, 0, 0);
+        }
+
+        endOfDay = new Date(startOfDay);
+        endOfDay.setDate(endOfDay.getDate() + 1);
+
+        const orderConditions: any[] = [eq(schema.orders.tenantId, user.tenantId)];
+        if (user.role === 'sales_rep') {
+            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
+        } else if (user.role === 'driver') {
+            orderConditions.push(eq(schema.orders.driverId, user.id));
+        }
+
+        const [todaySales] = await db
+            .select({
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'delivered'),
+                gte(schema.orders.createdAt, startOfDay),
+                lt(schema.orders.createdAt, endOfDay)
+            ));
+
+        const [pendingOrders] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.orders)
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'pending')
+            ));
+
+        const customerConditions: any[] = [eq(schema.customers.tenantId, user.tenantId)];
+        if (user.role === 'sales_rep') {
+            customerConditions.push(eq(schema.customers.createdByUserId, user.id));
+        }
+
+        const [customerCount] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.customers)
+            .where(and(...customerConditions));
+
+        const today = new Date().toISOString().split('T')[0];
+        const visitConditions: any[] = [
+            eq(schema.salesVisits.tenantId, user.tenantId),
+            eq(schema.salesVisits.plannedDate, today)
+        ];
+        if (user.role === 'sales_rep') {
+            visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
+        }
+
+        const [visitStats] = await db
+            .select({
+                total: sql<number>`count(*)`,
+                completed: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
+                inProgress: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'in_progress')`,
+            })
+            .from(schema.salesVisits)
+            .where(and(...visitConditions));
+
+        return {
+            success: true,
+            data: {
+                todaysSales: Number(todaySales?.total || 0),
+                pendingOrders: Number(pendingOrders?.count || 0),
+                customerCount: Number(customerCount?.count || 0),
+                visits: {
+                    total: Number(visitStats?.total || 0),
+                    completed: Number(visitStats?.completed || 0),
+                    inProgress: Number(visitStats?.inProgress || 0),
+                }
+            }
+        };
+    })
 
     // ----------------------------------------------------------------
     // ORDERS CRUD

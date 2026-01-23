@@ -62,7 +62,24 @@ export const getSubdomain = (): string => {
 // API CLIENT
 // ============================================================================
 
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const RAW_BASE_URL = import.meta.env.VITE_API_URL;
+
+const resolveBaseUrl = () => {
+    const normalized = RAW_BASE_URL?.replace(/\/$/, '') || '/api';
+    if (!RAW_BASE_URL) return normalized;
+    if (typeof window === 'undefined') return normalized;
+    try {
+        const resolved = new URL(RAW_BASE_URL, window.location.origin);
+        if (import.meta.env.PROD && resolved.origin !== window.location.origin) {
+            return '/api';
+        }
+    } catch {
+        return normalized;
+    }
+    return normalized;
+};
+
+const BASE_URL = resolveBaseUrl();
 
 async function fetchWithAuth<T>(
     endpoint: string,

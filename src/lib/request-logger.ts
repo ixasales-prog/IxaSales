@@ -29,6 +29,14 @@ interface RequestLog {
     error?: string;
 }
 
+interface RequestMetricEntry {
+    timestamp: number;
+    path: string;
+    method: string;
+    statusCode: number;
+    responseTimeMs: number;
+}
+
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
@@ -51,6 +59,9 @@ const SENSITIVE_PATHS = [
     '/api/payments/',
     '/api/payment-gateway/',
 ];
+
+const METRICS_WINDOW_MS = 5 * 60 * 1000;
+const requestMetrics: RequestMetricEntry[] = [];
 
 // ============================================================================
 // LOGGING FUNCTIONS
@@ -78,6 +89,77 @@ function formatLog(log: RequestLog): string {
     if (log.error) parts.push(`error:${log.error}`);
 
     return parts.join(' | ');
+}
+
+function pruneMetrics(now: number) {
+    const cutoff = now - METRICS_WINDOW_MS;
+    while (requestMetrics.length > 0 && requestMetrics[0].timestamp < cutoff) {
+        requestMetrics.shift();
+    }
+}
+
+function recordMetric(entry: RequestMetricEntry) {
+    requestMetrics.push(entry);
+    pruneMetrics(entry.timestamp);
+}
+
+function percentile(values: number[], percentileValue: number): number {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1);
+    return sorted[index];
+}
+
+export function getRequestMetrics() {
+    const now = Date.now();
+    pruneMetrics(now);
+
+    const durations = requestMetrics.map(metric => metric.responseTimeMs);
+    const totalRequests = requestMetrics.length;
+    const error4xx = requestMetrics.filter(metric => metric.statusCode >= 400 && metric.statusCode < 500).length;
+    const error5xx = requestMetrics.filter(metric => metric.statusCode >= 500).length;
+    const slowRequests = requestMetrics.filter(metric => metric.responseTimeMs > 1000).length;
+    const avgResponseMs = totalRequests === 0
+        ? 0
+        : Math.round(durations.reduce((sum, ms) => sum + ms, 0) / totalRequests);
+
+    const p95ResponseMs = percentile(durations, 95);
+    const p99ResponseMs = percentile(durations, 99);
+
+    const routeStats = new Map<string, { count: number; totalMs: number; durations: number[] }>();
+    for (const metric of requestMetrics) {
+        const key = metric.path;
+        const current = routeStats.get(key) || { count: 0, totalMs: 0, durations: [] };
+        current.count += 1;
+        current.totalMs += metric.responseTimeMs;
+        current.durations.push(metric.responseTimeMs);
+        routeStats.set(key, current);
+    }
+
+    const topSlowRoutes = Array.from(routeStats.entries())
+        .map(([path, stats]) => {
+            const avg = Math.round(stats.totalMs / stats.count);
+            return {
+                path,
+                count: stats.count,
+                avgResponseMs: avg,
+                p95ResponseMs: percentile(stats.durations, 95),
+            };
+        })
+        .sort((a, b) => b.avgResponseMs - a.avgResponseMs)
+        .slice(0, 5);
+
+    return {
+        windowMs: METRICS_WINDOW_MS,
+        totalRequests,
+        error4xx,
+        error5xx,
+        slowRequests,
+        avgResponseMs,
+        p95ResponseMs,
+        p99ResponseMs,
+        topSlowRoutes
+    };
 }
 
 // ============================================================================
@@ -118,6 +200,14 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
             log.tenantId = ctx.user?.tenantId || ctx.customerAuth?.tenantId;
         }
 
+        recordMetric({
+            timestamp: Date.now(),
+            path: requestPath,
+            method: request.method,
+            statusCode: log.statusCode,
+            responseTimeMs: log.responseTimeMs,
+        });
+
         // Log based on status
         if (log.statusCode >= 500) {
             logger.error('API Request', { request: log });
@@ -147,6 +237,14 @@ export const requestLoggerPlugin = new Elysia({ name: 'request-logger' })
             ip: request.headers.get('x-forwarded-for') || undefined,
             error: error instanceof Error ? error.message : String(error),
         };
+
+        recordMetric({
+            timestamp: Date.now(),
+            path,
+            method: request.method,
+            statusCode: log.statusCode,
+            responseTimeMs: log.responseTimeMs,
+        });
 
         logger.error('API Error', { request: log, stack: error instanceof Error ? error.stack : undefined });
     });

@@ -40,53 +40,81 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 1. Build Frontend Locally
+# 1. Build Backend Locally
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[1/5] Building frontend...${NC}"
+echo -e "${GREEN}[1/7] Building backend...${NC}"
+npm install
+npm run build
+
+# -----------------------------------------------------------------------------
+# 2. Build Frontend Locally
+# -----------------------------------------------------------------------------
+echo -e "${GREEN}[2/7] Building frontend...${NC}"
 cd client
-npm install || bun install
+npm install
+if [ "$ENV" = "staging" ]; then
+    export VITE_API_URL="https://dev-api.ixasales.uz/api"
+else
+    export VITE_API_URL="https://api.ixasales.uz/api"
+fi
+echo -e "${YELLOW}Setting VITE_API_URL to $VITE_API_URL${NC}"
 npm run build
 cd ..
 
 # -----------------------------------------------------------------------------
-# 2. Sync Files to Server
+# 3. Sync Files to Server
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[2/5] Syncing files to server...${NC}"
+echo -e "${GREEN}[3/7] Syncing files to server...${NC}"
 
 # Sync backend (excluding node_modules, uploads, .env)
-rsync -avz --progress \
-    --exclude 'node_modules' \
-    --exclude 'client/node_modules' \
-    --exclude '.env' \
-    --exclude 'uploads/*' \
-    --exclude '.git' \
-    --exclude 'backups' \
-    --exclude '/dist' \
-    ./ $SERVER_USER@$SERVER_IP:$TARGET_DIR/
+if command -v rsync >/dev/null 2>&1; then
+    rsync -avz --progress \
+        --exclude 'node_modules' \
+        --exclude 'client/node_modules' \
+        --exclude '.env' \
+        --exclude 'uploads/*' \
+        --exclude '.git' \
+        --exclude 'backups' \
+        ./ $SERVER_USER@$SERVER_IP:$TARGET_DIR/
+else
+    echo -e "${YELLOW}rsync not found; falling back to tar-over-ssh sync...${NC}"
+    echo "node_modules" > .tar_excludes
+    echo "client/node_modules" >> .tar_excludes
+    echo ".env" >> .tar_excludes
+    echo "uploads" >> .tar_excludes
+    echo ".git" >> .tar_excludes
+    echo "backups" >> .tar_excludes
+    tar -czf - -X .tar_excludes . | ssh $SERVER_USER@$SERVER_IP "mkdir -p $TARGET_DIR && tar -xzf - -C $TARGET_DIR"
+    rm .tar_excludes
+fi
 
 # -----------------------------------------------------------------------------
-# 3. Install Dependencies on Server
+# 4. Install Dependencies on Server
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[3/5] Installing dependencies on server...${NC}"
+echo -e "${GREEN}[4/7] Installing dependencies on server...${NC}"
 ssh $SERVER_USER@$SERVER_IP << EOF
     cd $TARGET_DIR
-    export PATH="\$HOME/.bun/bin:\$PATH"
-    bun install --production
+    npm install --omit=dev
 EOF
 
 # -----------------------------------------------------------------------------
-# 4. Run Database Migrations
+# 5. Run Database Migrations
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[4/5] Running database migrations...${NC}"
+echo -e "${GREEN}[5/7] Running database migrations...${NC}"
 # Use -t to force PTY for interactive prompts (drizzle-kit push)
-# ssh -t $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && export PATH=\"\$HOME/.bun/bin:\$PATH\" && bun run db:push"
+# ssh -t $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && npm run db:push"
 echo "Skipping migrations for stability..."
 
 # -----------------------------------------------------------------------------
-# 5. Fix Permissions & Restart Service
+# 6. Verify Installation
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[5/5] Fixing permissions & restarting service...${NC}"
-echo -e "${GREEN}[5/5] Fixing permissions & restarting service...${NC}"
+echo -e "${GREEN}[6/7] Verifying installation...${NC}"
+ssh $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && test -f dist/index.js && echo '✓ Backend build found' || echo '⚠ WARNING: Backend build not found'"
+
+# -----------------------------------------------------------------------------
+# 7. Fix Permissions & Restart Service
+# -----------------------------------------------------------------------------
+echo -e "${GREEN}[7/7] Fixing permissions & restarting service...${NC}"
 ssh -t $SERVER_USER@$SERVER_IP "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME && sudo systemctl status $SERVICE_NAME --no-pager"
 
 echo ""

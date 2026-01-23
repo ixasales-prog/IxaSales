@@ -3,7 +3,7 @@ import { db } from '../index';
 
 /**
  * Migration: Add performance indexes
- * Run with: bun run src/db/migrations/add_indexes.ts
+ * Run with: npx tsx src/db/migrations/add_indexes.ts
  */
 async function addIndexes() {
     console.log('Adding performance indexes...');

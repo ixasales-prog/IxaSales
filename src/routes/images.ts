@@ -1,10 +1,32 @@
 import { Elysia, t } from 'elysia';
 import sharp from 'sharp';
 import path from 'path';
-import fs from 'fs';
+import fs, { createReadStream } from 'fs';
+import { Readable } from 'stream';
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
 const CACHE_DIR = path.join(process.cwd(), 'uploads', '.cache');
+
+const CONTENT_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+};
+
+function createFileResponse(filePath: string) {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
+    const stream = createReadStream(filePath);
+    const body = Readable.toWeb(stream) as unknown as ReadableStream;
+    return new Response(body, {
+        headers: {
+            'Content-Type': contentType,
+        },
+    });
+}
 
 // Ensure cache directory exists
 if (!fs.existsSync(CACHE_DIR)) {
@@ -36,8 +58,7 @@ export const imageRoutes = new Elysia({ prefix: '/images' })
         // BUT, since we are here, we might as well serve it to avoid redirect loop if client insists on this route.
         // Or, we only optimize if parameters are present.
         if (!width && !height) {
-            const file = Bun.file(originalFilePath);
-            return file;
+            return createFileResponse(originalFilePath);
         }
 
         // Generate cache key
@@ -51,7 +72,7 @@ export const imageRoutes = new Elysia({ prefix: '/images' })
             const cacheStats = fs.statSync(cacheFilePath);
 
             if (cacheStats.mtime >= originalStats.mtime) {
-                return Bun.file(cacheFilePath);
+                return createFileResponse(cacheFilePath);
             }
         }
 
@@ -76,7 +97,7 @@ export const imageRoutes = new Elysia({ prefix: '/images' })
             }
 
             await transformer.toFile(cacheFilePath);
-            return Bun.file(cacheFilePath);
+            return createFileResponse(cacheFilePath);
 
         } catch (error) {
             console.error('Image optimization error:', error);

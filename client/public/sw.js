@@ -19,8 +19,20 @@ const STATIC_ASSETS = [
     '/',
     '/index.html',
     '/manifest.json',
+    '/manifest.sales.json',
+    '/manifest.driver.json',
+    '/manifest.warehouse.json',
+    '/manifest.admin.json',
+    '/manifest.superadmin.json',
+    '/manifest.customer.json',
+    '/icons/icon.svg',
     '/icons/icon-192.svg',
-    '/icons/icon-512.svg'
+    '/icons/icon-512.svg',
+    '/icons/sales.svg',
+    '/icons/driver.svg',
+    '/icons/warehouse.svg',
+    '/icons/admin.svg',
+    '/icons/customer.svg'
 ];
 
 const CACHE_FIRST_PATTERNS = [

@@ -1,27 +1,62 @@
-import { type Component, Show, createSignal, onMount, onCleanup } from 'solid-js';
+import { type Component, Show, createSignal, onMount, onCleanup, createMemo } from 'solid-js';
+import { useLocation } from '@solidjs/router';
 import { WifiOff, RefreshCw, Download, X } from 'lucide-solid';
 import { isOnline, syncQueue, isSyncing, triggerSync } from '../stores/offline';
-import { canInstall, promptInstall, registerServiceWorker } from '../lib/pwa';
+import { canInstall, promptInstall } from '../lib/pwa';
+import { currentUser } from '../stores/auth';
+import { getPlatformName } from '../stores/branding';
 
 const OfflineIndicator: Component = () => {
     const [showInstallBanner, setShowInstallBanner] = createSignal(false);
     const [showUpdateBanner, setShowUpdateBanner] = createSignal(false);
+    const [isMobile, setIsMobile] = createSignal(false);
+    const location = useLocation();
+
+    const installAudience = createMemo(() => {
+        const role = currentUser()?.role;
+        if (location.pathname.startsWith('/pay')) return 'none';
+        if (role) {
+            if (['sales_rep', 'supervisor', 'warehouse', 'driver'].includes(role)) return 'required';
+            if (['tenant_admin', 'super_admin'].includes(role)) return 'none';
+            return 'optional';
+        }
+        if (location.pathname.startsWith('/customer')) return 'optional';
+        return 'none';
+    });
+
+    const shouldOfferInstall = createMemo(() => installAudience() !== 'none' && isMobile());
+    const platformName = createMemo(() => getPlatformName() || 'IxaSales');
+    const installTitle = createMemo(() => `Install ${platformName()}`);
+    const installDescription = createMemo(() =>
+        installAudience() === 'optional'
+            ? 'Optional: add to home screen for faster access'
+            : 'Add to home screen for faster access and offline use'
+    );
+    const installButtonLabel = createMemo(() =>
+        installAudience() === 'optional' ? 'Install (Optional)' : 'Install App'
+    );
 
     onMount(() => {
-        // Register service worker
-        registerServiceWorker();
-
-        // Listen for install prompt
         const handleInstallAvailable = () => setShowInstallBanner(true);
         window.addEventListener('pwa-install-available', handleInstallAvailable);
 
-        // Listen for update available
         const handleUpdateAvailable = () => setShowUpdateBanner(true);
         window.addEventListener('pwa-update-available', handleUpdateAvailable);
+
+        const updateIsMobile = () => {
+            setIsMobile(
+                window.matchMedia('(pointer: coarse)').matches ||
+                window.matchMedia('(max-width: 1024px)').matches
+            );
+        };
+
+        updateIsMobile();
+        window.addEventListener('resize', updateIsMobile);
 
         onCleanup(() => {
             window.removeEventListener('pwa-install-available', handleInstallAvailable);
             window.removeEventListener('pwa-update-available', handleUpdateAvailable);
+            window.removeEventListener('resize', updateIsMobile);
         });
     });
 
@@ -72,8 +107,7 @@ const OfflineIndicator: Component = () => {
                 </div>
             </Show>
 
-            {/* Install Banner - only show if can install and not previously installed */}
-            <Show when={showInstallBanner() && canInstall()}>
+            <Show when={showInstallBanner() && canInstall() && shouldOfferInstall()}>
                 <div class="fixed bottom-20 left-4 right-4 bg-slate-900 border border-slate-700 rounded-2xl p-4 z-[100] shadow-xl">
                     <button
                         onClick={() => setShowInstallBanner(false)}
@@ -86,15 +120,15 @@ const OfflineIndicator: Component = () => {
                             <Download class="w-6 h-6 text-white" />
                         </div>
                         <div class="flex-1">
-                            <h3 class="text-white font-semibold">Install IxaSales</h3>
-                            <p class="text-slate-400 text-sm">Add to home screen for quick access</p>
+                            <h3 class="text-white font-semibold">{installTitle()}</h3>
+                            <p class="text-slate-400 text-sm">{installDescription()}</p>
                         </div>
                     </div>
                     <button
                         onClick={handleInstall}
                         class="w-full mt-4 py-2.5 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 active:scale-[0.98] transition-all"
                     >
-                        Install App
+                        {installButtonLabel()}
                     </button>
                 </div>
             </Show>

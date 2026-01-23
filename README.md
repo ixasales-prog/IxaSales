@@ -1,18 +1,18 @@
 # IxaSales - Distribution ERP
 
-Multi-tenant Distribution ERP built with Bun + ElysiaJS + SolidJS + PostgreSQL + Drizzle ORM.
+Multi-tenant Distribution ERP built with Node.js + ElysiaJS + SolidJS + PostgreSQL + Drizzle ORM.
 
 ## Quick Start
 
 ### Prerequisites
-- [Bun](https://bun.sh) v1.0+
+- Node.js 20+
 - PostgreSQL 15+
 
 ### Setup
 
 1. **Install dependencies**
 ```bash
-bun install
+npm install
 ```
 
 2. **Configure environment**
@@ -23,12 +23,12 @@ cp .env.example .env
 
 3. **Push database schema**
 ```bash
-bun run db:push
+npm run db:push
 ```
 
 4. **Start development server**
 ```bash
-bun run dev
+npm run dev
 ```
 
 Server runs at http://localhost:3000
@@ -37,14 +37,15 @@ Server runs at http://localhost:3000
 
 | Command | Description |
 |---------|-------------|
-| `bun run dev` | Start development server with hot reload |
-| `bun run start` | Start production server |
-| `bun run db:generate` | Generate Drizzle migrations |
-| `bun run db:migrate` | Run pending migrations |
-| `bun run db:push` | Push schema directly (dev only) |
-| `bun run db:studio` | Open Drizzle Studio |
-| `bun run typecheck` | Run TypeScript type checking |
-| `bun test` | Run tests |
+| `npm run dev` | Start development server with hot reload |
+| `npm run build` | Build the server for production |
+| `npm run start` | Start production server |
+| `npm run db:generate` | Generate Drizzle migrations |
+| `npm run db:migrate` | Run pending migrations |
+| `npm run db:push` | Push schema directly (dev only) |
+| `npm run db:studio` | Open Drizzle Studio |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm test` | Run tests |
 
 ## API Endpoints
 

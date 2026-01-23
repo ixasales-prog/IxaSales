@@ -2,7 +2,7 @@
  * Email Service
  * 
  * Sends emails using SMTP (Gmail or custom provider).
- * Uses nodemailer-compatible approach with Bun's fetch.
+ * Uses nodemailer-compatible approach.
  */
 
 import { getEmailSettings } from './systemSettings';

@@ -18,8 +18,16 @@ const DEFAULT_BRANDING: BrandingSettings = {
     logoUrl: '',
 };
 
-// Get the API base URL from environment or default to /api for dev
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const RAW_BASE_URL = import.meta.env.VITE_API_URL;
+
+const resolveBaseUrl = () => {
+    const normalized = RAW_BASE_URL?.replace(/\/$/, '') || '/api';
+    if (!RAW_BASE_URL) return normalized;
+    if (typeof window === 'undefined') return normalized;
+    return normalized;
+};
+
+const API_BASE_URL = resolveBaseUrl();
 
 // Create a singleton store
 function createBrandingStore() {

@@ -1,4 +1,6 @@
+import 'dotenv/config';
 import { Elysia } from 'elysia';
+import { node } from '@elysiajs/node';
 import { cors } from '@elysiajs/cors';
 import { staticPlugin } from '@elysiajs/static';
 import { authPlugin } from './lib/auth';
@@ -36,8 +38,36 @@ import { imageRoutes } from './routes/images';
 // Initialize Redis rate limiter (if REDIS_URL is set)
 initRedisRateLimiter().catch(console.error);
 
+const corsOrigin = (() => {
+    const raw = process.env.CORS_ORIGIN;
+    if (!raw || raw.trim() === '') {
+        // If not set, allow all origins (development mode)
+        console.warn('⚠️  CORS_ORIGIN not set - allowing all origins');
+        return true;
+    }
+
+    const origins = raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+    if (origins.length === 0) {
+        console.warn('⚠️  CORS_ORIGIN is empty - allowing all origins');
+        return true;
+    }
+
+    const result = origins.length <= 1 ? (origins[0] ?? true) : origins;
+    console.log(`✓ CORS configured for origins: ${Array.isArray(result) ? result.join(', ') : result}`);
+    return result;
+})();
+
 // Create app
-const app = new Elysia()
+const app = new Elysia({ adapter: node() })
+    // Global plugins
+    .use(cors({
+        origin: corsOrigin,
+        credentials: true,
+    }))
     // Security plugins (production)
     .use(httpsEnforcementPlugin)
     .use(securityHeadersPlugin)
@@ -45,11 +75,7 @@ const app = new Elysia()
     // Request logging
     .use(requestLoggerPlugin)
 
-    // Global plugins
-    .use(cors({
-        origin: process.env.CORS_ORIGIN || true,
-        credentials: true,
-    }))
+    // Static assets
     .use(staticPlugin({
         assets: 'uploads',
         prefix: '/uploads'

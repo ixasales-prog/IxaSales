@@ -3,7 +3,7 @@ import { db } from '../index';
 
 /**
  * Migration: Add created_by_user_id to customers table
- * Run with: bun run src/db/migrations/add_customers_created_by.ts
+ * Run with: npx tsx src/db/migrations/add_customers_created_by.ts
  */
 async function migrate() {
     console.log('Adding created_by_user_id column to customers...');

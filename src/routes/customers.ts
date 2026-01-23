@@ -172,6 +172,7 @@ export const customerRoutes = new Elysia({ prefix: '/customers' })
                 email: schema.customers.email,
                 phone: schema.customers.phone,
                 address: schema.customers.address,
+                waymark: schema.customers.waymark,
                 creditBalance: schema.customers.creditBalance,
                 debtBalance: schema.customers.debtBalance,
                 isActive: schema.customers.isActive,
@@ -256,6 +257,7 @@ export const customerRoutes = new Elysia({ prefix: '/customers' })
                 email: body.email,
                 phone: body.phone,
                 address: body.address,
+                waymark: body.waymark,
                 tierId: body.tierId,
                 territoryId: body.territoryId,
                 assignedSalesRepId: user.role === 'sales_rep' ? user.id : body.assignedSalesRepId,
@@ -275,6 +277,7 @@ export const customerRoutes = new Elysia({ prefix: '/customers' })
             email: t.Optional(t.String({ format: 'email' })),
             phone: t.Optional(t.String()),
             address: t.Optional(t.String()),
+            waymark: t.Optional(t.String()),
             tierId: t.Optional(t.String()),
             territoryId: t.Optional(t.String()),
             assignedSalesRepId: t.Optional(t.String()),
@@ -336,6 +339,7 @@ export const customerRoutes = new Elysia({ prefix: '/customers' })
         if (body.email !== undefined) updates.email = body.email;
         if (body.phone !== undefined) updates.phone = body.phone;
         if (body.address !== undefined) updates.address = body.address;
+        if (body.waymark !== undefined) updates.waymark = body.waymark;
         if (body.contactPerson !== undefined) updates.contactPerson = body.contactPerson;
         if (body.latitude !== undefined) updates.latitude = body.latitude?.toString();
         if (body.longitude !== undefined) updates.longitude = body.longitude?.toString();
@@ -365,6 +369,7 @@ export const customerRoutes = new Elysia({ prefix: '/customers' })
             email: t.Optional(t.String({ format: 'email' })),
             phone: t.Optional(t.String()),
             address: t.Optional(t.String()),
+            waymark: t.Optional(t.String()),
             contactPerson: t.Optional(t.String()),
             tierId: t.Optional(t.String()),
             territoryId: t.Optional(t.String()),

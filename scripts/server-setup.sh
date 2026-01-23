@@ -40,15 +40,14 @@ echo -e "${GREEN}[1/8] Updating system...${NC}"
 apt update && apt upgrade -y
 
 # -----------------------------------------------------------------------------
-# 2. Install Bun Runtime
+# 2. Install Node.js
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[2/8] Installing Bun runtime...${NC}"
-if ! command -v bun &> /dev/null; then
-    sudo -u $APP_USER bash -c 'curl -fsSL https://bun.sh/install | bash'
-    echo 'export BUN_INSTALL="$HOME/.bun"' >> /home/$APP_USER/.bashrc
-    echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> /home/$APP_USER/.bashrc
+echo -e "${GREEN}[2/8] Installing Node.js...${NC}"
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt install -y nodejs
 else
-    echo "Bun already installed"
+    echo "Node.js already installed"
 fi
 
 # -----------------------------------------------------------------------------
@@ -115,7 +114,7 @@ Type=simple
 User=$APP_USER
 Group=www-data
 WorkingDirectory=$APP_DIR
-ExecStart=/home/$APP_USER/.bun/bin/bun run start
+ExecStart=/usr/bin/npm run start
 Restart=on-failure
 RestartSec=10
 Environment=NODE_ENV=production

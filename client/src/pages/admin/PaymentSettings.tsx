@@ -1,6 +1,7 @@
 import { createSignal, onMount, Show } from 'solid-js';
 import type { Component } from 'solid-js';
 import { showToast } from '../../components/Toast';
+import { api } from '../../lib/api';
 
 interface PaymentSettings {
     paymentPortalEnabled: boolean;
@@ -33,16 +34,8 @@ const PaymentSettings: Component = () => {
 
     const fetchSettings = async () => {
         try {
-            const response = await fetch('/api/tenant-self/payment-settings', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                },
-            });
-            const data = await response.json();
-
-            if (data.success) {
-                setSettings(data.data);
-            }
+            const data = await api<PaymentSettings>('/tenant-self/payment-settings');
+            if (data) setSettings(data);
         } catch (error) {
             console.error('Failed to fetch payment settings:', error);
         } finally {
@@ -53,22 +46,11 @@ const PaymentSettings: Component = () => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const response = await fetch('/api/tenant-self/payment-settings', {
+            await api('/tenant-self/payment-settings', {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                },
                 body: JSON.stringify(settings()),
             });
-
-            const data = await response.json();
-
-            if (data.success) {
-                showToast('To\'lov sozlamalari saqlandi', 'success');
-            } else {
-                showToast(data.error?.message || 'Xatolik yuz berdi', 'error');
-            }
+            showToast('To\'lov sozlamalari saqlandi', 'success');
         } catch (error) {
             showToast('Xatolik yuz berdi', 'error');
         } finally {

@@ -1,6 +1,6 @@
 IxaSales - Distribution ERP (Final)
 Stack
-Bun + ElysiaJS + SolidJS + PostgreSQL + Drizzle
+Node.js + ElysiaJS + SolidJS + PostgreSQL + Drizzle
 
 Roles
 Role	Access

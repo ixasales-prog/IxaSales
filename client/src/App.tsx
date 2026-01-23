@@ -1,5 +1,5 @@
-import type { Component } from 'solid-js';
-import { Router, Route } from '@solidjs/router';
+import { type Component, createEffect } from 'solid-js';
+import { Router, Route, useLocation } from '@solidjs/router';
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
@@ -9,6 +9,7 @@ import AdminLayout from './components/layout/AdminLayout';
 import SuperAdminLayout from './components/layout/SuperAdminLayout';
 import { ToastContainer } from './components/Toast';
 import OfflineIndicator from './components/OfflineIndicator';
+import { currentUser } from './stores/auth';
 
 // Sales Pages
 import SalesDashboard from './pages/sales/Dashboard';
@@ -85,91 +86,149 @@ const SuperAdminLayoutWrapper: Component = (props: any) => (
   <SuperAdminLayout>{props.children}</SuperAdminLayout>
 );
 
+const PwaRoleMetaLayout: Component<{ children?: any }> = (props) => {
+  const location = useLocation();
 
+  createEffect(() => {
+    const role = currentUser()?.role;
+    const pathname = location.pathname;
+
+    let manifestHref = '/manifest.json';
+    let iconHref = '/icons/icon.svg';
+    let appleIconHref = '/icons/icon-192.svg';
+
+    if (pathname.startsWith('/customer')) {
+      manifestHref = '/manifest.customer.json';
+      iconHref = '/icons/customer.svg';
+      appleIconHref = '/icons/customer.svg';
+    } else if (role === 'sales_rep' || role === 'supervisor') {
+      manifestHref = '/manifest.sales.json';
+      iconHref = '/icons/sales.svg';
+      appleIconHref = '/icons/sales.svg';
+    } else if (role === 'driver') {
+      manifestHref = '/manifest.driver.json';
+      iconHref = '/icons/driver.svg';
+      appleIconHref = '/icons/driver.svg';
+    } else if (role === 'warehouse') {
+      manifestHref = '/manifest.warehouse.json';
+      iconHref = '/icons/warehouse.svg';
+      appleIconHref = '/icons/warehouse.svg';
+    } else if (role === 'super_admin') {
+      manifestHref = '/manifest.superadmin.json';
+      iconHref = '/icons/admin.svg';
+      appleIconHref = '/icons/admin.svg';
+    } else if (role === 'tenant_admin') {
+      manifestHref = '/manifest.admin.json';
+      iconHref = '/icons/admin.svg';
+      appleIconHref = '/icons/admin.svg';
+    }
+
+    const manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (manifestLink && manifestLink.getAttribute('href') !== manifestHref) {
+      manifestLink.setAttribute('href', manifestHref);
+    }
+
+    const iconLink = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (iconLink && iconLink.getAttribute('href') !== iconHref) {
+      iconLink.setAttribute('href', iconHref);
+    }
+
+    const appleLink = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    if (appleLink && appleLink.getAttribute('href') !== appleIconHref) {
+      appleLink.setAttribute('href', appleIconHref);
+    }
+  });
+
+  return (
+    <>
+      <OfflineIndicator />
+      {props.children}
+    </>
+  );
+};
 
 const App: Component = () => {
   return (
     <>
       <Router>
-        <Route path="/login" component={Login} />
-        <Route path="/forgot-password" component={ForgotPassword} />
-        <Route path="/reset-password" component={ResetPassword} />
+        <Route path="/" component={PwaRoleMetaLayout}>
+          <Route path="/login" component={Login} />
+          <Route path="/forgot-password" component={ForgotPassword} />
+          <Route path="/reset-password" component={ResetPassword} />
 
-        {/* Payment Portal (public - no auth required) */}
-        <Route path="/pay/:token" component={PaymentPortal} />
+          {/* Payment Portal (public - no auth required) */}
+          <Route path="/pay/:token" component={PaymentPortal} />
 
-        {/* Customer Self-Service Portal (mobile-optimized, OTP auth) */}
-        <Route path="/customer" component={CustomerPortalPage} />
-        <Route path="/customer/orders/:id" component={CustomerOrderDetail} />
-        <Route path="/customer/*" component={CustomerPortalPage} />
+          {/* Customer Self-Service Portal (mobile-optimized, OTP auth) */}
+          <Route path="/customer" component={CustomerPortalPage} />
+          <Route path="/customer/orders/:id" component={CustomerOrderDetail} />
+          <Route path="/customer/*" component={CustomerPortalPage} />
 
-        {/* Sales App Routes */}
-        <Route path="/sales" component={SalesLayoutWrapper}>
-          <Route path="/" component={SalesDashboard} />
-          <Route path="/catalog" component={Catalog} />
-          <Route path="/cart" component={Cart} />
-          <Route path="/visits" component={SalesVisits} />
-          <Route path="/orders" component={SalesOrders} />
-          <Route path="/customers" component={SalesCustomers} />
+          {/* Sales App Routes */}
+          <Route path="/sales" component={SalesLayoutWrapper}>
+            <Route path="/" component={SalesDashboard} />
+            <Route path="/catalog" component={Catalog} />
+            <Route path="/cart" component={Cart} />
+            <Route path="/visits" component={SalesVisits} />
+            <Route path="/orders" component={SalesOrders} />
+            <Route path="/customers" component={SalesCustomers} />
+          </Route>
+
+          {/* Driver App Routes */}
+          <Route path="/driver" component={DriverLayoutWrapper}>
+            <Route path="/" component={Trips} />
+            <Route path="/trips/:id" component={TripDetail} />
+            <Route path="/deliveries" component={Deliveries} />
+          </Route>
+
+          {/* Super Admin Routes */}
+          <Route path="/super" component={SuperAdminLayoutWrapper}>
+            <Route path="/" component={SuperAdminDashboard} />
+            <Route path="/tenants" component={SuperAdminTenants} />
+            <Route path="/settings" component={SuperAdminSettings} />
+            <Route path="/plan-limits" component={SuperAdminPlanLimits} />
+            <Route path="/settings/defaults" component={DefaultSettings} />
+            <Route path="/settings/security" component={SecuritySettings} />
+            <Route path="/settings/announcement" component={AnnouncementSettings} />
+            <Route path="/settings/email" component={EmailSettings} />
+            <Route path="/settings/telegram" component={TelegramSettings} />
+            <Route path="/settings/branding" component={BrandingSettings} />
+            <Route path="/settings/backup" component={BackupSettings} />
+            <Route path="/health" component={SystemHealth} />
+            <Route path="/master-catalog" component={MasterCatalog} />
+            <Route path="/audit-logs" component={SuperAdminAuditLogs} />
+            <Route path="/users" component={AdminUsers} />
+          </Route>
+
+          {/* Admin Portal Routes */}
+          <Route path="/admin" component={AdminLayoutWrapper}>
+            <Route path="/" component={AdminDashboard} />
+            <Route path="/orders" component={AdminOrders} />
+            <Route path="/products" component={AdminProducts} />
+            <Route path="/categories" component={AdminCategories} />
+            <Route path="/brands" component={AdminBrands} />
+            <Route path="/discounts" component={AdminDiscounts} />
+            <Route path="/procurement" component={AdminProcurement} />
+            <Route path="/customers" component={AdminCustomers} />
+            <Route path="/users" component={AdminUsers} />
+            <Route path="/deliveries" component={AdminDeliveries} />
+            <Route path="/vehicles" component={AdminVehicles} />
+            <Route path="/returns" component={AdminReturns} />
+            <Route path="/inventory" component={AdminInventory} />
+            <Route path="/customer-tiers" component={AdminCustomerTiers} />
+            <Route path="/settings" component={AdminSettings} />
+            <Route path="/telegram" component={AdminTelegram} />
+            <Route path="/notification-settings" component={AdminNotificationSettings} />
+            <Route path="/company-profile" component={AdminCompanyProfile} />
+            <Route path="/business-settings" component={AdminBusinessSettings} />
+            <Route path="/payment-settings" component={AdminPaymentSettings} />
+            <Route path="/subscription" component={AdminSubscription} />
+          </Route>
+
+          <Route path="/" component={Login} />
         </Route>
-
-        {/* Driver App Routes */}
-        <Route path="/driver" component={DriverLayoutWrapper}>
-          <Route path="/" component={Trips} />
-          <Route path="/trips/:id" component={TripDetail} />
-          <Route path="/deliveries" component={Deliveries} />
-        </Route>
-
-        {/* Super Admin Routes */}
-        <Route path="/super" component={SuperAdminLayoutWrapper}>
-          <Route path="/" component={SuperAdminDashboard} />
-          <Route path="/tenants" component={SuperAdminTenants} />
-          <Route path="/settings" component={SuperAdminSettings} />
-          <Route path="/plan-limits" component={SuperAdminPlanLimits} />
-          <Route path="/settings/defaults" component={DefaultSettings} />
-          <Route path="/settings/security" component={SecuritySettings} />
-          <Route path="/settings/announcement" component={AnnouncementSettings} />
-          <Route path="/settings/email" component={EmailSettings} />
-          <Route path="/settings/telegram" component={TelegramSettings} />
-          <Route path="/settings/branding" component={BrandingSettings} />
-          <Route path="/settings/backup" component={BackupSettings} />
-          <Route path="/health" component={SystemHealth} />
-          <Route path="/master-catalog" component={MasterCatalog} />
-          <Route path="/audit-logs" component={SuperAdminAuditLogs} />
-          <Route path="/users" component={AdminUsers} />
-        </Route>
-
-        {/* Admin Portal Routes */}
-        <Route path="/admin" component={AdminLayoutWrapper}>
-          <Route path="/" component={AdminDashboard} />
-          <Route path="/orders" component={AdminOrders} />
-          <Route path="/products" component={AdminProducts} />
-          <Route path="/categories" component={AdminCategories} />
-          <Route path="/brands" component={AdminBrands} />
-          <Route path="/discounts" component={AdminDiscounts} />
-          <Route path="/procurement" component={AdminProcurement} />
-          <Route path="/customers" component={AdminCustomers} />
-          <Route path="/users" component={AdminUsers} />
-          <Route path="/deliveries" component={AdminDeliveries} />
-          <Route path="/vehicles" component={AdminVehicles} />
-          <Route path="/returns" component={AdminReturns} />
-          <Route path="/inventory" component={AdminInventory} />
-          <Route path="/customer-tiers" component={AdminCustomerTiers} />
-          <Route path="/settings" component={AdminSettings} />
-          <Route path="/telegram" component={AdminTelegram} />
-          <Route path="/notification-settings" component={AdminNotificationSettings} />
-          <Route path="/company-profile" component={AdminCompanyProfile} />
-          <Route path="/business-settings" component={AdminBusinessSettings} />
-          <Route path="/payment-settings" component={AdminPaymentSettings} />
-          <Route path="/subscription" component={AdminSubscription} />
-        </Route>
-
-
-
-        <Route path="/" component={Login} />
       </Router>
       <ToastContainer />
-      <OfflineIndicator />
     </>
   );
 };

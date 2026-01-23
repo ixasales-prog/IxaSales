@@ -1,0 +1,22 @@
+{
+    "name": "IxaSales Superadmin",
+    "short_name": "Superadmin",
+    "description": "Distribution ERP for Sales & Delivery",
+    "start_url": "/super",
+    "display": "standalone",
+    "background_color": "#020617",
+    "theme_color": "#3b82f6",
+    "orientation": "portrait-primary",
+    "icons": [
+        {
+            "src": "/icons/admin.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": [
+        "business",
+        "productivity"
+    ]
+}

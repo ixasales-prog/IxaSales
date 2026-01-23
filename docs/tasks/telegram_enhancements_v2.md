@@ -216,7 +216,7 @@ if (result.valid) {
 
 ## Testing
 
-1. **TypeScript Check:** `bun build ./src/index.ts --outdir=./dist --target=bun`
+1. **TypeScript Check:** `npm run typecheck`
    - ✅ Build successful (597 modules)
 
 2. **Verify bot token validation:**
