@@ -24,6 +24,7 @@ const UpdateSettingsBodySchema = Type.Object({
     invoiceNumberPrefix: Type.Optional(Type.String()),
     defaultPaymentTerms: Type.Optional(Type.Union([Type.Number(), Type.String()])),
     yandexGeocoderApiKey: Type.Optional(Type.String()),
+    openWeatherApiKey: Type.Optional(Type.String()),
 });
 
 const UpdateTelegramBodySchema = Type.Object({
@@ -115,6 +116,7 @@ export const tenantSelfRoutes: FastifyPluginAsync = async (fastify) => {
             currency: schema.tenants.currency, timezone: schema.tenants.timezone, defaultTaxRate: schema.tenants.defaultTaxRate,
             orderNumberPrefix: schema.tenants.orderNumberPrefix, invoiceNumberPrefix: schema.tenants.invoiceNumberPrefix,
             defaultPaymentTerms: schema.tenants.defaultPaymentTerms, yandexGeocoderApiKey: schema.tenants.yandexGeocoderApiKey,
+            openWeatherApiKey: schema.tenants.openWeatherApiKey,
         }).from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
 
         return {
@@ -123,6 +125,7 @@ export const tenantSelfRoutes: FastifyPluginAsync = async (fastify) => {
                 defaultTaxRate: parseFloat(String(tenant?.defaultTaxRate ?? '0')) || 0,
                 orderNumberPrefix: tenant?.orderNumberPrefix ?? 'ORD-', invoiceNumberPrefix: tenant?.invoiceNumberPrefix ?? 'INV-',
                 defaultPaymentTerms: tenant?.defaultPaymentTerms ?? 7, yandexGeocoderApiKey: tenant?.yandexGeocoderApiKey ?? '',
+                openWeatherApiKey: tenant?.openWeatherApiKey ?? '',
             }
         };
     });
@@ -143,6 +146,7 @@ export const tenantSelfRoutes: FastifyPluginAsync = async (fastify) => {
         if (body.invoiceNumberPrefix !== undefined) updates.invoiceNumberPrefix = body.invoiceNumberPrefix;
         if (body.defaultPaymentTerms !== undefined) updates.defaultPaymentTerms = parseInt(String(body.defaultPaymentTerms)) || 7;
         if (body.yandexGeocoderApiKey !== undefined) updates.yandexGeocoderApiKey = body.yandexGeocoderApiKey;
+        if (body.openWeatherApiKey !== undefined) updates.openWeatherApiKey = body.openWeatherApiKey;
 
         const [updated] = await db.update(schema.tenants).set(updates).where(eq(schema.tenants.id, user.tenantId)).returning();
         return { success: true, data: updated };

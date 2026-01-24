@@ -10,6 +10,7 @@ import { db } from '../db';
 import * as schema from '../db/schema';
 import { eq, lt, and, sql } from 'drizzle-orm';
 import { loadSettingsFromDB } from './systemSettings';
+import { runGPSTrackingCleanup } from './gps-tracking-cleanup';
 
 // ============================================================================
 // JOB: Overdue Debt Notifications
@@ -213,12 +214,14 @@ export function initializeScheduler(): void {
     setTimeout(() => {
         runOverdueDebtJob().catch(console.error);
         runSubscriptionExpirationJob().catch(console.error);
+        // GPS cleanup runs daily, not on startup
     }, 60000); // 1 minute after startup
 
     // Then run daily
     setInterval(() => {
         runOverdueDebtJob().catch(console.error);
         runSubscriptionExpirationJob().catch(console.error);
+        runGPSTrackingCleanup().catch(console.error);
     }, TWENTY_FOUR_HOURS);
 
     // Customer payment reminders: Weekly
@@ -257,6 +260,10 @@ export async function triggerJob(jobName: string): Promise<{ success: boolean; m
         case 'notification-retry':
             await runNotificationRetryJob();
             return { success: true, message: 'Notification retry job completed' };
+
+        case 'gps-cleanup':
+            await runGPSTrackingCleanup();
+            return { success: true, message: 'GPS tracking cleanup job completed' };
 
         default:
             return { success: false, message: `Unknown job: ${jobName}` };

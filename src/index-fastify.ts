@@ -32,6 +32,8 @@ import { superRoutes } from './routes-fastify/super';
 import { paymentGatewayRoutes } from './routes-fastify/payment-gateway';
 import { telegramWebhookRoutes } from './routes-fastify/telegram-webhook';
 import { customerPortalRoutes } from './routes-fastify/customer-portal';
+import { gpsTrackingRoutes } from './routes-fastify/gps-tracking';
+import userActivityRoutes from './routes-fastify/user-activity';
 
 // Initialize Redis rate limiter (if REDIS_URL is set)
 import { initRedisRateLimiter } from './lib/rate-limit';
@@ -130,9 +132,23 @@ export const buildServer = async (): Promise<FastifyInstance> => {
     });
 
     // Public branding endpoint
-    fastify.get('/api/branding', async () => {
-        const { getBrandingSettings } = await import('./lib/systemSettings');
-        return { success: true, data: getBrandingSettings() };
+    fastify.get('/api/branding', async (request, reply) => {
+        try {
+            const { getBrandingSettings } = await import('./lib/systemSettings');
+            const branding = getBrandingSettings();
+            return { success: true, data: branding };
+        } catch (error) {
+            console.error('[API] Error fetching branding settings:', error);
+            // Return default branding on error
+            return {
+                success: true,
+                data: {
+                    platformName: 'IxaSales',
+                    primaryColor: '#3B82F6',
+                    logoUrl: '',
+                },
+            };
+        }
     });
 
     // Register auth plugin globally for /api routes
@@ -198,6 +214,8 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         await api.register(paymentGatewayRoutes, { prefix: '/payment-gateway' });
         await api.register(telegramWebhookRoutes, { prefix: '/telegram' });
         await api.register(customerPortalRoutes, { prefix: '/customer-portal' });
+        await api.register(gpsTrackingRoutes, { prefix: '/gps-tracking' });
+        await api.register(userActivityRoutes, { prefix: '/user-activity' });
 
     }, { prefix: '/api' });
 
@@ -259,6 +277,10 @@ const start = async () => {
         // Initialize scheduler
         const { initializeScheduler } = await import('./lib/scheduler');
         initializeScheduler();
+
+        // Initialize session cleanup
+        const { initializeSessionCleanup } = await import('./lib/session-cleanup');
+        initializeSessionCleanup();
 
         console.log(`
 🚀 IxaSales API (Fastify) is running at http://${host}:${port}

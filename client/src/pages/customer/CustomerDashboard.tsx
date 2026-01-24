@@ -57,7 +57,6 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
     const [showCart, setShowCart] = createSignal(false);
     const [selectedProduct, setSelectedProduct] = createSignal<Product | null>(null);
     const [refreshing, setRefreshing] = createSignal(false);
-    const [isOffline, setIsOffline] = createSignal(!navigator.onLine);
 
     // Pagination
     const [ordersPage, setOrdersPage] = createSignal(1);
@@ -145,8 +144,6 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
 
     // Initial Load
     onMount(async () => {
-        window.addEventListener('online', () => setIsOffline(false));
-        window.addEventListener('offline', () => setIsOffline(true));
 
         try {
             // Load cart first
@@ -469,11 +466,7 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
                 </div>
             </header>
 
-            <Show when={isOffline()}>
-                <div class="offline-banner">
-                    <AlertCircle size={16} /> {t('dashboard.offline')}
-                </div>
-            </Show>
+
 
             <Show when={!loading()} fallback={
                 <div class="loading-state">

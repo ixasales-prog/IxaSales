@@ -3,6 +3,7 @@ import { A, useLocation } from '@solidjs/router';
 import { Home, ShoppingBag, Users, MapPin } from 'lucide-solid';
 import { initSettings } from '../../stores/settings';
 import { useI18n } from '../../i18n';
+import AutoStartTracking from '../gps-tracking/AutoStartTracking';
 
 const MobileSalesLayout: Component<{ children: any }> = (props) => {
     const { t } = useI18n();
@@ -25,6 +26,7 @@ const MobileSalesLayout: Component<{ children: any }> = (props) => {
 
     return (
         <div class="min-h-screen bg-slate-950 pb-20">
+            <AutoStartTracking />
             <main>
                 {props.children}
             </main>

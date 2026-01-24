@@ -1,6 +1,7 @@
 import { type Component } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { Truck, Package, User } from 'lucide-solid';
+import AutoStartTracking from '../gps-tracking/AutoStartTracking';
 
 const MobileDriverLayout: Component<{ children: any }> = (props) => {
     const location = useLocation();
@@ -12,6 +13,7 @@ const MobileDriverLayout: Component<{ children: any }> = (props) => {
 
     return (
         <div class="min-h-screen bg-slate-950 pb-20">
+            <AutoStartTracking />
             <main>
                 {props.children}
             </main>

@@ -1,104 +1,16 @@
 /**
- * PWA Service - Unified Module
+ * PWA Service - Simplified Module
  * 
  * Consolidated PWA functionality including:
- * - Service Worker registration and management
  * - Push notifications
- * - Background sync
  * - App install prompt
  * 
- * This is the single source of truth for all PWA-related functionality.
+ * Service worker functionality removed for simplicity.
  */
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
 
-// ============================================================================
-// SERVICE WORKER REGISTRATION
-// ============================================================================
-
-/**
- * Check if service workers are supported
- */
-export function isServiceWorkerSupported(): boolean {
-    return 'serviceWorker' in navigator;
-}
-
-/**
- * Register the service worker
- */
-export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-    if (!isServiceWorkerSupported()) {
-        if (import.meta.env.DEV) console.log('[PWA] Service workers not supported');
-        return null;
-    }
-
-    try {
-        const registration = await navigator.serviceWorker.register('/sw.js', {
-            scope: '/'
-        });
-
-        if (import.meta.env.DEV) console.log('[PWA] Service worker registered');
-
-        // Handle updates
-        registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            if (newWorker) {
-                newWorker.addEventListener('statechange', () => {
-                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                        // New version available
-                        if (import.meta.env.DEV) console.log('[PWA] New version available');
-                        dispatchEvent(new CustomEvent('pwa-update-available'));
-                    }
-                });
-            }
-        });
-
-        // Listen for messages from service worker
-        navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
-
-        return registration;
-    } catch (error) {
-        console.error('[PWA] Service worker registration failed:', error);
-        return null;
-    }
-}
-
-/**
- * Unregister all service workers
- */
-export async function unregisterServiceWorker(): Promise<boolean> {
-    if (!isServiceWorkerSupported()) return false;
-
-    try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map(reg => reg.unregister()));
-        return true;
-    } catch (error) {
-        console.error('[PWA] Failed to unregister:', error);
-        return false;
-    }
-}
-
-/**
- * Check for service worker updates
- */
-export async function checkForUpdates(): Promise<void> {
-    const registration = await navigator.serviceWorker?.getRegistration();
-    if (registration) {
-        await registration.update();
-    }
-}
-
-/**
- * Skip waiting and reload
- */
-export async function skipWaiting(): Promise<void> {
-    const registration = await navigator.serviceWorker?.getRegistration();
-    if (registration?.waiting) {
-        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        window.location.reload();
-    }
-}
+// Service worker functionality removed - app now requires online connection
 
 // ============================================================================
 // PUSH NOTIFICATIONS
@@ -108,7 +20,7 @@ export async function skipWaiting(): Promise<void> {
  * Check if push notifications are supported
  */
 export function isPushSupported(): boolean {
-    return 'PushManager' in window && isServiceWorkerSupported();
+    return 'PushManager' in window;
 }
 
 /**
@@ -243,39 +155,7 @@ export async function showLocalNotification(
     }
 }
 
-// ============================================================================
-// BACKGROUND SYNC
-// ============================================================================
-
-/**
- * Register background sync
- */
-export async function registerBackgroundSync(tag: string): Promise<boolean> {
-    if (!isServiceWorkerSupported() || !('SyncManager' in window)) return false;
-
-    try {
-        const registration = await navigator.serviceWorker.ready;
-        await (registration as any).sync.register(tag);
-        return true;
-    } catch {
-        if (import.meta.env.DEV) console.log('[PWA] Background sync not available');
-        return false;
-    }
-}
-
-/**
- * Register cart sync
- */
-export function registerCartSync(): Promise<boolean> {
-    return registerBackgroundSync('sync-cart');
-}
-
-/**
- * Register favorites sync
- */
-export function registerFavoritesSync(): Promise<boolean> {
-    return registerBackgroundSync('sync-favorites');
-}
+// Background sync removed - app now requires online connection
 
 // ============================================================================
 // APP INSTALL PROMPT
@@ -360,16 +240,6 @@ export function resetInstallTracking(): void {
 // INTERNAL HELPERS
 // ============================================================================
 
-function handleServiceWorkerMessage(event: MessageEvent) {
-    const { type, item } = event.data || {};
-
-    switch (type) {
-        case 'SYNC_SUCCESS':
-            window.dispatchEvent(new CustomEvent('pwa-sync-success', { detail: item }));
-            break;
-    }
-}
-
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding)
@@ -391,12 +261,6 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 // ============================================================================
 
 export const pwa = {
-    // Service Worker
-    registerServiceWorker,
-    unregisterServiceWorker,
-    checkForUpdates,
-    skipWaiting,
-
     // Push
     isPushSupported,
     getPushSubscription,
@@ -408,11 +272,6 @@ export const pwa = {
     getNotificationPermission,
     requestNotificationPermission,
     showLocalNotification,
-
-    // Background Sync
-    registerBackgroundSync,
-    registerCartSync,
-    registerFavoritesSync,
 
     // Install
     promptInstall,

@@ -2,6 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
 import { eq, and, sql, desc, gte, lte } from 'drizzle-orm';
+import { VisitsService } from '../services/visits.service';
+
+// Create service instance
+const visitsService = new VisitsService();
 
 // Schemas
 const ListVisitsQuerySchema = Type.Object({
@@ -92,59 +96,24 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
 
         const page = parseInt(pageStr);
         const limit = parseInt(limitStr);
-        const offset = (page - 1) * limit;
 
-        const conditions: any[] = [eq(schema.salesVisits.tenantId, user.tenantId)];
+        try {
+            const { data: visits, meta } = await visitsService.listVisits(
+                user.tenantId,
+                user.id,
+                user.role,
+                { page, limit, startDate, endDate, status, customerId }
+            );
 
-        // Sales rep can only see their own visits
-        if (user.role === 'sales_rep') {
-            conditions.push(eq(schema.salesVisits.salesRepId, user.id));
+            return {
+                success: true,
+                data: visits,
+                meta,
+            };
+        } catch (error: any) {
+            console.error('List visits error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        // Date filters
-        if (startDate) conditions.push(gte(schema.salesVisits.plannedDate, startDate));
-        if (endDate) conditions.push(lte(schema.salesVisits.plannedDate, endDate));
-        if (status) conditions.push(eq(schema.salesVisits.status, status as any));
-        if (customerId) conditions.push(eq(schema.salesVisits.customerId, customerId));
-
-        const visits = await db
-            .select({
-                id: schema.salesVisits.id,
-                customerId: schema.salesVisits.customerId,
-                customerName: schema.customers.name,
-                customerAddress: schema.customers.address,
-                salesRepId: schema.salesVisits.salesRepId,
-                salesRepName: schema.users.name,
-                visitType: schema.salesVisits.visitType,
-                status: schema.salesVisits.status,
-                outcome: schema.salesVisits.outcome,
-                plannedDate: schema.salesVisits.plannedDate,
-                plannedTime: schema.salesVisits.plannedTime,
-                startedAt: schema.salesVisits.startedAt,
-                completedAt: schema.salesVisits.completedAt,
-                notes: schema.salesVisits.notes,
-                outcomeNotes: schema.salesVisits.outcomeNotes,
-                orderId: schema.salesVisits.orderId,
-                createdAt: schema.salesVisits.createdAt,
-            })
-            .from(schema.salesVisits)
-            .leftJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
-            .leftJoin(schema.users, eq(schema.salesVisits.salesRepId, schema.users.id))
-            .where(and(...conditions))
-            .orderBy(desc(schema.salesVisits.plannedDate))
-            .limit(limit)
-            .offset(offset);
-
-        const [{ count }] = await db
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.salesVisits)
-            .where(and(...conditions));
-
-        return {
-            success: true,
-            data: visits,
-            meta: { page, limit, total: Number(count), totalPages: Math.ceil(Number(count) / limit) },
-        };
     });
 
     // ----------------------------------------------------------------
@@ -155,48 +124,25 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         schema: { querystring: TodayVisitsQuerySchema },
     }, async (request, reply) => {
         const user = request.user!;
-        const date = request.query.date || new Date().toISOString().split('T')[0];
+        const date = request.query.date;
 
-        const conditions: any[] = [
-            eq(schema.salesVisits.tenantId, user.tenantId),
-            eq(schema.salesVisits.plannedDate, date),
-        ];
+        try {
+            const { data: visits, stats } = await visitsService.getTodayVisits(
+                user.tenantId,
+                user.id,
+                user.role,
+                date
+            );
 
-        if (user.role === 'sales_rep') {
-            conditions.push(eq(schema.salesVisits.salesRepId, user.id));
+            return {
+                success: true,
+                data: visits,
+                stats,
+            };
+        } catch (error: any) {
+            console.error('Get today\'s visits error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        const visits = await db
-            .select({
-                id: schema.salesVisits.id,
-                customerId: schema.salesVisits.customerId,
-                customerName: schema.customers.name,
-                customerAddress: schema.customers.address,
-                customerPhone: schema.customers.phone,
-                visitType: schema.salesVisits.visitType,
-                status: schema.salesVisits.status,
-                outcome: schema.salesVisits.outcome,
-                plannedTime: schema.salesVisits.plannedTime,
-                startedAt: schema.salesVisits.startedAt,
-                completedAt: schema.salesVisits.completedAt,
-                notes: schema.salesVisits.notes,
-                orderId: schema.salesVisits.orderId,
-            })
-            .from(schema.salesVisits)
-            .leftJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
-            .where(and(...conditions))
-            .orderBy(desc(schema.salesVisits.plannedTime));
-
-        // Calculate stats
-        const completed = visits.filter(v => v.status === 'completed').length;
-        const inProgress = visits.filter(v => v.status === 'in_progress').length;
-        const planned = visits.filter(v => v.status === 'planned').length;
-
-        return {
-            success: true,
-            data: visits,
-            stats: { total: visits.length, completed, inProgress, planned }
-        };
     });
 
     // ----------------------------------------------------------------
@@ -206,52 +152,18 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
-        const today = new Date().toISOString().split('T')[0];
-        const conditions: any[] = [eq(schema.salesVisits.tenantId, user.tenantId)];
 
-        if (user.role === 'sales_rep') {
-            conditions.push(eq(schema.salesVisits.salesRepId, user.id));
+        try {
+            const stats = await visitsService.getVisitStats(user.tenantId, user.id, user.role);
+
+            return {
+                success: true,
+                data: stats
+            };
+        } catch (error: any) {
+            console.error('Get visit stats error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        // Today's visits
-        const todayConditions = [...conditions, eq(schema.salesVisits.plannedDate, today)];
-        const [todayStats] = await db
-            .select({
-                total: sql<number>`count(*)`,
-                completed: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
-                inProgress: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'in_progress')`,
-            })
-            .from(schema.salesVisits)
-            .where(and(...todayConditions));
-
-        // This week's stats
-        const weekStart = new Date();
-        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-        const weekConditions = [...conditions, gte(schema.salesVisits.plannedDate, weekStart.toISOString().split('T')[0])];
-        const [weekStats] = await db
-            .select({
-                total: sql<number>`count(*)`,
-                completed: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
-                ordersPlaced: sql<number>`count(*) filter (where ${schema.salesVisits.outcome} = 'order_placed')`,
-            })
-            .from(schema.salesVisits)
-            .where(and(...weekConditions));
-
-        return {
-            success: true,
-            data: {
-                today: {
-                    total: Number(todayStats?.total || 0),
-                    completed: Number(todayStats?.completed || 0),
-                    inProgress: Number(todayStats?.inProgress || 0),
-                },
-                thisWeek: {
-                    total: Number(weekStats?.total || 0),
-                    completed: Number(weekStats?.completed || 0),
-                    ordersPlaced: Number(weekStats?.ordersPlaced || 0),
-                }
-            }
-        };
     });
 
     // ----------------------------------------------------------------
@@ -264,49 +176,18 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const user = request.user!;
         const { id } = request.params;
 
-        const [visit] = await db
-            .select({
-                id: schema.salesVisits.id,
-                customerId: schema.salesVisits.customerId,
-                customerName: schema.customers.name,
-                customerAddress: schema.customers.address,
-                customerPhone: schema.customers.phone,
-                salesRepId: schema.salesVisits.salesRepId,
-                salesRepName: schema.users.name,
-                visitType: schema.salesVisits.visitType,
-                status: schema.salesVisits.status,
-                outcome: schema.salesVisits.outcome,
-                plannedDate: schema.salesVisits.plannedDate,
-                plannedTime: schema.salesVisits.plannedTime,
-                startedAt: schema.salesVisits.startedAt,
-                completedAt: schema.salesVisits.completedAt,
-                startLatitude: schema.salesVisits.startLatitude,
-                startLongitude: schema.salesVisits.startLongitude,
-                endLatitude: schema.salesVisits.endLatitude,
-                endLongitude: schema.salesVisits.endLongitude,
-                notes: schema.salesVisits.notes,
-                outcomeNotes: schema.salesVisits.outcomeNotes,
-                orderId: schema.salesVisits.orderId,
-                createdAt: schema.salesVisits.createdAt,
-            })
-            .from(schema.salesVisits)
-            .leftJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
-            .leftJoin(schema.users, eq(schema.salesVisits.salesRepId, schema.users.id))
-            .where(and(
-                eq(schema.salesVisits.id, id),
-                eq(schema.salesVisits.tenantId, user.tenantId)
-            ));
+        try {
+            const visit = await visitsService.getVisitById(id, user.tenantId, user.id, user.role);
 
-        if (!visit) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            if (!visit) {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            }
+
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Get visit by ID error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        // Sales rep can only see their own visits
-        if (user.role === 'sales_rep' && visit.salesRepId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
-        }
-
-        return { success: true, data: visit };
     });
 
     // ----------------------------------------------------------------
@@ -319,34 +200,25 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const user = request.user!;
         const body = request.body;
 
-        // Verify customer exists and belongs to tenant
-        const [customer] = await db
-            .select({ id: schema.customers.id })
-            .from(schema.customers)
-            .where(and(
-                eq(schema.customers.id, body.customerId),
-                eq(schema.customers.tenantId, user.tenantId)
-            ));
+        try {
+            const visit = await visitsService.createVisit(body, user.tenantId, user.id, user.role);
 
-        if (!customer) {
-            return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Create visit error:', error);
+            if (error.message === 'Customer not found') {
+                return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
+            } else if (error.message === 'Planned date cannot be in the past') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_DATE', 
+                        message: error.message
+                    } 
+                });
+            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        const [visit] = await db
-            .insert(schema.salesVisits)
-            .values({
-                tenantId: user.tenantId,
-                customerId: body.customerId,
-                salesRepId: user.role === 'sales_rep' ? user.id : (body.salesRepId || user.id),
-                visitType: (body.visitType || 'scheduled') as any,
-                status: 'planned',
-                plannedDate: body.plannedDate,
-                plannedTime: body.plannedTime,
-                notes: body.notes,
-            })
-            .returning();
-
-        return { success: true, data: visit };
     });
 
     // ----------------------------------------------------------------
@@ -360,72 +232,22 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const body = request.body;
 
         try {
-            // Verify customer exists and belongs to tenant
-            const [customer] = await db
-                .select({ id: schema.customers.id })
-                .from(schema.customers)
-                .where(and(
-                    eq(schema.customers.id, body.customerId),
-                    eq(schema.customers.tenantId, user.tenantId)
-                ));
-
-            if (!customer) {
-                return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
-            }
-
-            const now = new Date();
-            const today = now.toISOString().split('T')[0];
-            const currentTime = now.toTimeString().slice(0, 5);
-
-            // Build insert values, handling optional fields
-            const insertValues: any = {
-                tenantId: user.tenantId,
-                customerId: body.customerId,
-                salesRepId: user.id,
-                visitType: 'ad_hoc',
-                status: 'completed',
-                outcome: body.outcome,
-                plannedDate: body.plannedDate || today,
-                plannedTime: body.plannedTime || currentTime,
-                startedAt: now,
-                completedAt: now,
-            };
-
-            // Optional fields
-            if (body.latitude !== undefined) {
-                insertValues.startLatitude = body.latitude.toString();
-                insertValues.startLongitude = body.longitude?.toString();
-                insertValues.endLatitude = body.latitude.toString();
-                insertValues.endLongitude = body.longitude?.toString();
-            }
-            if (body.photo) {
-                insertValues.photos = [body.photo];
-            }
-            if (body.outcomeNotes) {
-                insertValues.outcomeNotes = body.outcomeNotes;
-            }
-            if (body.noOrderReason) {
-                insertValues.noOrderReason = body.noOrderReason;
-            }
-            if (body.followUpReason) {
-                insertValues.followUpReason = body.followUpReason;
-            }
-            if (body.followUpDate) {
-                insertValues.followUpDate = body.followUpDate;
-            }
-            if (body.followUpTime) {
-                insertValues.followUpTime = body.followUpTime;
-            }
-
-            // Create visit with completed status
-            const [visit] = await db
-                .insert(schema.salesVisits)
-                .values(insertValues)
-                .returning();
+            const visit = await visitsService.createQuickVisit(body, user.tenantId, user.id);
 
             return { success: true, data: visit };
         } catch (error: any) {
             console.error('Quick visit error:', error);
+            if (error.message === 'Customer not found') {
+                return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
+            } else if (error.message === 'Planned date cannot be in the past') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_DATE', 
+                        message: error.message
+                    } 
+                });
+            }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
     });
@@ -441,41 +263,27 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const { id } = request.params;
         const body = request.body;
 
-        // Get visit
-        const [visit] = await db
-            .select()
-            .from(schema.salesVisits)
-            .where(and(
-                eq(schema.salesVisits.id, id),
-                eq(schema.salesVisits.tenantId, user.tenantId)
-            ));
+        try {
+            const visit = await visitsService.startVisit(id, body, user.tenantId, user.id, user.role);
 
-        if (!visit) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Start visit error:', error);
+            if (error.message === 'Visit not found') {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            } else if (error.message === 'Forbidden') {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            } else if (error.name === 'InvalidStatusTransitionError') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_STATUS_TRANSITION', 
+                        message: error.message
+                    } 
+                });
+            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        // Sales rep can only start their own visits
-        if (user.role === 'sales_rep' && visit.salesRepId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
-        }
-
-        if (visit.status !== 'planned') {
-            return reply.code(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Visit must be planned to start' } });
-        }
-
-        const [updated] = await db
-            .update(schema.salesVisits)
-            .set({
-                status: 'in_progress',
-                startedAt: new Date(),
-                startLatitude: body.latitude?.toString(),
-                startLongitude: body.longitude?.toString(),
-                updatedAt: new Date(),
-            })
-            .where(eq(schema.salesVisits.id, id))
-            .returning();
-
-        return { success: true, data: updated };
     });
 
     // ----------------------------------------------------------------
@@ -489,44 +297,27 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const { id } = request.params;
         const body = request.body;
 
-        // Get visit
-        const [visit] = await db
-            .select()
-            .from(schema.salesVisits)
-            .where(and(
-                eq(schema.salesVisits.id, id),
-                eq(schema.salesVisits.tenantId, user.tenantId)
-            ));
+        try {
+            const visit = await visitsService.completeVisit(id, body, user.tenantId, user.id, user.role);
 
-        if (!visit) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Complete visit error:', error);
+            if (error.message === 'Visit not found') {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            } else if (error.message === 'Forbidden') {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            } else if (error.name === 'InvalidStatusTransitionError') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_STATUS_TRANSITION', 
+                        message: error.message
+                    } 
+                });
+            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        if (user.role === 'sales_rep' && visit.salesRepId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
-        }
-
-        if (visit.status !== 'in_progress') {
-            return reply.code(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Visit must be in progress to complete' } });
-        }
-
-        const [updated] = await db
-            .update(schema.salesVisits)
-            .set({
-                status: 'completed',
-                completedAt: new Date(),
-                outcome: body.outcome as any,
-                outcomeNotes: body.outcomeNotes,
-                photos: body.photos,
-                orderId: body.orderId,
-                endLatitude: body.latitude?.toString(),
-                endLongitude: body.longitude?.toString(),
-                updatedAt: new Date(),
-            })
-            .where(eq(schema.salesVisits.id, id))
-            .returning();
-
-        return { success: true, data: updated };
     });
 
     // ----------------------------------------------------------------
@@ -540,37 +331,27 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const { id } = request.params;
         const body = request.body;
 
-        const [visit] = await db
-            .select()
-            .from(schema.salesVisits)
-            .where(and(
-                eq(schema.salesVisits.id, id),
-                eq(schema.salesVisits.tenantId, user.tenantId)
-            ));
+        try {
+            const visit = await visitsService.cancelVisit(id, body, user.tenantId, user.id, user.role);
 
-        if (!visit) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Cancel visit error:', error);
+            if (error.message === 'Visit not found') {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            } else if (error.message === 'Forbidden') {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            } else if (error.name === 'InvalidStatusTransitionError') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_STATUS_TRANSITION', 
+                        message: error.message
+                    } 
+                });
+            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        if (user.role === 'sales_rep' && visit.salesRepId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
-        }
-
-        if (visit.status === 'completed') {
-            return reply.code(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Cannot cancel completed visit' } });
-        }
-
-        const [updated] = await db
-            .update(schema.salesVisits)
-            .set({
-                status: 'cancelled',
-                outcomeNotes: body.reason,
-                updatedAt: new Date(),
-            })
-            .where(eq(schema.salesVisits.id, id))
-            .returning();
-
-        return { success: true, data: updated };
     });
 
     // ----------------------------------------------------------------
@@ -584,40 +365,35 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const { id } = request.params;
         const body = request.body;
 
-        const [visit] = await db
-            .select()
-            .from(schema.salesVisits)
-            .where(and(
-                eq(schema.salesVisits.id, id),
-                eq(schema.salesVisits.tenantId, user.tenantId)
-            ));
+        try {
+            const visit = await visitsService.updateVisit(id, body, user.tenantId, user.id, user.role);
 
-        if (!visit) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Update visit error:', error);
+            if (error.message === 'Visit not found') {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            } else if (error.message === 'Forbidden') {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            } else if (error.name === 'InvalidStatusTransitionError') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_STATUS_TRANSITION', 
+                        message: error.message
+                    } 
+                });
+            } else if (error.message === 'Planned date cannot be in the past') {
+                return reply.code(400).send({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_DATE', 
+                        message: error.message
+                    } 
+                });
+            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
-
-        if (user.role === 'sales_rep' && visit.salesRepId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
-        }
-
-        // Can only reschedule planned visits
-        if (visit.status !== 'planned') {
-            return reply.code(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Can only reschedule planned visits' } });
-        }
-
-        const updateData: any = { updatedAt: new Date() };
-        if (body.plannedDate) updateData.plannedDate = body.plannedDate;
-        if (body.plannedTime !== undefined) updateData.plannedTime = body.plannedTime;
-        if (body.notes !== undefined) updateData.notes = body.notes;
-        if (body.visitType) updateData.visitType = body.visitType;
-
-        const [updated] = await db
-            .update(schema.salesVisits)
-            .set(updateData)
-            .where(eq(schema.salesVisits.id, id))
-            .returning();
-
-        return { success: true, data: updated };
     });
 
     // ----------------------------------------------------------------
@@ -633,24 +409,13 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
         }
 
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        try {
+            const result = await visitsService.markMissedVisits(user.tenantId);
 
-        // Mark all planned visits from yesterday as missed
-        const result = await db
-            .update(schema.salesVisits)
-            .set({
-                status: 'missed',
-                updatedAt: new Date(),
-            })
-            .where(and(
-                eq(schema.salesVisits.tenantId, user.tenantId),
-                eq(schema.salesVisits.status, 'planned'),
-                lte(schema.salesVisits.plannedDate, yesterdayStr)
-            ))
-            .returning({ id: schema.salesVisits.id });
-
-        return { success: true, data: { markedAsMissed: result.length } };
+            return { success: true, data: result };
+        } catch (error: any) {
+            console.error('Mark missed visits error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
+        }
     });
 };

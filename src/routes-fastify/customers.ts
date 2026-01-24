@@ -216,7 +216,7 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (search) {
             conditions.push(
-                sql`(${schema.customers.name} ILIKE ${`%${search}%`} OR ${schema.customers.code} ILIKE ${`%${search}%`} OR ${schema.customers.email} ILIKE ${`%${search}%`})`
+                sql`(${schema.customers.name} ILIKE ${`%${search}%`} OR ${schema.customers.code} ILIKE ${`%${search}%`} OR ${schema.customers.phone} ILIKE ${`%${search}%`} OR ${schema.customers.contactPerson} ILIKE ${`%${search}%`})`
             );
         }
         if (tierId) conditions.push(eq(schema.customers.tierId, tierId));
@@ -238,6 +238,7 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
                 waymark: schema.customers.waymark,
                 creditBalance: schema.customers.creditBalance,
                 debtBalance: schema.customers.debtBalance,
+                creditLimit: schema.customerTiers.creditLimit,
                 isActive: schema.customers.isActive,
                 tierName: schema.customerTiers.name,
                 territoryName: schema.territories.name,

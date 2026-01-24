@@ -14,6 +14,7 @@ interface BusinessSettings {
     invoiceNumberPrefix: string;
     defaultPaymentTerms: number;
     yandexGeocoderApiKey: string;
+    openWeatherApiKey: string;
 }
 
 const CURRENCIES = [
@@ -54,6 +55,7 @@ const BusinessSettingsPage: Component = () => {
         invoiceNumberPrefix: 'INV-',
         defaultPaymentTerms: 7,
         yandexGeocoderApiKey: '',
+        openWeatherApiKey: '',
     });
 
     createEffect(() => {
@@ -66,6 +68,7 @@ const BusinessSettingsPage: Component = () => {
                 invoiceNumberPrefix: d.invoiceNumberPrefix ?? 'INV-',
                 defaultPaymentTerms: d.defaultPaymentTerms ?? 7,
                 yandexGeocoderApiKey: d.yandexGeocoderApiKey ?? '',
+                openWeatherApiKey: d.openWeatherApiKey ?? '',
             });
         }
     });
@@ -252,6 +255,20 @@ const BusinessSettingsPage: Component = () => {
                             <p class="text-xs text-slate-500 mt-2">
                                 Get your API key from <a href="https://developer.tech.yandex.ru/" target="_blank" class="text-blue-400 hover:underline">Yandex Developer Console</a>.
                                 Used for accurate address lookup in Uzbekistan.
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-slate-400 mb-1.5">OpenWeather API Key</label>
+                            <input
+                                type="text"
+                                value={form.openWeatherApiKey}
+                                onInput={(e) => setForm('openWeatherApiKey', e.currentTarget.value)}
+                                placeholder="Enter your OpenWeather API key"
+                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                            />
+                            <p class="text-xs text-slate-500 mt-2">
+                                Get your free API key from <a href="https://openweathermap.org/api" target="_blank" class="text-blue-400 hover:underline">OpenWeatherMap</a>.
+                                Used for weather information in the sales dashboard.
                             </p>
                         </div>
                     </div>

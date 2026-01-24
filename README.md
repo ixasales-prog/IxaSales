@@ -1,6 +1,6 @@
 # IxaSales - Distribution ERP
 
-Multi-tenant Distribution ERP built with Node.js + ElysiaJS + SolidJS + PostgreSQL + Drizzle ORM.
+Multi-tenant Distribution ERP built with Node.js + Fastify + SolidJS + PostgreSQL + Drizzle ORM.
 
 ## Quick Start
 
@@ -77,13 +77,13 @@ src/
 │   ├── index.ts          # Database connection
 │   └── schema/           # Drizzle schema files
 ├── lib/
-│   ├── auth.ts           # Auth middleware
+│   ├── auth-fastify.ts   # Auth middleware
 │   └── password.ts       # Password utilities
-├── routes/
+├── routes-fastify/
 │   ├── auth.ts           # Auth endpoints
 │   ├── users.ts          # User management
 │   └── tenants.ts        # Tenant management
-└── index.ts              # App entry point
+└── index-fastify.ts         # App entry point
 ```
 
 ## License

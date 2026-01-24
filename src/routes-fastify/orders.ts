@@ -156,17 +156,717 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             .from(schema.salesVisits)
             .where(and(...visitConditions));
 
+        // Week-over-week comparison
+        const lastWeekStart = new Date(startOfDay);
+        lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+        const lastWeekEnd = new Date(lastWeekStart);
+        lastWeekEnd.setDate(lastWeekEnd.getDate() + 1);
+
+        const [lastWeekSales] = await db
+            .select({
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'delivered'),
+                gte(schema.orders.createdAt, lastWeekStart),
+                lt(schema.orders.createdAt, lastWeekEnd)
+            ));
+
+        // Top customers with debt (top 5)
+        const topCustomersWithDebt = await db
+            .select({
+                id: schema.customers.id,
+                name: schema.customers.name,
+                debtBalance: schema.customers.debtBalance,
+                phone: schema.customers.phone,
+                address: schema.customers.address,
+            })
+            .from(schema.customers)
+            .where(and(
+                ...customerConditions,
+                sql`${schema.customers.debtBalance} > 0`
+            ))
+            .orderBy(desc(schema.customers.debtBalance))
+            .limit(5);
+
+        // Outstanding debt summary
+        const [debtSummary] = await db
+            .select({
+                totalDebt: sql<number>`coalesce(sum(${schema.customers.debtBalance}), 0)`,
+                customerCount: sql<number>`count(*) filter (where ${schema.customers.debtBalance} > 0)`,
+            })
+            .from(schema.customers)
+            .where(and(...customerConditions));
+
+        // Top customers by revenue (last 30 days)
+        const thirtyDaysAgo = new Date(startOfDay);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const topCustomersByRevenue = await db
+            .select({
+                customerId: schema.orders.customerId,
+                customerName: schema.customers.name,
+                totalRevenue: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .innerJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'delivered'),
+                gte(schema.orders.createdAt, thirtyDaysAgo)
+            ))
+            .groupBy(schema.orders.customerId, schema.customers.name)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`))
+            .limit(5);
+
+        const todaySalesValue = Number(todaySales?.total || 0);
+        const lastWeekSalesValue = Number(lastWeekSales?.total || 0);
+        const weekOverWeekChange = lastWeekSalesValue > 0 
+            ? ((todaySalesValue - lastWeekSalesValue) / lastWeekSalesValue) * 100 
+            : 0;
+
         return {
             success: true,
             data: {
-                todaysSales: Number(todaySales?.total || 0),
+                todaysSales: todaySalesValue,
                 pendingOrders: Number(pendingOrders?.count || 0),
                 customerCount: Number(customerCount?.count || 0),
                 visits: {
                     total: Number(visitStats?.total || 0),
                     completed: Number(visitStats?.completed || 0),
                     inProgress: Number(visitStats?.inProgress || 0),
+                },
+                // Phase 1 enhancements
+                weekOverWeek: {
+                    thisWeek: todaySalesValue,
+                    lastWeek: lastWeekSalesValue,
+                    change: weekOverWeekChange,
+                    changeAmount: todaySalesValue - lastWeekSalesValue,
+                },
+                topCustomersWithDebt: topCustomersWithDebt.map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    debtBalance: Number(c.debtBalance || 0),
+                    phone: c.phone,
+                    address: c.address,
+                })),
+                debtSummary: {
+                    totalDebt: Number(debtSummary?.totalDebt || 0),
+                    customerCount: Number(debtSummary?.customerCount || 0),
+                },
+                topCustomersByRevenue: topCustomersByRevenue.map(c => ({
+                    customerId: c.customerId,
+                    customerName: c.customerName,
+                    totalRevenue: Number(c.totalRevenue || 0),
+                    orderCount: Number(c.orderCount || 0),
+                })),
+            }
+        };
+    });
+
+    // Sales goals management
+    fastify.get('/sales-goals', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+
+        // Get goals from tenant settings
+        const goals = await db
+            .select()
+            .from(schema.tenantSettings)
+            .where(and(
+                eq(schema.tenantSettings.tenantId, user.tenantId),
+                sql`${schema.tenantSettings.key} LIKE 'sales_goal_%'`
+            ));
+
+        const goalsMap: Record<string, number> = {};
+        goals.forEach(g => {
+            const period = g.key.replace('sales_goal_', '');
+            goalsMap[period] = parseFloat(g.value || '0');
+        });
+
+        return {
+            success: true,
+            data: {
+                daily: goalsMap.daily || 0,
+                weekly: goalsMap.weekly || 0,
+                monthly: goalsMap.monthly || 0,
+            }
+        };
+    });
+
+    const SalesGoalsBodySchema = Type.Object({
+        daily: Type.Optional(Type.Number({ minimum: 0 })),
+        weekly: Type.Optional(Type.Number({ minimum: 0 })),
+        monthly: Type.Optional(Type.Number({ minimum: 0 })),
+    });
+
+    fastify.put<{ Body: Static<typeof SalesGoalsBodySchema> }>('/sales-goals', {
+        preHandler: [fastify.authenticate],
+        schema: { body: SalesGoalsBodySchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { daily, weekly, monthly } = request.body;
+
+        if (!['tenant_admin', 'super_admin', 'supervisor'].includes(user.role)) {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Only admins and supervisors can set goals' } };
+        }
+
+        // Upsert goals using PostgreSQL ON CONFLICT for better performance
+        const goals = [
+            { key: 'sales_goal_daily', value: (daily || 0).toString() },
+            { key: 'sales_goal_weekly', value: (weekly || 0).toString() },
+            { key: 'sales_goal_monthly', value: (monthly || 0).toString() },
+        ];
+
+        for (const goal of goals) {
+            // Try to use ON CONFLICT if unique constraint exists, otherwise fall back to select/update/insert
+            try {
+                await db.execute(sql`
+                    INSERT INTO tenant_settings (tenant_id, key, value, updated_at)
+                    VALUES (${user.tenantId}, ${goal.key}, ${goal.value}, NOW())
+                    ON CONFLICT (tenant_id, key) 
+                    DO UPDATE SET value = ${goal.value}, updated_at = NOW()
+                `);
+            } catch (e: any) {
+                // Fallback if unique constraint doesn't exist yet
+                const existing = await db
+                    .select()
+                    .from(schema.tenantSettings)
+                    .where(and(
+                        eq(schema.tenantSettings.tenantId, user.tenantId),
+                        eq(schema.tenantSettings.key, goal.key)
+                    ))
+                    .limit(1);
+
+                if (existing.length > 0) {
+                    await db
+                        .update(schema.tenantSettings)
+                        .set({ value: goal.value, updatedAt: new Date() })
+                        .where(eq(schema.tenantSettings.id, existing[0].id));
+                } else {
+                    await db
+                        .insert(schema.tenantSettings)
+                        .values({
+                            tenantId: user.tenantId,
+                            key: goal.key,
+                            value: goal.value,
+                        });
                 }
+            }
+        }
+
+        return {
+            success: true,
+            data: {
+                daily: daily || 0,
+                weekly: weekly || 0,
+                monthly: monthly || 0,
+            }
+        };
+    });
+
+    // Sales trends analytics (for charts)
+    fastify.get<{ Querystring: { period?: string } }>('/sales-trends', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const period = request.query.period || '7d';
+        const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+
+        const [tenant] = await db
+            .select({ timezone: schema.tenants.timezone })
+            .from(schema.tenants)
+            .where(eq(schema.tenants.id, user.tenantId))
+            .limit(1);
+
+        const timezone = tenant?.timezone || 'Asia/Tashkent';
+        const now = new Date();
+        const startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - days);
+
+        const orderConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, startDate)
+        ];
+        if (user.role === 'sales_rep') {
+            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
+        }
+
+        const dailySales = await db
+            .select({
+                date: sql<string>`DATE(${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions))
+            .groupBy(sql`DATE(${schema.orders.createdAt})`)
+            .orderBy(sql`DATE(${schema.orders.createdAt})`);
+
+        return {
+            success: true,
+            data: dailySales.map(d => ({
+                date: d.date,
+                sales: Number(d.total),
+                orders: Number(d.orderCount),
+            }))
+        };
+    });
+
+    // Product performance metrics
+    fastify.get<{ Querystring: { days?: string; limit?: string } }>('/product-performance', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const days = parseInt(request.query.days || '30');
+        const limit = parseInt(request.query.limit || '10');
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        const orderConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, startDate)
+        ];
+        if (user.role === 'sales_rep') {
+            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
+        }
+
+        const productPerformance = await db
+            .select({
+                productId: schema.orderItems.productId,
+                productName: schema.products.name,
+                productCode: schema.products.sku, // Using SKU instead of code
+                totalRevenue: sql<number>`coalesce(sum(${schema.orderItems.lineTotal}), 0)`,
+                totalQuantity: sql<number>`coalesce(sum(${schema.orderItems.qtyOrdered}), 0)`,
+                orderCount: sql<number>`count(distinct ${schema.orderItems.orderId})`,
+            })
+            .from(schema.orderItems)
+            .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+            .innerJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
+            .where(and(...orderConditions))
+            .groupBy(schema.orderItems.productId, schema.products.name, schema.products.sku)
+            .orderBy(desc(sql`sum(${schema.orderItems.lineTotal})`))
+            .limit(limit);
+
+        return {
+            success: true,
+            data: productPerformance.map(p => ({
+                productId: p.productId,
+                productName: p.productName,
+                productCode: p.productCode,
+                revenue: Number(p.totalRevenue),
+                quantity: Number(p.totalQuantity),
+                orderCount: Number(p.orderCount),
+            }))
+        };
+    });
+
+    // Time-based insights
+    fastify.get('/time-insights', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const days = 30;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        const orderConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, startDate)
+        ];
+        if (user.role === 'sales_rep') {
+            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
+        }
+
+        const hourlySales = await db
+            .select({
+                hour: sql<number>`EXTRACT(HOUR FROM ${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions))
+            .groupBy(sql`EXTRACT(HOUR FROM ${schema.orders.createdAt})`)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`));
+
+        const dailySales = await db
+            .select({
+                dayOfWeek: sql<number>`EXTRACT(DOW FROM ${schema.orders.createdAt})`,
+                dayName: sql<string>`TO_CHAR(${schema.orders.createdAt}, 'Day')`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions))
+            .groupBy(sql`EXTRACT(DOW FROM ${schema.orders.createdAt})`, sql`TO_CHAR(${schema.orders.createdAt}, 'Day')`)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`));
+
+        return {
+            success: true,
+            data: {
+                bestHours: hourlySales.slice(0, 5).map(h => ({
+                    hour: Number(h.hour),
+                    sales: Number(h.total),
+                    orders: Number(h.orderCount),
+                })),
+                bestDays: dailySales.map(d => ({
+                    dayOfWeek: Number(d.dayOfWeek),
+                    dayName: d.dayName.trim(),
+                    sales: Number(d.total),
+                    orders: Number(d.orderCount),
+                })),
+            }
+        };
+    });
+
+    // Performance metrics
+    fastify.get('/performance-metrics', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const days = 30;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+
+        const orderConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, startDate)
+        ];
+        if (user.role === 'sales_rep') {
+            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
+        }
+
+        const [orderStats] = await db
+            .select({
+                totalRevenue: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                totalOrders: sql<number>`count(*)`,
+                avgOrderValue: sql<number>`coalesce(avg(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions));
+
+        const visitConditions: any[] = [
+            eq(schema.salesVisits.tenantId, user.tenantId),
+            gte(schema.salesVisits.plannedDate, startDate.toISOString().split('T')[0])
+        ];
+        if (user.role === 'sales_rep') {
+            visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
+        }
+
+        const [visitStats] = await db
+            .select({
+                totalVisits: sql<number>`count(*)`,
+                completedVisits: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
+                visitsWithOrders: sql<number>`count(*) filter (where ${schema.salesVisits.outcome} = 'order_placed')`,
+            })
+            .from(schema.salesVisits)
+            .where(and(...visitConditions));
+
+        const customerConditions: any[] = [
+            eq(schema.customers.tenantId, user.tenantId),
+            gte(schema.customers.createdAt, startDate)
+        ];
+        if (user.role === 'sales_rep') {
+            customerConditions.push(eq(schema.customers.createdByUserId, user.id));
+        }
+
+        const [customerStats] = await db
+            .select({
+                newCustomers: sql<number>`count(*)`,
+            })
+            .from(schema.customers)
+            .where(and(...customerConditions));
+
+        const totalRevenue = Number(orderStats?.totalRevenue || 0);
+        const totalOrders = Number(orderStats?.totalOrders || 0);
+        const avgOrderValue = Number(orderStats?.avgOrderValue || 0);
+        const totalVisits = Number(visitStats?.totalVisits || 0);
+        const completedVisits = Number(visitStats?.completedVisits || 0);
+        const visitsWithOrders = Number(visitStats?.visitsWithOrders || 0);
+        const newCustomers = Number(customerStats?.newCustomers || 0);
+
+        const conversionRate = totalVisits > 0 ? (visitsWithOrders / totalVisits) * 100 : 0;
+        const visitCompletionRate = totalVisits > 0 ? (completedVisits / totalVisits) * 100 : 0;
+
+        return {
+            success: true,
+            data: {
+                totalRevenue,
+                totalOrders,
+                avgOrderValue,
+                conversionRate: Number(conversionRate.toFixed(2)),
+                visitCompletionRate: Number(visitCompletionRate.toFixed(2)),
+                newCustomers,
+                totalVisits,
+                completedVisits,
+                visitsWithOrders,
+            }
+        };
+    });
+
+    // Route optimization for today's visits
+    fastify.get('/route-optimization', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const today = new Date().toISOString().split('T')[0];
+        const visitConditions: any[] = [
+            eq(schema.salesVisits.tenantId, user.tenantId),
+            eq(schema.salesVisits.plannedDate, today),
+            eq(schema.salesVisits.status, 'planned')
+        ];
+        if (user.role === 'sales_rep') {
+            visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
+        }
+
+        const visits = await db
+            .select({
+                visitId: schema.salesVisits.id,
+                customerId: schema.customers.id,
+                customerName: schema.customers.name,
+                customerAddress: schema.customers.address,
+                latitude: schema.customers.latitude,
+                longitude: schema.customers.longitude,
+                plannedTime: schema.salesVisits.plannedTime,
+                visitType: schema.salesVisits.visitType,
+            })
+            .from(schema.salesVisits)
+            .innerJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
+            .where(and(...visitConditions));
+
+        const visitsWithCoords = visits
+            .filter(v => v.latitude && v.longitude)
+            .map(visit => ({
+                visitId: visit.visitId,
+                customerId: visit.customerId,
+                customerName: visit.customerName,
+                customerAddress: visit.customerAddress,
+                latitude: Number(visit.latitude || 0),
+                longitude: Number(visit.longitude || 0),
+                plannedTime: visit.plannedTime,
+                visitType: visit.visitType,
+            }));
+
+        const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        };
+
+        const optimizedRoute: Array<typeof visitsWithCoords[0] & { sequence: number }> = [];
+        const unvisited = [...visitsWithCoords];
+        
+        if (unvisited.length > 0) {
+            let current = unvisited.shift()!;
+            optimizedRoute.push({ ...current, sequence: 1 });
+
+            while (unvisited.length > 0) {
+                let nearestIndex = 0;
+                let nearestDistance = Infinity;
+
+                for (let i = 0; i < unvisited.length; i++) {
+                    const distance = haversineDistance(
+                        current.latitude,
+                        current.longitude,
+                        unvisited[i].latitude,
+                        unvisited[i].longitude
+                    );
+                    if (distance < nearestDistance) {
+                        nearestDistance = distance;
+                        nearestIndex = i;
+                    }
+                }
+
+                current = unvisited.splice(nearestIndex, 1)[0];
+                optimizedRoute.push({ ...current, sequence: optimizedRoute.length + 1 });
+            }
+        }
+
+        let totalDistance = 0;
+        for (let i = 0; i < optimizedRoute.length - 1; i++) {
+            totalDistance += haversineDistance(
+                optimizedRoute[i].latitude,
+                optimizedRoute[i].longitude,
+                optimizedRoute[i + 1].latitude,
+                optimizedRoute[i + 1].longitude
+            );
+        }
+
+        return {
+            success: true,
+            data: {
+                visits: optimizedRoute,
+                totalVisits: optimizedRoute.length,
+                estimatedDistance: Number(totalDistance.toFixed(2)),
+                estimatedTime: Math.round(totalDistance * 2),
+            }
+        };
+    });
+
+    // Gamification - User achievements and streaks
+    fastify.get('/gamification', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const orderConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, thirtyDaysAgo)
+        ];
+        if (user.role === 'sales_rep') {
+            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
+        }
+
+        const dailySales = await db
+            .select({
+                date: sql<string>`DATE(${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions))
+            .groupBy(sql`DATE(${schema.orders.createdAt})`)
+            .orderBy(desc(sql`DATE(${schema.orders.createdAt})`));
+
+        let currentStreak = 0;
+        const today = new Date().toISOString().split('T')[0];
+        const salesDates = new Set(dailySales.map(d => d.date));
+        
+        for (let i = 0; i < 365; i++) {
+            const checkDate = new Date();
+            checkDate.setDate(checkDate.getDate() - i);
+            const checkDateStr = checkDate.toISOString().split('T')[0];
+            
+            if (salesDates.has(checkDateStr)) {
+                currentStreak++;
+            } else {
+                break;
+            }
+        }
+
+        const [totalSales] = await db
+            .select({
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions));
+
+        const totalSalesValue = Number(totalSales?.total || 0);
+        const totalOrders = Number(totalSales?.orderCount || 0);
+
+        const achievements = [];
+        if (currentStreak >= 7) achievements.push({ id: 'streak_7', name: 'Week Warrior', description: '7 day sales streak', icon: '🔥' });
+        if (currentStreak >= 30) achievements.push({ id: 'streak_30', name: 'Month Master', description: '30 day sales streak', icon: '⭐' });
+        if (totalSalesValue >= 10000000) achievements.push({ id: 'sales_10m', name: 'Millionaire', description: '10M in sales', icon: '💰' });
+        if (totalOrders >= 100) achievements.push({ id: 'orders_100', name: 'Centurion', description: '100 orders', icon: '🎯' });
+        if (totalOrders >= 500) achievements.push({ id: 'orders_500', name: 'Sales Legend', description: '500 orders', icon: '👑' });
+
+        const [bestDay] = await db
+            .select({
+                date: sql<string>`DATE(${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(...orderConditions))
+            .groupBy(sql`DATE(${schema.orders.createdAt})`)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`))
+            .limit(1);
+
+        return {
+            success: true,
+            data: {
+                currentStreak,
+                totalSales: totalSalesValue,
+                totalOrders,
+                achievements,
+                bestDay: bestDay ? {
+                    date: bestDay.date,
+                    sales: Number(bestDay.total),
+                } : null,
+            }
+        };
+    });
+
+    // Weather information for sales planning
+    fastify.get<{ Querystring: { city?: string; country?: string } }>('/weather', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+
+        const [tenant] = await db
+            .select({ 
+                timezone: schema.tenants.timezone,
+                city: schema.tenants.city,
+                country: schema.tenants.country,
+                openWeatherApiKey: schema.tenants.openWeatherApiKey,
+            })
+            .from(schema.tenants)
+            .where(eq(schema.tenants.id, user.tenantId))
+            .limit(1);
+
+        const city = request.query.city || tenant?.city || 'Tashkent';
+        const country = request.query.country || tenant?.country || 'UZ';
+
+        try {
+            // First try tenant-specific API key, then fall back to global env var
+            const apiKey = tenant?.openWeatherApiKey || process.env.OPENWEATHER_API_KEY;
+            if (apiKey) {
+                const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=${city},${country}&appid=${apiKey}&units=metric`;
+                const response = await fetch(weatherUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    return {
+                        success: true,
+                        data: {
+                            city: data.name,
+                            temperature: Math.round(data.main.temp),
+                            condition: data.weather[0].main,
+                            description: data.weather[0].description,
+                            icon: data.weather[0].icon,
+                            humidity: data.main.humidity,
+                            windSpeed: data.wind?.speed || 0,
+                            feelsLike: Math.round(data.main.feels_like),
+                        }
+                    };
+                }
+            }
+        } catch (e) {
+            // Fall through to mock data
+        }
+
+        const conditions = ['Clear', 'Clouds', 'Rain', 'Sunny'];
+        const randomCondition = conditions[Math.floor(Math.random() * conditions.length)];
+        
+        return {
+            success: true,
+            data: {
+                city: city,
+                temperature: 22,
+                condition: randomCondition,
+                description: randomCondition.toLowerCase(),
+                icon: '01d',
+                humidity: 65,
+                windSpeed: 5,
+                feelsLike: 24,
+                note: 'Mock data - configure OpenWeather API key in Business Settings for real weather',
             }
         };
     });

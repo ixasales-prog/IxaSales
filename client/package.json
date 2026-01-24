@@ -13,6 +13,8 @@
   "dependencies": {
     "@solidjs/router": "^0.15.4",
     "@tailwindcss/postcss": "^4.1.18",
+    "@types/leaflet": "^1.9.21",
+    "leaflet": "^1.9.4",
     "lucide-solid": "^0.562.0",
     "solid-js": "^1.9.10"
   },
@@ -24,11 +26,11 @@
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.0",
     "globals": "^17.1.0",
+    "jsdom": "^25.0.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.53.1",
     "vite": "^7.2.4",
     "vite-plugin-solid": "^2.11.10",
-    "vitest": "^2.1.4",
-    "jsdom": "^25.0.1"
+    "vitest": "^2.1.4"
   }
 }

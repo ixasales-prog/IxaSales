@@ -13,7 +13,28 @@ import {
     Mail,
     Phone,
     Building2,
-    Globe
+    Globe,
+    Target,
+    TrendingDown,
+    AlertCircle,
+    ArrowUpRight,
+    ArrowDownRight,
+    Zap,
+    DollarSign,
+    Calendar,
+    PhoneCall,
+    BarChart3,
+    Timer,
+    Activity,
+    Route,
+    Trophy,
+    Cloud,
+    CloudRain,
+    Sun,
+    Cloudy,
+    Wind,
+    Droplets,
+    Award
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { currentUser, logout } from '../../stores/auth';
@@ -26,36 +47,100 @@ interface DashboardStats {
     pendingOrders: number;
     customerCount: number;
     visits: { total: number; completed: number; inProgress: number };
-}
-
-interface RecentOrder {
-    id: string;
-    orderNumber: string;
-    customerName: string;
-    totalAmount: string;
-    status: string;
-    createdAt: string;
-}
-
-interface OrdersResponse {
-    data?: Array<{
+    weekOverWeek?: {
+        thisWeek: number;
+        lastWeek: number;
+        change: number;
+        changeAmount: number;
+    };
+    topCustomersWithDebt?: Array<{
         id: string;
-        orderNumber: string;
-        customer?: { name: string } | null;
-        customerName?: string;
-        totalAmount: string;
-        status: string;
-        createdAt: string;
+        name: string;
+        debtBalance: number;
+        phone?: string;
+        address?: string;
     }>;
-    meta?: { total?: number };
+    debtSummary?: {
+        totalDebt: number;
+        customerCount: number;
+    };
 }
 
-interface Customer {
-    id: string;
-    name: string;
-    address: string | null;
-    currentDebt: string | null;
+interface SalesGoals {
+    daily: number;
+    weekly: number;
+    monthly: number;
 }
+
+interface SalesTrend {
+    date: string;
+    sales: number;
+    orders: number;
+}
+
+
+interface TimeInsights {
+    bestHours: Array<{ hour: number; sales: number; orders: number }>;
+    bestDays: Array<{ dayOfWeek: number; dayName: string; sales: number; orders: number }>;
+}
+
+interface PerformanceMetrics {
+    totalRevenue: number;
+    totalOrders: number;
+    avgOrderValue: number;
+    conversionRate: number;
+    visitCompletionRate: number;
+    newCustomers: number;
+    totalVisits: number;
+    completedVisits: number;
+    visitsWithOrders: number;
+}
+
+interface RouteOptimization {
+    visits: Array<{
+        visitId: string;
+        customerId: string;
+        customerName: string;
+        customerAddress?: string;
+        latitude: number;
+        longitude: number;
+        plannedTime?: string;
+        visitType: string;
+        sequence: number;
+    }>;
+    totalVisits: number;
+    estimatedDistance: number;
+    estimatedTime: number;
+}
+
+interface Gamification {
+    currentStreak: number;
+    totalSales: number;
+    totalOrders: number;
+    achievements: Array<{
+        id: string;
+        name: string;
+        description: string;
+        icon: string;
+    }>;
+    bestDay: {
+        date: string;
+        sales: number;
+    } | null;
+}
+
+interface Weather {
+    city: string;
+    temperature: number;
+    condition: string;
+    description: string;
+    icon: string;
+    humidity: number;
+    windSpeed: number;
+    feelsLike: number;
+    note?: string;
+}
+
 
 const Dashboard: Component = () => {
     const { t, language, setLanguage, availableLanguages } = useI18n();
@@ -107,33 +192,127 @@ const Dashboard: Component = () => {
         }
     });
 
-    // Fetch recent customers
-    const [customers] = createResource<Customer[]>(async () => {
+    // Fetch sales goals
+    const [goals] = createResource<SalesGoals>(async () => {
         try {
-            const data = await api<Customer[]>('/customers', { params: { limit: '5' } });
+            const data = await api.get<SalesGoals>('/orders/sales-goals');
+            return data || { daily: 0, weekly: 0, monthly: 0 };
+        } catch (e) {
+            return { daily: 0, weekly: 0, monthly: 0 };
+        }
+    });
+
+    // Fetch sales trends
+    const [salesTrends] = createResource<SalesTrend[]>(async () => {
+        try {
+            const data = await api.get<SalesTrend[]>('/orders/sales-trends?period=7d');
             return data || [];
         } catch (e) {
             return [];
         }
     });
 
-    // Fetch recent orders
-    const [recentOrders] = createResource<RecentOrder[]>(async () => {
+
+    // Fetch time insights
+    const [timeInsights] = createResource<TimeInsights>(async () => {
         try {
-            const res = await api.get('/orders', { params: { limit: '5' } }) as OrdersResponse | any;
-            const orders = res?.data || res || [];
-            return orders.map((order: any) => ({
-                id: order.id,
-                orderNumber: order.orderNumber,
-                customerName: order.customer?.name || order.customerName || 'Unknown',
-                totalAmount: order.totalAmount,
-                status: order.status,
-                createdAt: order.createdAt
-            }));
+            const data = await api.get<TimeInsights>('/orders/time-insights');
+            return data || { bestHours: [], bestDays: [] };
         } catch (e) {
-            return [];
+            return { bestHours: [], bestDays: [] };
         }
     });
+
+    // Fetch performance metrics
+    const [performanceMetrics] = createResource<PerformanceMetrics>(async () => {
+        try {
+            const data = await api.get<PerformanceMetrics>('/orders/performance-metrics');
+            return data || {
+                totalRevenue: 0,
+                totalOrders: 0,
+                avgOrderValue: 0,
+                conversionRate: 0,
+                visitCompletionRate: 0,
+                newCustomers: 0,
+                totalVisits: 0,
+                completedVisits: 0,
+                visitsWithOrders: 0,
+            };
+        } catch (e) {
+            return {
+                totalRevenue: 0,
+                totalOrders: 0,
+                avgOrderValue: 0,
+                conversionRate: 0,
+                visitCompletionRate: 0,
+                newCustomers: 0,
+                totalVisits: 0,
+                completedVisits: 0,
+                visitsWithOrders: 0,
+            };
+        }
+    });
+
+    // Fetch route optimization
+    const [routeOptimization] = createResource<RouteOptimization>(async () => {
+        try {
+            const data = await api.get<RouteOptimization>('/orders/route-optimization');
+            return data || { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 };
+        } catch (e) {
+            return { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 };
+        }
+    });
+
+    // Fetch gamification data
+    const [gamification] = createResource<Gamification>(async () => {
+        try {
+            const data = await api.get<Gamification>('/orders/gamification');
+            return data || {
+                currentStreak: 0,
+                totalSales: 0,
+                totalOrders: 0,
+                achievements: [],
+                bestDay: null,
+            };
+        } catch (e) {
+            return {
+                currentStreak: 0,
+                totalSales: 0,
+                totalOrders: 0,
+                achievements: [],
+                bestDay: null,
+            };
+        }
+    });
+
+    // Fetch weather
+    const [weather] = createResource<Weather>(async () => {
+        try {
+            const data = await api.get<Weather>('/orders/weather');
+            return data || {
+                city: 'Tashkent',
+                temperature: 22,
+                condition: 'Clear',
+                description: 'clear sky',
+                icon: '01d',
+                humidity: 65,
+                windSpeed: 5,
+                feelsLike: 24,
+            };
+        } catch (e) {
+            return {
+                city: 'Tashkent',
+                temperature: 22,
+                condition: 'Clear',
+                description: 'clear sky',
+                icon: '01d',
+                humidity: 65,
+                windSpeed: 5,
+                feelsLike: 24,
+            };
+        }
+    });
+
 
     const statCards = () => [
         {
@@ -286,105 +465,517 @@ const Dashboard: Component = () => {
                 </div>
             </Show>
 
-            {/* Recent Orders Section */}
-            <div class="mt-4">
-                <div class="flex justify-between items-end mb-4">
-                    <h2 class="text-lg font-semibold text-white">{t('salesApp.dashboard.recentOrders')}</h2>
-                    <A href="/sales/orders" class="text-blue-400 text-sm font-medium">{t('salesApp.dashboard.viewAll')}</A>
+            {/* Quick Actions Widget */}
+            <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                <div class="flex items-center gap-2 mb-3">
+                    <Zap class="w-5 h-5 text-amber-400" />
+                    <h2 class="text-lg font-semibold text-white">Quick Actions</h2>
                 </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button
+                        onClick={() => navigate('/sales/visits')}
+                        class="flex items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl text-left transition-colors"
+                    >
+                        <MapPin class="w-4 h-4 text-blue-400" />
+                        <span class="text-sm text-white">Start Visit</span>
+                    </button>
+                    <button
+                        onClick={() => navigate('/sales/catalog')}
+                        class="flex items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl text-left transition-colors"
+                    >
+                        <ShoppingCart class="w-4 h-4 text-emerald-400" />
+                        <span class="text-sm text-white">New Order</span>
+                    </button>
+                    <button
+                        onClick={() => navigate('/sales/customers')}
+                        class="flex items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl text-left transition-colors"
+                    >
+                        <Users class="w-4 h-4 text-purple-400" />
+                        <span class="text-sm text-white">Add Customer</span>
+                    </button>
+                    <button
+                        onClick={() => navigate('/sales/orders')}
+                        class="flex items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-800 rounded-xl text-left transition-colors"
+                    >
+                        <Package class="w-4 h-4 text-orange-400" />
+                        <span class="text-sm text-white">View Orders</span>
+                    </button>
+                </div>
+            </div>
 
-                <Show when={!recentOrders.loading} fallback={
-                    <div class="flex justify-center py-8">
-                        <Loader2 class="w-6 h-6 text-blue-400 animate-spin" />
+            {/* Goals/Targets Widget */}
+            <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <Target class="w-5 h-5 text-blue-400" />
+                        <h2 class="text-lg font-semibold text-white">Sales Goals</h2>
                     </div>
-                }>
-                    <Show when={(recentOrders() || []).length > 0} fallback={
-                        <div class="text-center py-8 text-slate-500">
-                            <Package class="w-10 h-10 mx-auto mb-2 opacity-50" />
-                            <p>{t('salesApp.dashboard.noOrders')}</p>
-                        </div>
-                    }>
-                        <div class="space-y-2">
-                            <For each={recentOrders()}>
-                                {(order) => (
-                                    <A
-                                        href="/sales/orders"
-                                        class="block bg-slate-900/50 border border-slate-800/50 rounded-xl p-3 active:scale-[0.99] transition-transform"
-                                    >
-                                        <div class="flex justify-between items-start">
-                                            <div>
-                                                <h3 class="text-white font-medium text-sm">{order.customerName}</h3>
-                                                <div class="flex items-center gap-2 mt-1 text-slate-500 text-xs">
-                                                    <span>{order.orderNumber}</span>
-                                                    <span>•</span>
-                                                    <span>{formatDate(order.createdAt, { month: 'short', day: 'numeric' })}</span>
-                                                </div>
-                                            </div>
-                                            <div class="text-right">
-                                                <div class="text-white font-semibold text-sm">{formatCurrency(order.totalAmount)}</div>
-                                                <span class={`text-[10px] font-medium ${order.status === 'delivered' ? 'text-green-400' :
-                                                    order.status === 'pending' ? 'text-amber-400' :
-                                                        'text-slate-400'
-                                                    }`}>
-                                                    {order.status}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </A>
-                                )}
-                            </For>
+                    <Show when={!goals.loading && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
+                        <div class="text-xs text-slate-500">
+                            {goals()?.daily ? 'Daily' : goals()?.weekly ? 'Weekly' : 'Monthly'} Target
                         </div>
                     </Show>
+                </div>
+                <Show when={!goals.loading && goals() && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
+                    <div class="space-y-3">
+                        <Show when={goals()?.daily}>
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-sm text-slate-400">Daily Target</span>
+                                    <span class="text-sm font-semibold text-white">
+                                        {formatCurrency(stats()?.todaysSales || 0)} / {formatCurrency(goals()?.daily || 0)}
+                                    </span>
+                                </div>
+                                <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                                    <div
+                                        class={`h-2.5 rounded-full transition-all duration-500 ${
+                                            ((stats()?.todaysSales || 0) / (goals()?.daily || 1)) >= 1
+                                                ? 'bg-gradient-to-r from-emerald-500 to-teal-600'
+                                                : ((stats()?.todaysSales || 0) / (goals()?.daily || 1)) >= 0.75
+                                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                                                : 'bg-gradient-to-r from-amber-500 to-orange-600'
+                                        }`}
+                                        style={{
+                                            width: `${Math.min(100, ((stats()?.todaysSales || 0) / (goals()?.daily || 1)) * 100)}%`
+                                        }}
+                                    />
+                                </div>
+                                <div class="flex justify-between items-center mt-1">
+                                    <div class="text-xs text-slate-500">
+                                        {goals()?.daily ? Math.round(((stats()?.todaysSales || 0) / (goals()?.daily || 1)) * 100) : 0}% complete
+                                    </div>
+                                    <Show when={goals()?.daily && (stats()?.todaysSales || 0) < (goals()?.daily || 0)}>
+                                        <div class="text-xs text-amber-400">
+                                            {formatCurrency((goals()?.daily || 0) - (stats()?.todaysSales || 0))} remaining
+                                        </div>
+                                    </Show>
+                                </div>
+                            </div>
+                        </Show>
+                        <Show when={goals()?.weekly}>
+                            <div class="pt-2 border-t border-slate-800">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-sm text-slate-400">Weekly Target</span>
+                                    <span class="text-sm font-semibold text-white">
+                                        {formatCurrency(goals()?.weekly || 0)}
+                                    </span>
+                                </div>
+                            </div>
+                        </Show>
+                        <Show when={goals()?.monthly}>
+                            <div class="pt-2 border-t border-slate-800">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-sm text-slate-400">Monthly Target</span>
+                                    <span class="text-sm font-semibold text-white">
+                                        {formatCurrency(goals()?.monthly || 0)}
+                                    </span>
+                                </div>
+                            </div>
+                        </Show>
+                    </div>
+                </Show>
+                <Show when={!goals.loading && goals() && !goals()?.daily && !goals()?.weekly && !goals()?.monthly}>
+                    <div class="text-center py-4 text-slate-500 text-sm">
+                        <Target class="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p>No sales goals set</p>
+                        <Show when={['tenant_admin', 'super_admin', 'supervisor'].includes(user?.role || '')}>
+                            <p class="text-xs mt-1">Contact your administrator to set goals</p>
+                        </Show>
+                    </div>
                 </Show>
             </div>
 
-            {/* Customers Section */}
+            {/* Performance Overview Section */}
             <div class="mt-6">
-                <div class="flex justify-between items-end mb-4">
-                    <h2 class="text-lg font-semibold text-white">{t('salesApp.dashboard.myCustomers')}</h2>
-                    <A href="/sales/customers" class="text-blue-400 text-sm font-medium">{t('salesApp.dashboard.viewAll')}</A>
-                </div>
+                <h2 class="text-lg font-semibold text-white mb-4">Performance Overview</h2>
+                
+                {/* Week-over-Week Comparison */}
+                <Show when={stats()?.weekOverWeek !== undefined}>
+                    <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                        <div class="flex items-center gap-2 mb-3">
+                            <Show when={(stats()?.weekOverWeek?.change || 0) >= 0} fallback={<TrendingDown class="w-5 h-5 text-red-400" />}>
+                                <TrendingUp class="w-5 h-5 text-emerald-400" />
+                            </Show>
+                            <h3 class="text-base font-semibold text-white">Week Comparison</h3>
+                        </div>
+                        <div class="flex items-end justify-between">
+                            <div>
+                                <div class="text-2xl font-bold text-white">{formatCurrency(stats()?.weekOverWeek?.thisWeek || 0)}</div>
+                                <div class="text-sm text-slate-400">This Week</div>
+                            </div>
+                            <div class="text-right">
+                                <Show when={(stats()?.weekOverWeek?.change || 0) !== 0}>
+                                    <div class={`flex items-center gap-1 text-lg font-semibold ${(stats()?.weekOverWeek?.change || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {(stats()?.weekOverWeek?.change || 0) >= 0 ? (
+                                            <ArrowUpRight class="w-4 h-4" />
+                                        ) : (
+                                            <ArrowDownRight class="w-4 h-4" />
+                                        )}
+                                        {Math.abs(stats()?.weekOverWeek?.change || 0).toFixed(1)}%
+                                    </div>
+                                    <div class="text-xs text-slate-500">
+                                        {formatCurrency(Math.abs(stats()?.weekOverWeek?.changeAmount || 0))} {(stats()?.weekOverWeek?.changeAmount ?? 0) >= 0 ? 'more' : 'less'} than last week
+                                    </div>
+                                </Show>
+                                <Show when={(stats()?.weekOverWeek?.change || 0) === 0}>
+                                    <div class="text-sm text-slate-400">No change</div>
+                                </Show>
+                            </div>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-slate-800">
+                            <div class="text-sm text-slate-400">Last Week: {formatCurrency(stats()?.weekOverWeek?.lastWeek || 0)}</div>
+                        </div>
+                    </div>
+                </Show>
 
-                <Show when={!customers.loading} fallback={
-                    <div class="flex justify-center py-8">
-                        <Loader2 class="w-6 h-6 text-blue-400 animate-spin" />
+                {/* Performance Metrics */}
+                <Show when={!performanceMetrics.loading}>
+                    <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                        <div class="flex items-center gap-2 mb-4">
+                            <Activity class="w-5 h-5 text-emerald-400" />
+                            <h3 class="text-base font-semibold text-white">Key Metrics (Last 30 Days)</h3>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="p-3 bg-slate-800/50 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Conversion Rate</div>
+                                <div class="text-xl font-bold text-emerald-400">
+                                    {performanceMetrics()?.conversionRate || 0}%
+                                </div>
+                                <div class="text-xs text-slate-500 mt-1">
+                                    {performanceMetrics()?.visitsWithOrders || 0} / {performanceMetrics()?.totalVisits || 0} visits
+                                </div>
+                            </div>
+                            <div class="p-3 bg-slate-800/50 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Avg Order Value</div>
+                                <div class="text-xl font-bold text-blue-400">
+                                    {formatCurrency(performanceMetrics()?.avgOrderValue || 0)}
+                                </div>
+                                <div class="text-xs text-slate-500 mt-1">
+                                    {performanceMetrics()?.totalOrders || 0} orders
+                                </div>
+                            </div>
+                            <div class="p-3 bg-slate-800/50 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Visit Completion</div>
+                                <div class="text-xl font-bold text-purple-400">
+                                    {performanceMetrics()?.visitCompletionRate || 0}%
+                                </div>
+                                <div class="text-xs text-slate-500 mt-1">
+                                    {performanceMetrics()?.completedVisits || 0} / {performanceMetrics()?.totalVisits || 0} visits
+                                </div>
+                            </div>
+                            <div class="p-3 bg-slate-800/50 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">New Customers</div>
+                                <div class="text-xl font-bold text-amber-400">
+                                    {performanceMetrics()?.newCustomers || 0}
+                                </div>
+                                <div class="text-xs text-slate-500 mt-1">
+                                    Last 30 days
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+            </div>
+
+            {/* Outstanding Debt Alerts */}
+            <Show when={stats()?.debtSummary}>
+                <Show when={stats()?.debtSummary && (stats()?.debtSummary?.totalDebt ?? 0) > 0} fallback={
+                    <div class="mt-6 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                                <DollarSign class="w-5 h-5 text-emerald-400" />
+                            </div>
+                            <div>
+                                <div class="text-sm font-semibold text-white">All Clear!</div>
+                                <div class="text-xs text-slate-400">No outstanding debt</div>
+                            </div>
+                        </div>
                     </div>
                 }>
-                    <Show when={(customers() || []).length > 0} fallback={
-                        <div class="text-center py-8 text-slate-500">
-                            <Users class="w-10 h-10 mx-auto mb-2 opacity-50" />
-                            <p>{t('salesApp.dashboard.noCustomers')}</p>
+                    <div class="mt-6 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
+                        <div class="flex items-center gap-2 mb-3">
+                            <AlertCircle class="w-5 h-5 text-red-400" />
+                            <h2 class="text-lg font-semibold text-white">Outstanding Debt</h2>
                         </div>
-                    }>
-                        <div class="space-y-2">
-                            <For each={customers()}>
-                                {(customer) => (
-                                    <A
-                                        href={`/sales/catalog?customer=${customer.id}`}
-                                        class="block bg-slate-900/50 border border-slate-800/50 rounded-xl p-3 active:scale-[0.99] transition-transform"
-                                    >
-                                        <div class="flex justify-between items-center">
-                                            <div class="flex items-center gap-3">
-                                                <div class="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
-                                                    {customer.name.charAt(0).toUpperCase()}
+                        <div class="mb-3">
+                            <div class="text-2xl font-bold text-red-400">{formatCurrency(stats()?.debtSummary?.totalDebt || 0)}</div>
+                            <div class="text-sm text-slate-400">
+                                Across {stats()?.debtSummary?.customerCount || 0} {stats()?.debtSummary?.customerCount === 1 ? 'customer' : 'customers'}
+                            </div>
+                        </div>
+                        <Show when={(stats()?.topCustomersWithDebt || []).length > 0}>
+                            <div class="space-y-2">
+                                <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Top Debtors</div>
+                                <For each={stats()?.topCustomersWithDebt?.slice(0, 3)}>
+                                    {(customer) => (
+                                        <A
+                                            href={`/sales/customers?highlight=${customer.id}`}
+                                            class="block flex justify-between items-center p-2 bg-slate-900/50 rounded-lg hover:bg-slate-900/70 transition-colors"
+                                        >
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-sm font-medium text-white truncate">{customer.name}</div>
+                                                <Show when={customer.phone}>
+                                                    <div class="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                                        <PhoneCall class="w-3 h-3" />
+                                                        {customer.phone}
+                                                    </div>
+                                                </Show>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-sm font-semibold text-red-400">{formatCurrency(customer.debtBalance)}</div>
+                                            </div>
+                                        </A>
+                                    )}
+                                </For>
+                            </div>
+                        </Show>
+                    </div>
+                </Show>
+            </Show>
+
+            {/* Analytics & Insights Section */}
+            <div class="mt-6">
+                <h2 class="text-lg font-semibold text-white mb-4">Analytics & Insights</h2>
+
+                {/* Sales Trends Chart */}
+                <Show when={!salesTrends.loading && (salesTrends() || []).length > 0}>
+                    <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                        <div class="flex items-center gap-2 mb-4">
+                            <BarChart3 class="w-5 h-5 text-blue-400" />
+                            <h3 class="text-base font-semibold text-white">Sales Trends (Last 7 Days)</h3>
+                        </div>
+                        <div class="space-y-3">
+                            <For each={salesTrends()}>
+                                {(trend) => {
+                                    const maxSales = Math.max(...(salesTrends() || []).map(t => t.sales), 1);
+                                    const percentage = (trend.sales / maxSales) * 100;
+                                    const date = new Date(trend.date);
+                                    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+                                    const dayNum = date.getDate();
+                                    
+                                    return (
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-12 text-xs text-slate-400 text-right">
+                                                <div>{dayName}</div>
+                                                <div class="text-slate-500">{dayNum}</div>
+                                            </div>
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-2 mb-1">
+                                                    <div
+                                                        class="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full h-6 transition-all duration-500"
+                                                        style={{ width: `${percentage}%` }}
+                                                    />
+                                                    <div class="text-sm font-semibold text-white min-w-[80px] text-right">
+                                                        {formatCurrency(trend.sales)}
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <h3 class="text-white font-medium text-sm">{customer.name}</h3>
-                                                    <Show when={customer.address}>
-                                                        <div class="flex items-center gap-1 mt-0.5 text-slate-500 text-xs">
-                                                            <MapPin class="w-3 h-3" />
-                                                            <span class="truncate max-w-[180px]">{customer.address}</span>
-                                                        </div>
-                                                    </Show>
+                                                <div class="text-xs text-slate-500 ml-2">
+                                                    {trend.orders} {trend.orders === 1 ? 'order' : 'orders'}
                                                 </div>
                                             </div>
-                                            <ShoppingCart class="w-4 h-4 text-slate-500" />
                                         </div>
+                                    );
+                                }}
+                            </For>
+                        </div>
+                    </div>
+                </Show>
+
+                {/* Time-Based Insights */}
+                <Show when={!timeInsights.loading && (timeInsights()?.bestHours?.length || 0) > 0}>
+                    <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                        <div class="flex items-center gap-2 mb-4">
+                            <Timer class="w-5 h-5 text-purple-400" />
+                            <h3 class="text-base font-semibold text-white">Best Performing Times</h3>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Best Hours</div>
+                                <div class="space-y-2">
+                                    <For each={timeInsights()?.bestHours?.slice(0, 3)}>
+                                        {(hour) => (
+                                            <div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg">
+                                                <div class="flex items-center gap-2">
+                                                    <Clock class="w-3 h-3 text-purple-400" />
+                                                    <span class="text-sm text-white">
+                                                        {hour.hour}:00 - {hour.hour + 1}:00
+                                                    </span>
+                                                </div>
+                                                <div class="text-xs font-semibold text-purple-400">
+                                                    {formatCurrency(hour.sales)}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Best Days</div>
+                                <div class="space-y-2">
+                                    <For each={timeInsights()?.bestDays?.slice(0, 3)}>
+                                        {(day) => (
+                                            <div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg">
+                                                <div class="flex items-center gap-2">
+                                                    <Calendar class="w-3 h-3 text-purple-400" />
+                                                    <span class="text-sm text-white capitalize">{day.dayName}</span>
+                                                </div>
+                                                <div class="text-xs font-semibold text-purple-400">
+                                                    {formatCurrency(day.sales)}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+
+                {/* Route Optimization */}
+                <Show when={!routeOptimization.loading && routeOptimization() && (routeOptimization()?.totalVisits ?? 0) > 0}>
+                    <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <Route class="w-5 h-5 text-blue-400" />
+                                <h3 class="text-base font-semibold text-white">Today's Route</h3>
+                            </div>
+                            <A href="/sales/visits" class="text-blue-400 text-sm font-medium">View All</A>
+                        </div>
+                        <div class="mb-3 p-3 bg-slate-800/50 rounded-lg">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <div class="text-sm text-slate-400">Total Distance</div>
+                                    <div class="text-lg font-bold text-white">{routeOptimization()?.estimatedDistance || 0} km</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm text-slate-400">Est. Time</div>
+                                    <div class="text-lg font-bold text-white">{routeOptimization()?.estimatedTime || 0} min</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="space-y-2">
+                            <For each={routeOptimization()?.visits?.slice(0, 5)}>
+                                {(visit) => (
+                                    <A
+                                        href="/sales/visits"
+                                        class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors"
+                                    >
+                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                                            {visit.sequence}
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-sm font-medium text-white truncate">{visit.customerName}</div>
+                                            <Show when={visit.customerAddress}>
+                                                <div class="text-xs text-slate-500 truncate mt-0.5">{visit.customerAddress}</div>
+                                            </Show>
+                                        </div>
+                                        <MapPin class="w-4 h-4 text-blue-400 shrink-0" />
                                     </A>
                                 )}
                             </For>
                         </div>
-                    </Show>
+                    </div>
+                </Show>
+            </div>
+
+            {/* Engagement & Tools Section */}
+            <div class="mt-6">
+                <h2 class="text-lg font-semibold text-white mb-4">Engagement & Tools</h2>
+
+                    <Show when={!gamification.loading}>
+                    <div class="bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-purple-500/30 rounded-2xl p-4">
+                        <div class="flex items-center gap-2 mb-4">
+                            <Trophy class="w-5 h-5 text-yellow-400" />
+                            <h3 class="text-base font-semibold text-white">Achievements</h3>
+                        </div>
+                        <div class="mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-sm text-slate-300">Current Streak</div>
+                                <div class="text-2xl font-bold text-yellow-400">
+                                    {gamification()?.currentStreak || 0} 🔥
+                                </div>
+                            </div>
+                            <div class="text-xs text-slate-400">
+                                Consecutive days with sales
+                            </div>
+                        </div>
+                        <Show when={(gamification()?.achievements || []).length > 0}>
+                            <div class="space-y-2">
+                                <div class="text-xs font-semibold text-slate-300 uppercase mb-2">Badges Earned</div>
+                                <div class="flex flex-wrap gap-2">
+                                    <For each={gamification()?.achievements}>
+                                        {(achievement) => (
+                                            <div class="flex items-center gap-2 px-3 py-2 bg-purple-500/20 border border-purple-500/30 rounded-lg">
+                                                <span class="text-lg">{achievement.icon}</span>
+                                                <div>
+                                                    <div class="text-xs font-semibold text-white">{achievement.name}</div>
+                                                    <div class="text-[10px] text-slate-400">{achievement.description}</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            </div>
+                        </Show>
+                        <Show when={(gamification()?.achievements || []).length === 0}>
+                            <div class="text-center py-4 text-slate-400 text-sm">
+                                <Award class="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                <p>Keep selling to unlock achievements!</p>
+                            </div>
+                        </Show>
+                        <Show when={gamification()?.bestDay}>
+                            <div class="mt-4 pt-4 border-t border-purple-500/20">
+                                <div class="text-xs text-slate-400 mb-1">Best Day This Month</div>
+                                <div class="text-sm font-semibold text-white">
+                                    {formatDate(gamification()?.bestDay?.date || '', { month: 'short', day: 'numeric' })}: {formatCurrency(gamification()?.bestDay?.sales || 0)}
+                                </div>
+                            </div>
+                        </Show>
+                    </div>
+                </Show>
+
+                {/* Weather Widget */}
+                <Show when={!weather.loading}>
+                    <div class="mt-4 bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border border-blue-500/30 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <Show when={weather()?.condition === 'Rain' || weather()?.condition === 'Drizzle'}>
+                                    <CloudRain class="w-5 h-5 text-blue-300" />
+                                </Show>
+                                <Show when={weather()?.condition === 'Clear' || weather()?.condition === 'Sunny'}>
+                                    <Sun class="w-5 h-5 text-yellow-400" />
+                                </Show>
+                                <Show when={weather()?.condition === 'Clouds' || weather()?.condition === 'Cloudy'}>
+                                    <Cloudy class="w-5 h-5 text-slate-300" />
+                                </Show>
+                                <Show when={!['Rain', 'Drizzle', 'Clear', 'Sunny', 'Clouds', 'Cloudy'].includes(weather()?.condition || '')}>
+                                    <Cloud class="w-5 h-5 text-slate-300" />
+                                </Show>
+                                <h3 class="text-base font-semibold text-white">Weather</h3>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-2xl font-bold text-white">{weather()?.temperature || 0}°</div>
+                                <div class="text-xs text-slate-300 capitalize">{weather()?.description || ''}</div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-blue-500/20">
+                            <div class="text-center">
+                                <Wind class="w-4 h-4 text-blue-300 mx-auto mb-1" />
+                                <div class="text-xs text-slate-300">{weather()?.windSpeed || 0} m/s</div>
+                            </div>
+                            <div class="text-center">
+                                <Droplets class="w-4 h-4 text-blue-300 mx-auto mb-1" />
+                                <div class="text-xs text-slate-300">{weather()?.humidity || 0}%</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-xs text-slate-400 mb-1">Feels like</div>
+                                <div class="text-xs text-slate-300">{weather()?.feelsLike || 0}°</div>
+                            </div>
+                        </div>
+                        <Show when={weather()?.note}>
+                            <div class="mt-2 text-[10px] text-slate-500 text-center">{weather()?.note}</div>
+                        </Show>
+                    </div>
                 </Show>
             </div>
 

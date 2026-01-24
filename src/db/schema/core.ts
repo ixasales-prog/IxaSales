@@ -70,6 +70,9 @@ export const tenants = pgTable('tenants', {
     // Location Services
     yandexGeocoderApiKey: varchar('yandex_geocoder_api_key', { length: 100 }),
 
+    // Weather Services
+    openWeatherApiKey: varchar('open_weather_api_key', { length: 100 }),
+
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
@@ -164,6 +167,13 @@ export const users = pgTable('users', {
     telegramChatId: varchar('telegram_chat_id', { length: 100 }),
     isActive: boolean('is_active').default(true),
     lastLoginAt: timestamp('last_login_at'),
+    
+    // GPS Tracking preferences
+    gpsTrackingEnabled: boolean('gps_tracking_enabled').default(true), // User opt-in/opt-out
+    lastLocationUpdateAt: timestamp('last_location_update_at'), // Last successful GPS update
+    lastKnownLatitude: decimal('last_known_latitude', { precision: 10, scale: 8 }), // Most recent location
+    lastKnownLongitude: decimal('last_known_longitude', { precision: 11, scale: 8 }), // Most recent location
+    
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });

@@ -2,7 +2,7 @@ import { type Component, createResource, Show, For } from 'solid-js';
 import { A } from '@solidjs/router';
 import {
     Settings, Bell, MessageCircle, Users, Building2,
-    ChevronRight, Shield, Globe, CreditCard, DollarSign, Lock
+    ChevronRight, Shield, Globe, CreditCard, DollarSign, Lock, MapPin
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 
@@ -79,6 +79,13 @@ const AdminSettings: Component = () => {
                     color: 'indigo',
                 },
                 {
+                    icon: MapPin,
+                    title: 'GPS Tracking',
+                    description: 'Configure location tracking for sales reps and drivers',
+                    href: '/admin/gps-tracking',
+                    color: 'green',
+                },
+                {
                     icon: Lock,
                     title: 'Security',
                     description: 'Password and access settings',
@@ -110,6 +117,7 @@ const AdminSettings: Component = () => {
         indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-400' },
         red: { bg: 'bg-red-500/10', text: 'text-red-400' },
         pink: { bg: 'bg-pink-500/10', text: 'text-pink-400' },
+        green: { bg: 'bg-green-500/10', text: 'text-green-400' },
     };
 
     return (

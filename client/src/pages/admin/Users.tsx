@@ -35,6 +35,8 @@ interface UserData {
     lastLoginAt: string | null;
     supervisorId?: string | null;
     tenantId?: string | null;
+    gpsTrackingEnabled?: boolean;
+    lastLocationUpdateAt?: string | null;
 }
 
 const Users: Component = () => {

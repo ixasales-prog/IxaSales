@@ -2,36 +2,29 @@ import { db } from '../db';
 import { sql } from 'drizzle-orm';
 
 async function main() {
-    console.log('Running migration: enhance sales_visits for quick visit flow...');
+    console.log('Running migration: enhance sales_visits with additional indexes...');
 
     try {
-        // Add no_order_reason column
+        // Add additional indexes for better performance
         await db.execute(sql`
-            ALTER TABLE "sales_visits" 
-            ADD COLUMN IF NOT EXISTS "no_order_reason" text;
+            CREATE INDEX IF NOT EXISTS "idx_sales_visits_status" ON "sales_visits" ("status");
         `);
-        console.log('Column "no_order_reason" added');
+        console.log('Index "idx_sales_visits_status" created');
 
-        // Add follow_up_reason column
         await db.execute(sql`
-            ALTER TABLE "sales_visits" 
-            ADD COLUMN IF NOT EXISTS "follow_up_reason" text;
+            CREATE INDEX IF NOT EXISTS "idx_sales_visits_tenant_status_date" ON "sales_visits" ("tenant_id", "status", "planned_date");
         `);
-        console.log('Column "follow_up_reason" added');
+        console.log('Index "idx_sales_visits_tenant_status_date" created');
 
-        // Add follow_up_date column
         await db.execute(sql`
-            ALTER TABLE "sales_visits" 
-            ADD COLUMN IF NOT EXISTS "follow_up_date" date;
+            CREATE INDEX IF NOT EXISTS "idx_sales_visits_started_at" ON "sales_visits" ("started_at");
         `);
-        console.log('Column "follow_up_date" added');
+        console.log('Index "idx_sales_visits_started_at" created');
 
-        // Add follow_up_time column
         await db.execute(sql`
-            ALTER TABLE "sales_visits" 
-            ADD COLUMN IF NOT EXISTS "follow_up_time" time;
+            CREATE INDEX IF NOT EXISTS "idx_sales_visits_completed_at" ON "sales_visits" ("completed_at");
         `);
-        console.log('Column "follow_up_time" added');
+        console.log('Index "idx_sales_visits_completed_at" created');
 
         console.log('Migration completed successfully!');
         process.exit(0);

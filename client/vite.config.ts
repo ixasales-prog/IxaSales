@@ -10,6 +10,15 @@ export default defineConfig({
     },
   },
   server: {
+    host: 'localhost',
+    port: 5173,
+    strictPort: true,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 5173,
+      clientPort: 5173,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
@@ -24,5 +33,8 @@ export default defineConfig({
         changeOrigin: true,
       }
     }
+  },
+  optimizeDeps: {
+    include: ['lucide-solid'],
   }
 })

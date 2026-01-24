@@ -94,27 +94,38 @@ fi
 echo -e "${GREEN}[4/7] Installing dependencies on server...${NC}"
 ssh $SERVER_USER@$SERVER_IP << EOF
     cd $TARGET_DIR
-    npm install --omit=dev
+    npm install --omit=dev --include=optional
 EOF
 
 # -----------------------------------------------------------------------------
-# 5. Run Database Migrations
+# 5. Configure CORS (Auto-fix CORS_ORIGIN in .env)
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[5/7] Running database migrations...${NC}"
+echo -e "${GREEN}[5/8] Configuring CORS...${NC}"
+if [ "$ENV" = "staging" ]; then
+    CORS_ORIGIN="https://dev.ixasales.uz"
+else
+    CORS_ORIGIN="https://ixasales.uz"
+fi
+ssh $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && if [ -f .env ]; then if grep -q '^CORS_ORIGIN=' .env; then sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=$CORS_ORIGIN|' .env && echo 'Updated CORS_ORIGIN to $CORS_ORIGIN'; else echo '' >> .env && echo '# CORS Configuration' >> .env && echo 'CORS_ORIGIN=$CORS_ORIGIN' >> .env && echo 'Added CORS_ORIGIN=$CORS_ORIGIN'; fi; else echo '⚠ WARNING: .env file not found'; fi"
+
+# -----------------------------------------------------------------------------
+# 6. Run Database Migrations
+# -----------------------------------------------------------------------------
+echo -e "${GREEN}[6/8] Running database migrations...${NC}"
 # Use -t to force PTY for interactive prompts (drizzle-kit push)
 # ssh -t $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && npm run db:push"
 echo "Skipping migrations for stability..."
 
 # -----------------------------------------------------------------------------
-# 6. Verify Installation
+# 7. Verify Installation
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[6/7] Verifying installation...${NC}"
-ssh $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && test -f dist/index.js && echo '✓ Backend build found' || echo '⚠ WARNING: Backend build not found'"
+echo -e "${GREEN}[7/8] Verifying installation...${NC}"
+ssh $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && test -f dist/index-fastify.js && echo '✓ Backend build found' || echo '⚠ WARNING: Backend build not found'"
 
 # -----------------------------------------------------------------------------
-# 7. Fix Permissions & Restart Service
+# 8. Fix Permissions & Restart Service
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}[7/7] Fixing permissions & restarting service...${NC}"
+echo -e "${GREEN}[8/8] Fixing permissions & restarting service...${NC}"
 ssh -t $SERVER_USER@$SERVER_IP "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME && sudo systemctl status $SERVICE_NAME --no-pager"
 
 echo ""

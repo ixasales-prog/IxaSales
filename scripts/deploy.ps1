@@ -124,25 +124,32 @@ Remove-Item -Recurse -Force $tempDir
 # 4. Install Dependencies on Server (Production only)
 # -----------------------------------------------------------------------------
 Write-Host "`n[4/7] Installing dependencies on server..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && npm install --omit=dev"
+ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && npm install --omit=dev --include=optional --force"
 
 # -----------------------------------------------------------------------------
-# 5. Run Database Migrations
+# 5. Configure CORS (Auto-fix CORS_ORIGIN in .env)
 # -----------------------------------------------------------------------------
-# Write-Host "`n[5/7] Running database migrations..." -ForegroundColor Green
-# ssh "${SERVER_USER}@${SERVER_IP}" -t "cd $TARGET_DIR && npm run db:push"
-Write-Host "`n[5/7] Skipping database migrations (uncomment to enable)..." -ForegroundColor Yellow
+Write-Host "`n[5/8] Configuring CORS..." -ForegroundColor Green
+$CORS_ORIGIN = if ($Environment -eq "staging") { "https://dev.ixasales.uz" } else { "https://ixasales.uz" }
+$corsCmd = "cd $TARGET_DIR && if [ -f .env ]; then if grep -q '^CORS_ORIGIN=' .env; then sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=$CORS_ORIGIN|' .env && echo 'Updated CORS_ORIGIN to $CORS_ORIGIN'; else echo '' >> .env && echo '# CORS Configuration' >> .env && echo 'CORS_ORIGIN=$CORS_ORIGIN' >> .env && echo 'Added CORS_ORIGIN=$CORS_ORIGIN'; fi; else echo 'WARNING: .env file not found'; fi"
+ssh "${SERVER_USER}@${SERVER_IP}" $corsCmd
 
 # -----------------------------------------------------------------------------
-# 6. Verify Installation
+# 6. Run Database Migrations
 # -----------------------------------------------------------------------------
-Write-Host "`n[6/7] Verifying installation..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && test -f dist/index.js && echo 'Backend build found' || echo 'WARNING: Backend build not found'"
+Write-Host "`n[6/8] Running GPS tracking migration..." -ForegroundColor Green
+ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && npx tsx src/db/migrations/add_gps_tracking.ts"
 
 # -----------------------------------------------------------------------------
-# 7. Fix Permissions & Restart Service
+# 7. Verify Installation
 # -----------------------------------------------------------------------------
-Write-Host "`n[7/7] Fixing permissions & restarting service..." -ForegroundColor Green
+Write-Host "`n[7/8] Verifying installation..." -ForegroundColor Green
+ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && test -f dist/index-fastify.js && echo 'Backend build found' || echo 'WARNING: Backend build not found'"
+
+# -----------------------------------------------------------------------------
+# 8. Fix Permissions & Restart Service
+# -----------------------------------------------------------------------------
+Write-Host "`n[8/8] Fixing permissions & restarting service..." -ForegroundColor Green
 ssh "${SERVER_USER}@${SERVER_IP}" -t "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME && sudo systemctl status $SERVICE_NAME --no-pager"
 
 Write-Host "`n======================================" -ForegroundColor Green

@@ -2,7 +2,7 @@
                     IxaSales - Distribution ERP (Complete Schema)
 ================================================================================
 
-STACK: Node.js + ElysiaJS + SolidJS + PostgreSQL + Drizzle
+STACK: Node.js + Fastify + SolidJS + PostgreSQL + Drizzle
 
 ================================================================================
                                     ROLES

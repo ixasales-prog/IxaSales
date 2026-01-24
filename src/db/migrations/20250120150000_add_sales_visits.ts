@@ -59,6 +59,12 @@ export async function up(db: any) {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_customer_id" ON "sales_visits" ("customer_id");`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_sales_rep_id" ON "sales_visits" ("sales_rep_id");`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_planned_date" ON "sales_visits" ("planned_date");`);
+    
+    // Added indexes for better performance
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_status" ON "sales_visits" ("status");`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_tenant_status_date" ON "sales_visits" ("tenant_id", "status", "planned_date");`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_started_at" ON "sales_visits" ("started_at");`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS "idx_sales_visits_completed_at" ON "sales_visits" ("completed_at");`);
 }
 
 export async function down(db: any) {

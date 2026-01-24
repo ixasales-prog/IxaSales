@@ -5,6 +5,7 @@
 
 // Core (tenants, users, sessions)
 export * from './core';
+export * from './users';
 
 // Territories
 export * from './territories';
@@ -50,3 +51,6 @@ export * from './customer-portal';
 
 // Sales Visits (visit tracking for sales reps)
 export * from './visits';
+
+// GPS Tracking (user location tracking)
+export * from './gps-tracking';

@@ -9,7 +9,7 @@ import { getAllPlanLimits, updatePlanLimits } from '../lib/planLimits';
 import * as settings from '../lib/systemSettings';
 import { logAudit } from '../lib/audit';
 import { getSystemHealth } from '../lib/health';
-import { getRequestMetrics } from '../lib/request-logger';
+import { getRequestMetrics } from '../lib/request-logger-fastify';
 
 // Basic in-memory rate limit for subscription checks (once per day per worker)
 let lastSubscriptionCheck = 0;

@@ -4,7 +4,6 @@ import {
     X,
     User,
     Phone,
-    Mail,
     MapPin,
     Save,
     Loader2,
@@ -35,7 +34,6 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
     const [formData, setFormData] = createSignal({
         name: '',
         phone: '',
-        email: '',
         address: '',
         waymark: '',
         territoryId: '',
@@ -337,23 +335,6 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
                             <Show when={errors().territoryId}>
                                 <p class="text-red-400 text-xs ml-1">{errors().territoryId}</p>
                             </Show>
-                        </div>
-
-                        {/* Email (Optional) */}
-                        <div class="space-y-1.5">
-                            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">
-                                {t('salesApp.addCustomer.email')}
-                            </label>
-                            <div class="relative group">
-                                <Mail class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
-                                <input
-                                    type="email"
-                                    value={formData().email}
-                                    onInput={(e) => setFormData({ ...formData(), email: e.currentTarget.value })}
-                                    placeholder={t('salesApp.addCustomer.emailAddress')}
-                                    class="w-full pl-12 pr-4 py-3 bg-slate-950/50 border border-slate-800 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all font-medium"
-                                />
-                            </div>
                         </div>
 
                         {/* Address */}

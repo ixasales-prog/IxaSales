@@ -39,7 +39,6 @@ export const translations = {
             hello: 'Salom, {name}!',
             update: 'Yangilash',
             logout: 'Chiqish',
-            offline: "Internet aloqasi yo'q. Ilova offline rejimda ishlamoqda.",
             debt: 'Qarz:',
             loading: 'Yuklanmoqda...'
         },
@@ -567,7 +566,6 @@ export const translations = {
             hello: 'Привет, {name}!',
             update: 'Обновить',
             logout: 'Выйти',
-            offline: 'Нет подключения к интернету. Приложение работает офлайн.',
             debt: 'Долг:',
             loading: 'Загрузка...'
         },
@@ -1095,7 +1093,6 @@ export const translations = {
             hello: 'Hello, {name}!',
             update: 'Refresh',
             logout: 'Logout',
-            offline: 'No internet connection. App is running offline.',
             debt: 'Debt:',
             loading: 'Loading...'
         },

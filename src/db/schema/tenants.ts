@@ -36,6 +36,9 @@ export const tenants = pgTable('tenants', {
   // Location Services
   yandexGeocoderApiKey: varchar('yandex_geocoder_api_key', { length: 100 }),
 
+  // Weather Services
+  openWeatherApiKey: varchar('open_weather_api_key', { length: 100 }),
+
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

@@ -45,17 +45,19 @@ const Customers: Component = () => {
     const [showAddModal, setShowAddModal] = createSignal(false);
     const [showScheduleVisitModal, setShowScheduleVisitModal] = createSignal(false);
 
-    // Debounced search
-    const debouncedSearch = () => searchQuery();
-
-    // Fetch customers
+    // Fetch customers — source must be a stable primitive to avoid infinite refetch
     const [customers, { refetch }] = createResource(
-        () => ({ search: debouncedSearch() }),
-        async (params) => {
+        () => searchQuery(),
+        async (search) => {
             const queryParams: Record<string, string> = { limit: '50' };
-            if (params.search) queryParams.search = params.search;
-            const data = await api<Customer[]>('/customers', { params: queryParams });
-            return data;
+            if (search) queryParams.search = search;
+            const raw = await api<any[]>('/customers', { params: queryParams });
+            const list = Array.isArray(raw) ? raw : [];
+            return list.map((c: any) => ({
+                ...c,
+                currentDebt: c.debtBalance ?? c.currentDebt ?? null,
+                creditLimit: c.creditLimit ?? null,
+            }));
         }
     );
 

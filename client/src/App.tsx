@@ -8,7 +8,6 @@ import MobileDriverLayout from './components/layout/MobileDriverLayout';
 import AdminLayout from './components/layout/AdminLayout';
 import SuperAdminLayout from './components/layout/SuperAdminLayout';
 import { ToastContainer } from './components/Toast';
-import OfflineIndicator from './components/OfflineIndicator';
 import { currentUser } from './stores/auth';
 
 // Sales Pages
@@ -42,6 +41,9 @@ import AdminCompanyProfile from './pages/admin/CompanyProfile';
 import AdminBusinessSettings from './pages/admin/BusinessSettings';
 import AdminPaymentSettings from './pages/admin/PaymentSettings';
 import AdminSubscription from './pages/admin/Subscription';
+import GPSTrackingSettings from './pages/admin/GPSTrackingSettings';
+import UserLocationHistory from './pages/admin/UserLocationHistory';
+import UserLocationMapPage from './pages/admin/UserLocationMapPage';
 import AdminCustomerTiers from './pages/admin/CustomerTiers';
 import AdminReturns from './pages/admin/Returns';
 import AdminInventory from './pages/admin/Inventory';
@@ -141,7 +143,6 @@ const PwaRoleMetaLayout: Component<{ children?: any }> = (props) => {
 
   return (
     <>
-      <OfflineIndicator />
       {props.children}
     </>
   );
@@ -223,6 +224,9 @@ const App: Component = () => {
             <Route path="/business-settings" component={AdminBusinessSettings} />
             <Route path="/payment-settings" component={AdminPaymentSettings} />
             <Route path="/subscription" component={AdminSubscription} />
+            <Route path="/gps-tracking" component={GPSTrackingSettings} />
+            <Route path="/gps-tracking/map" component={UserLocationMapPage} />
+            <Route path="/gps-tracking/history" component={UserLocationHistory} />
           </Route>
 
           <Route path="/" component={Login} />

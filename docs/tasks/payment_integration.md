@@ -41,7 +41,7 @@ Implement online payment integration with **Click** and **Payme** - the two most
 ### New Files
 | File | Purpose |
 |------|---------|
-| `src/routes/payment-gateway.ts` | Webhook handlers for Click/Payme |
+| `src/routes-fastify/payment-gateway.ts` | Webhook handlers for Click/Payme |
 | `src/lib/payment-providers/click.ts` | Click API integration |
 | `src/lib/payment-providers/payme.ts` | Payme API integration |
 | `src/lib/payment-providers/index.ts` | Unified payment interface |
@@ -51,9 +51,9 @@ Implement online payment integration with **Click** and **Payme** - the two most
 | File | Changes |
 |------|---------|
 | `src/db/schema/tenants.ts` | Add payment provider credentials fields |
-| `src/routes/tenant-self.ts` | Add payment settings endpoints |
+| `src/routes-fastify/tenant-self.ts` | Add payment settings endpoints |
 | `src/lib/telegram.ts` | Add payment URL to customer notifications |
-| `src/index.ts` | Register new routes |
+| `src/index-fastify.ts` | Register new routes |
 
 ---
 
