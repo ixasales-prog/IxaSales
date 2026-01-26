@@ -996,6 +996,7 @@ export const translations = {
                 previousDay: 'Предыдущий день',
                 nextDay: 'Следующий день',
                 callCustomer: 'Позвонить клиенту',
+                callNow: 'Позвонить сейчас',
                 addPhoto: 'Добавить фото',
                 removePhoto: 'Удалить фото'
             },
@@ -1523,6 +1524,7 @@ export const translations = {
                 previousDay: 'Previous day',
                 nextDay: 'Next day',
                 callCustomer: 'Call customer',
+                callNow: 'Call now',
                 addPhoto: 'Add photo',
                 removePhoto: 'Remove photo'
             },

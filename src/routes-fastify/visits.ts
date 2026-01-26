@@ -146,22 +146,22 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // ----------------------------------------------------------------
-    // GET VISIT STATS (for dashboard)
+    // GET FOLLOW-UP SUMMARY (for dashboard)
     // ----------------------------------------------------------------
-    fastify.get('/stats', {
+    fastify.get('/followups/summary', {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
 
         try {
-            const stats = await visitsService.getVisitStats(user.tenantId, user.id, user.role);
+            const summary = await visitsService.getFollowUpSummary(user.tenantId, user.id, user.role);
 
             return {
                 success: true,
-                data: stats
+                data: summary
             };
         } catch (error: any) {
-            console.error('Get visit stats error:', error);
+            console.error('Get follow-up summary error:', error);
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
         }
     });

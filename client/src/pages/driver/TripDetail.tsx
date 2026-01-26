@@ -112,10 +112,10 @@ const TripDetail: Component = () => {
                     <button onClick={() => navigate('/driver')} class="p-2 -ml-2 text-slate-400 hover:text-white">
                         <ArrowLeft class="w-5 h-5" />
                     </button>
-                    <div class="flex-1">
-                        <h1 class="text-lg font-bold text-white">{trip()?.tripNumber || 'Loading...'}</h1>
+                    <div class="flex-1 min-w-0 overflow-hidden">
+                        <h1 class="text-lg font-bold text-white truncate">{trip()?.tripNumber || 'Loading...'}</h1>
                         <Show when={trip()}>
-                            <p class="text-slate-500 text-xs">{trip()?.vehicleName || 'No vehicle'}</p>
+                            <p class="text-slate-500 text-xs truncate">{trip()?.vehicleName || 'No vehicle'}</p>
                         </Show>
                     </div>
                     <Show when={trip()?.status}>
@@ -175,28 +175,28 @@ const TripDetail: Component = () => {
 
                                 return (
                                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4">
-                                        <div class="flex items-start justify-between mb-3">
-                                            <div class="flex items-center gap-2">
-                                                <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center">
+                                        <div class="flex items-start justify-between mb-3 overflow-hidden">
+                                            <div class="flex items-center gap-2 flex-1 min-w-0">
+                                                <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center flex-shrink-0">
                                                     {order.sequence}
                                                 </span>
-                                                <span class="text-white font-medium">{order.orderNumber}</span>
+                                                <span class="text-white font-medium truncate">{order.orderNumber}</span>
                                             </div>
-                                            <span class={`flex items-center gap-1 px-2 py-0.5 rounded-full ${config.bg} ${config.color} text-[10px] font-bold`}>
+                                            <span class={`flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 ${config.bg} ${config.color} text-[10px] font-bold`}>
                                                 <StatusIcon class="w-3 h-3" />
                                                 {config.label}
                                             </span>
                                         </div>
 
                                         <div class="space-y-2 mb-3">
-                                            <div class="flex items-center gap-2 text-white text-sm">
-                                                <Package class="w-4 h-4 text-slate-500" />
-                                                {order.customerName || 'Unknown Customer'}
+                                            <div class="flex items-center gap-2 text-white text-sm overflow-hidden">
+                                                <Package class="w-4 h-4 text-slate-500 flex-shrink-0" />
+                                                <span class="truncate flex-1 min-w-0">{order.customerName || 'Unknown Customer'}</span>
                                             </div>
                                             <Show when={order.address}>
-                                                <div class="flex items-start gap-2 text-slate-400 text-sm">
+                                                <div class="flex items-start gap-2 text-slate-400 text-sm overflow-hidden">
                                                     <MapPin class="w-4 h-4 flex-shrink-0 mt-0.5" />
-                                                    <span>{order.address}</span>
+                                                    <span class="truncate flex-1 min-w-0">{order.address}</span>
                                                 </div>
                                             </Show>
                                             <div class="flex items-center gap-2 text-emerald-400 font-semibold">
@@ -206,7 +206,7 @@ const TripDetail: Component = () => {
                                         </div>
 
                                         <Show when={order.deliveryNotes}>
-                                            <div class="bg-slate-800/50 rounded-lg p-2 mb-3 text-slate-400 text-xs">
+                                            <div class="bg-slate-800/50 rounded-lg p-2 mb-3 text-slate-400 text-xs truncate overflow-hidden">
                                                 {order.deliveryNotes}
                                             </div>
                                         </Show>
@@ -334,9 +334,9 @@ const DeliveryConfirmModal: Component<{
                 </div>
 
                 {/* Order Info */}
-                <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 mb-6">
-                    <div class="text-white font-semibold mb-1">{props.order.orderNumber}</div>
-                    <div class="text-slate-400 text-sm">{props.order.customerName}</div>
+                <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 mb-6 overflow-hidden">
+                    <div class="text-white font-semibold mb-1 truncate">{props.order.orderNumber}</div>
+                    <div class="text-slate-400 text-sm truncate">{props.order.customerName}</div>
                     <div class="text-emerald-400 font-bold mt-2">${parseFloat(props.order.totalAmount).toFixed(2)}</div>
                 </div>
 

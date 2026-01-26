@@ -9,7 +9,7 @@
 import { type Component, createSignal, Show, onMount, createEffect, onCleanup } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import {
-    Package, User, LogOut, RefreshCw, AlertCircle, CreditCard,
+    Package, User, LogOut, RefreshCw, CreditCard,
     ShoppingCart, Store, Heart, Loader2
 } from 'lucide-solid';
 import { customerApi } from '../../services/customer-api';

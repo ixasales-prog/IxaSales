@@ -45,7 +45,9 @@ $backupCmd = "cd $TARGET_DIR && cp .env .env.backup.`$(date +%Y%m%d_%H%M%S) && e
 ssh "${SERVER_USER}@${SERVER_IP}" $backupCmd
 
 # Update or add CORS_ORIGIN
-$updateCmd = "cd $TARGET_DIR && if grep -q '^CORS_ORIGIN=' .env; then sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=$CORS_ORIGIN|' .env && echo 'Updated existing CORS_ORIGIN'; else echo '' >> .env && echo '# CORS Configuration' >> .env && echo 'CORS_ORIGIN=$CORS_ORIGIN' >> .env && echo 'Added CORS_ORIGIN'; fi"
+# Properly escape the CORS_ORIGIN value to prevent command injection
+$escapedCORSOrigin = $CORS_ORIGIN -replace "'" , "'\\''"  # Escape single quotes for shell
+$updateCmd = "cd '$TARGET_DIR' && if grep -q '^CORS_ORIGIN=' .env; then sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=\`$escapedCORSOrigin|' .env && echo 'Updated existing CORS_ORIGIN'; else echo '' >> .env && echo '# CORS Configuration' >> .env && echo 'CORS_ORIGIN=\`$escapedCORSOrigin' >> .env && echo 'Added CORS_ORIGIN'; fi"
 ssh "${SERVER_USER}@${SERVER_IP}" $updateCmd
 
 # Show current value

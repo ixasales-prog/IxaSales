@@ -1,4 +1,4 @@
-import { type Component, For, Show, createSignal } from 'solid-js';
+import { type Component, For, Show, createSignal, onMount } from 'solid-js';
 import { A, useNavigate } from '@solidjs/router';
 import {
     ArrowLeft,
@@ -35,6 +35,21 @@ const Cart: Component = () => {
     const [success, setSuccess] = createSignal(false);
     const [showCustomerSelect, setShowCustomerSelect] = createSignal(false);
     const [customerName, setCustomerName] = createSignal<string>('');
+    
+    // Initialize customer name when component mounts if customer is already selected
+    onMount(async () => {
+        if (selectedCustomerId()) {
+            try {
+                const customerRes = await api.get(`/customers/${selectedCustomerId()}`);
+                const customer = customerRes.data || customerRes;
+                if (customer?.name) {
+                    setCustomerName(customer.name);
+                }
+            } catch (error) {
+                console.error('Failed to fetch customer name:', error);
+            }
+        }
+    });
 
     const handleQuantityChange = (productId: string, delta: number) => {
         const item = cartItems().find(i => i.productId === productId);

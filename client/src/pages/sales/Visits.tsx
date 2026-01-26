@@ -337,17 +337,17 @@ const Visits: Component = () => {
                                 <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4">
                                     <div class="flex items-start justify-between">
                                         <div class="flex-1">
-                                            <div class="flex items-center gap-2 mb-1">
-                                                <h3 class="text-white font-semibold">{visit.customerName}</h3>
-                                                <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${getStatusColor(visit.status)}`}>
+                                            <div class="flex items-center gap-2 mb-1 overflow-hidden">
+                                                <h3 class="text-white font-semibold truncate flex-1 min-w-0">{visit.customerName}</h3>
+                                                <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex-shrink-0 ${getStatusColor(visit.status)}`}>
                                                     {getStatusLabel(visit.status)}
                                                 </span>
                                             </div>
 
                                             <Show when={visit.customerAddress}>
-                                                <div class="flex items-center gap-1.5 text-slate-400 text-sm mb-1">
-                                                    <MapPin class="w-3.5 h-3.5" />
-                                                    <span class="truncate">{visit.customerAddress}</span>
+                                                <div class="flex items-center gap-1.5 text-slate-400 text-sm mb-1 overflow-hidden">
+                                                    <MapPin class="w-3.5 h-3.5 flex-shrink-0" />
+                                                    <span class="truncate flex-1 min-w-0">{visit.customerAddress}</span>
                                                 </div>
                                             </Show>
 
@@ -368,6 +368,18 @@ const Visits: Component = () => {
                                                     class="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400"
                                                 >
                                                     <Phone class="w-4 h-4" />
+                                                </a>
+                                            </Show>
+
+                                            {/* Call now button for follow-up visits */}
+                                            <Show when={visit.outcome === 'follow_up' && visit.customerPhone}>
+                                                <a
+                                                    href={`tel:${visit.customerPhone}`}
+                                                    aria-label={`${t('salesApp.visits.callNow')} ${visit.customerName}`}
+                                                    class="px-3 py-2 rounded-xl bg-green-600 text-white text-sm font-medium flex items-center gap-1.5 active:scale-95 transition-transform"
+                                                >
+                                                    <Phone class="w-4 h-4" />
+                                                    {t('salesApp.visits.callNow')}
                                                 </a>
                                             </Show>
 

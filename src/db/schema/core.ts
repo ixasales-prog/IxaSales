@@ -158,7 +158,7 @@ export const tenantNotificationSettings = pgTable('tenant_notification_settings'
 export const users = pgTable('users', {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').references(() => tenants.id),
-    supervisorId: uuid('supervisor_id'), // Self-reference, add relation manually
+    supervisorId: uuid('supervisor_id'), // Self-reference handled separately
     role: userRoleEnum('role').notNull(),
     name: varchar('name', { length: 255 }).notNull(),
     email: varchar('email', { length: 255 }).unique().notNull(),
@@ -199,8 +199,8 @@ export const sessions = pgTable('sessions', {
 export const paymentTokens = pgTable('payment_tokens', {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
-    orderId: uuid('order_id').notNull(), // References orders table
-    customerId: uuid('customer_id').notNull(), // References customers table
+    orderId: uuid('order_id').notNull(), // References orders table - foreign key added via migration
+    customerId: uuid('customer_id').notNull(), // References customers table - foreign key added via migration
     token: varchar('token', { length: 64 }).unique().notNull(),
     amount: decimal('amount', { precision: 15, scale: 2 }).notNull(),
     currency: varchar('currency', { length: 3 }).default('UZS'),

@@ -418,6 +418,9 @@ export const superRoutes: FastifyPluginAsync = async (fastify) => {
             { name: 'overdue-debt', description: 'Send overdue debt notifications to admins' },
             { name: 'subscription-expiration', description: 'Send subscription expiring notifications' },
             { name: 'customer-payment-reminder', description: 'Send payment reminders to customers' },
+            { name: 'follow-up-reminders', description: 'Send follow-up reminders to sales representatives' },
+            { name: 'notification-retry', description: 'Retry failed notifications' },
+            { name: 'gps-cleanup', description: 'Clean up old GPS tracking data' },
         ],
     }));
 

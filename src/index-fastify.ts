@@ -52,28 +52,93 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         } : true,
     });
 
-    // CORS configuration
+    // CORS configuration - Enforce production-ready CORS policy
     const corsOrigin = (() => {
+        if (process.env.NODE_ENV === 'development') {
+            // For development environments, allow specific origins or localhost
+            const raw = process.env.CORS_ORIGIN;
+            if (!raw || raw.trim() === '') {
+                console.log('✓ Development mode: Using default development origins');
+                return ['http://localhost:5173', 'http://localhost:3000'];
+            }
+
+            const origins = raw.split(',').map((s) => s.trim()).filter(Boolean);
+            if (origins.length === 0) {
+                console.log('✓ Development mode: Using default development origins');
+                return ['http://localhost:5173', 'http://localhost:3000'];
+            }
+
+            // Validate origins for development mode
+            const validatedOrigins = origins.map(origin => {
+                try {
+                    const url = new URL(origin);
+                    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                        throw new Error('Invalid protocol');
+                    }
+                    return origin;
+                } catch (e) {
+                    console.error(`❌ Invalid CORS origin: ${origin}. Must be a valid URL with http or https protocol.`);
+                    process.exit(1);
+                }
+            });
+
+            console.log(`✓ CORS configured for origins: ${validatedOrigins.join(', ')}`);
+            return validatedOrigins;
+        }
+
+        // Production mode - must have explicit, validated configuration
         const raw = process.env.CORS_ORIGIN;
         if (!raw || raw.trim() === '') {
-            console.warn('⚠️  CORS_ORIGIN not set - allowing all origins');
-            return true;
+            console.error('❌ CRITICAL: CORS_ORIGIN not set in production - refusing to start server');
+            console.error('💡 HINT: Set CORS_ORIGIN in your .env file with HTTPS origins only (comma-separated)');
+            process.exit(1);
         }
 
         const origins = raw.split(',').map((s) => s.trim()).filter(Boolean);
-
         if (origins.length === 0) {
-            console.warn('⚠️  CORS_ORIGIN is empty - allowing all origins');
-            return true;
+            console.error('❌ CRITICAL: CORS_ORIGIN is empty in production - refusing to start server');
+            console.error('💡 HINT: Set CORS_ORIGIN in your .env file with HTTPS origins only (comma-separated)');
+            process.exit(1);
         }
 
-        console.log(`✓ CORS configured for origins: ${origins.join(', ')}`);
-        return origins;
+        // Validate origins - reject wildcard origins in production
+        const validatedOrigins = origins.map(origin => {
+            if (origin === '*' || origin === '"*"') {
+                console.error(`❌ REJECTED: Wildcard origin '*' is not allowed in production for security reasons.`);
+                console.error('💡 HINT: Use explicit HTTPS origins like CORS_ORIGIN=https://example.com,https://app.example.com');
+                process.exit(1);
+            }
+
+            try {
+                const url = new URL(origin);
+                if (url.protocol !== 'https:') {
+                    console.error(`❌ REJECTED: Non-HTTPS origin '${origin}' is not allowed in production for security reasons.`);
+                    console.error('💡 HINT: Use HTTPS origins only (e.g., CORS_ORIGIN=https://example.com)');
+                    process.exit(1);
+                }
+
+                // Normalize origin by removing trailing slash
+                return origin.replace(/\/$/, '');
+            } catch (e) {
+                console.error(`❌ Invalid CORS origin: ${origin}. Must be a valid URL with https protocol.`);
+                console.error('💡 HINT: Format as HTTPS URL (e.g., CORS_ORIGIN=https://example.com)');
+                process.exit(1);
+            }
+        });
+
+        console.log(`✓ CORS configured for origins: ${validatedOrigins.join(', ')}`);
+        return validatedOrigins;
     })();
 
     await fastify.register(cors, {
         origin: corsOrigin,
         credentials: true,
+        methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
+        allowedHeaders: [
+            'Origin', 'X-Requested-With', 'Content-Type',
+            'Accept', 'Authorization', 'X-Total-Count'
+        ],
+        exposedHeaders: ['X-Total-Count']
     });
 
     // Form body parser
@@ -111,11 +176,26 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         });
     }
 
-    // Health check endpoint
-    fastify.get('/health', async () => ({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-    }));
+    // Health check endpoint with CORS debug info
+    fastify.get('/health', async (request) => {
+        const showDebug = request.query && (request.query as any).debug === 'true';
+        const response: Record<string, unknown> = {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            node_env: process.env.NODE_ENV,
+        };
+
+        // Show CORS info in development or when debug=true
+        if (process.env.NODE_ENV === 'development' || showDebug) {
+            response.cors = {
+                configured_origins: Array.isArray(corsOrigin) ? corsOrigin : [corsOrigin],
+                env_var_set: !!process.env.CORS_ORIGIN,
+                env_var_value: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.substring(0, 50) : null,
+            };
+        }
+
+        return response;
+    });
 
     // Root endpoint
     fastify.get('/', async () => ({

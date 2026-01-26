@@ -2,7 +2,7 @@
 // Requires monitoring under real load conditions
 // Event volumes and query performance should be validated in production
 
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { createStore } from 'solid-js/store';
 
 // Activity tracking configuration with volume control
@@ -96,10 +96,10 @@ export class UserActivityTracker {
   private idleTimeout: number | null = null;
   private healthReportInterval: number | null = null;
   
-  // Kill switch check
+  // Kill switch check - reads from Vite environment variables
   private isTrackingEnabled(): boolean {
-    // Check environment variable (would come from build process)
-    const killSwitch = (window as any).ENV?.USER_ACTIVITY_TRACKING === 'false';
+    // Check environment variable from Vite build process
+    const killSwitch = import.meta.env.VITE_USER_ACTIVITY_TRACKING === 'false';
     return !killSwitch;
   }
   

@@ -70,7 +70,10 @@ export const salesVisits = pgTable('sales_visits', {
     followUpDate: date('follow_up_date'),
     followUpTime: time('follow_up_time'),
 
-    // Link to order if one was created
+    // Follow-up reminder tracking
+    followUpReminderSentAt: timestamp('follow_up_reminder_sent_at'),
+
+    // Related order (if visit resulted in order)
     orderId: uuid('order_id').references(() => orders.id),
 
     // Timestamps

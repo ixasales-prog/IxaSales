@@ -1319,31 +1319,19 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!order) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
         }
 
-        if (user.role === 'sales_rep' && order.salesRepId !== user.id && order.createdByUserId !== user.id) {
+        // Role-based access control: sales reps and drivers can only access their own orders
+        if (user.role === 'sales_rep' && order.createdByUserId !== user.id && order.salesRepId !== user.id) {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only view your own orders' } });
         }
+
         if (user.role === 'driver' && order.driverId !== user.id) {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only view orders assigned to you' } });
         }
 
-        const items = await db
-            .select({
-                id: schema.orderItems.id,
-                productName: schema.products.name,
-                sku: schema.products.sku,
-                unitPrice: schema.orderItems.unitPrice,
-                qtyOrdered: schema.orderItems.qtyOrdered,
-                qtyDelivered: schema.orderItems.qtyDelivered,
-                lineTotal: schema.orderItems.lineTotal,
-            })
-            .from(schema.orderItems)
-            .leftJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
-            .where(eq(schema.orderItems.orderId, order.id));
-
-        return { success: true, data: { ...order, items } };
+        return { success: true, data: order };
     });
 
     // ----------------------------------------------------------------

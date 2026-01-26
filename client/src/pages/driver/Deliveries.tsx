@@ -129,16 +129,16 @@ const Deliveries: Component = () => {
                             <For each={pendingOrders()}>
                                 {(order) => (
                                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4">
-                                        <div class="flex items-center gap-2 mb-2">
-                                            <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center">
+                                        <div class="flex items-center gap-2 overflow-hidden">
+                                            <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center flex-shrink-0">
                                                 {order.sequence}
                                             </span>
-                                            <span class="text-white font-medium">{order.customerName || 'Unknown'}</span>
+                                            <span class="text-white font-medium truncate flex-1 min-w-0">{order.customerName || 'Unknown'}</span>
                                         </div>
                                         <Show when={order.address}>
-                                            <div class="flex items-start gap-2 text-slate-400 text-sm mb-2">
+                                            <div class="flex items-start gap-2 text-slate-400 text-sm mb-2 overflow-hidden">
                                                 <MapPin class="w-4 h-4 flex-shrink-0 mt-0.5" />
-                                                <span>{order.address}</span>
+                                                <span class="truncate flex-1 min-w-0">{order.address}</span>
                                             </div>
                                         </Show>
                                         <div class="flex items-center justify-between">

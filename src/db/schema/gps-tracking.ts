@@ -1,6 +1,5 @@
 import { pgTable, uuid, decimal, timestamp, index } from 'drizzle-orm/pg-core';
-import { tenants } from './tenants';
-import { users } from './users';
+import { tenants, users } from './core';
 
 // ============================================================================
 // USER LOCATIONS (GPS Tracking)

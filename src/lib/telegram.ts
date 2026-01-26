@@ -414,6 +414,130 @@ export async function notifyUser(
 }
 
 // ============================================================================
+// FOLLOW-UP REMINDERS - ENHANCED VERSION
+// ============================================================================
+
+interface FollowUpReminderParams {
+    chatId: string;
+    customerName: string;
+    followUpDate: Date;
+    followUpTime: string | null;
+    followUpReason: string | null;
+}
+
+/**
+ * Enhanced follow-up reminder with better formatting and error handling
+ * 
+ * @param params - Follow-up reminder parameters
+ * @returns boolean indicating success
+ */
+export async function sendFollowUpReminder(params: FollowUpReminderParams): Promise<boolean>;
+
+/**
+ * Backward compatibility overload
+ */
+export async function sendFollowUpReminder(
+    chatId: string,
+    customerName: string,
+    followUpDate: Date,
+    followUpTime: string | null,
+    followUpReason: string | null
+): Promise<boolean>;
+
+// Implementation
+export async function sendFollowUpReminder(
+    ...args: [FollowUpReminderParams] | [string, string, Date, string | null, string | null]
+): Promise<boolean> {
+    try {
+        // Handle both function signatures
+        let params: FollowUpReminderParams;
+        if (typeof args[0] === 'string') {
+            // Backward compatibility - use type assertions since we've verified args[0] is string
+            params = {
+                chatId: args[0],
+                customerName: args[1] as string,
+                followUpDate: args[2] as Date,
+                followUpTime: (args[3] as string | null) ?? null,
+                followUpReason: (args[4] as string | null) ?? null
+            };
+        } else {
+            // New interface
+            params = args[0];
+        }
+
+        const { chatId, customerName, followUpDate, followUpTime, followUpReason } = params;
+
+        // Validation
+        if (!chatId) {
+            console.error('[Telegram] sendFollowUpReminder: chatId is required');
+            return false;
+        }
+
+        if (!customerName) {
+            console.error('[Telegram] sendFollowUpReminder: customerName is required');
+            return false;
+        }
+
+        if (!(followUpDate instanceof Date) || isNaN(followUpDate.getTime())) {
+            console.error('[Telegram] sendFollowUpReminder: valid Date object required for followUpDate');
+            return false;
+        }
+
+        // Format the message with enhanced formatting
+        const timeStr = followUpTime || 'Time not specified';
+        const reasonStr = followUpReason || 'Reason not specified';
+
+        // Format date with locale-aware formatting
+        const dateFormatter = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+
+        const formattedDate = dateFormatter.format(followUpDate);
+
+        // Enhanced message with better formatting
+        const message = `
+🔔 *FOLLOW-UP REMINDER*
+
+📅 *Scheduled Follow-up*
+👤 Customer: *${escapeHtml(customerName)}*
+📆 Date: ${formattedDate}
+⏰ Time: ${escapeHtml(timeStr)}
+📝 Reason: ${escapeHtml(reasonStr)}
+
+👉 *Action Required*
+Please contact this customer today to follow up on your scheduled visit.
+
+---
+_Reminder sent by IxaSales CRM_
+`.trim();
+
+        // Send with enhanced error handling
+        const result = await sendTelegramMessage({
+            chatId,
+            text: message,
+            parseMode: 'HTML',
+            // Note: logContext requires tenantId which we don't have here
+            // The notification will be logged by sendTelegramMessageDirect if context is provided
+        });
+
+        if (result) {
+            console.log(`[Telegram] Follow-up reminder sent successfully to ${chatId} for customer ${customerName}`);
+        } else {
+            console.warn(`[Telegram] Failed to send follow-up reminder to ${chatId} for customer ${customerName}`);
+        }
+
+        return result;
+
+    } catch (error) {
+        console.error('[Telegram] sendFollowUpReminder failed:', error);
+        return false;
+    }
+}
+
+// ============================================================================
 // WEBHOOK SECURITY
 // ============================================================================
 
@@ -926,7 +1050,11 @@ export async function testTelegram(): Promise<{ success: boolean; message: strin
 
     const sent = await sendTelegramMessage({
         chatId: settings.defaultChatId,
-        text: `✅ <b>IxaSales Test Message</b>\n\nYour Telegram integration is working correctly!\n\nTime: ${new Date().toLocaleString()}`,
+        text: `✅ <b>IxaSales Test Message</b>
+
+Your Telegram integration is working correctly!
+
+Time: ${new Date().toLocaleString()}`,
     });
 
     return {

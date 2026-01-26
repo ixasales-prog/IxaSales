@@ -141,6 +141,18 @@ interface Weather {
     note?: string;
 }
 
+interface FollowUpSummary {
+    dueToday: number;
+    overdue: number;
+    upcoming: number;
+    topDue: Array<{
+        id: string;
+        customerId: string;
+        customerName: string;
+        followUpDate: string | null;
+    }>;
+}
+
 
 const Dashboard: Component = () => {
     const { t, language, setLanguage, availableLanguages } = useI18n();
@@ -184,133 +196,86 @@ const Dashboard: Component = () => {
 
     // Fetch dashboard stats
     const [stats] = createResource<DashboardStats>(async () => {
-        try {
-            const data = await api.get<DashboardStats>('/orders/dashboard-stats');
-            return data || { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, inProgress: 0 } };
-        } catch (e) {
-            return { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, inProgress: 0 } };
-        }
+        const data = await api.get<DashboardStats>('/orders/dashboard-stats');
+        return data || { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, inProgress: 0 } };
     });
 
     // Fetch sales goals
     const [goals] = createResource<SalesGoals>(async () => {
-        try {
-            const data = await api.get<SalesGoals>('/orders/sales-goals');
-            return data || { daily: 0, weekly: 0, monthly: 0 };
-        } catch (e) {
-            return { daily: 0, weekly: 0, monthly: 0 };
-        }
+        const data = await api.get<SalesGoals>('/orders/sales-goals');
+        return data || { daily: 0, weekly: 0, monthly: 0 };
     });
 
     // Fetch sales trends
     const [salesTrends] = createResource<SalesTrend[]>(async () => {
-        try {
-            const data = await api.get<SalesTrend[]>('/orders/sales-trends?period=7d');
-            return data || [];
-        } catch (e) {
-            return [];
-        }
+        const data = await api.get<SalesTrend[]>('/orders/sales-trends?period=7d');
+        return data || [];
     });
-
 
     // Fetch time insights
     const [timeInsights] = createResource<TimeInsights>(async () => {
-        try {
-            const data = await api.get<TimeInsights>('/orders/time-insights');
-            return data || { bestHours: [], bestDays: [] };
-        } catch (e) {
-            return { bestHours: [], bestDays: [] };
-        }
+        const data = await api.get<TimeInsights>('/orders/time-insights');
+        return data || { bestHours: [], bestDays: [] };
     });
 
     // Fetch performance metrics
     const [performanceMetrics] = createResource<PerformanceMetrics>(async () => {
-        try {
-            const data = await api.get<PerformanceMetrics>('/orders/performance-metrics');
-            return data || {
-                totalRevenue: 0,
-                totalOrders: 0,
-                avgOrderValue: 0,
-                conversionRate: 0,
-                visitCompletionRate: 0,
-                newCustomers: 0,
-                totalVisits: 0,
-                completedVisits: 0,
-                visitsWithOrders: 0,
-            };
-        } catch (e) {
-            return {
-                totalRevenue: 0,
-                totalOrders: 0,
-                avgOrderValue: 0,
-                conversionRate: 0,
-                visitCompletionRate: 0,
-                newCustomers: 0,
-                totalVisits: 0,
-                completedVisits: 0,
-                visitsWithOrders: 0,
-            };
-        }
+        const data = await api.get<PerformanceMetrics>('/orders/performance-metrics');
+        return data || {
+            totalRevenue: 0,
+            totalOrders: 0,
+            avgOrderValue: 0,
+            conversionRate: 0,
+            visitCompletionRate: 0,
+            newCustomers: 0,
+            totalVisits: 0,
+            completedVisits: 0,
+            visitsWithOrders: 0,
+        };
     });
 
     // Fetch route optimization
     const [routeOptimization] = createResource<RouteOptimization>(async () => {
-        try {
-            const data = await api.get<RouteOptimization>('/orders/route-optimization');
-            return data || { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 };
-        } catch (e) {
-            return { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 };
-        }
+        const data = await api.get<RouteOptimization>('/orders/route-optimization');
+        return data || { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 };
     });
 
     // Fetch gamification data
     const [gamification] = createResource<Gamification>(async () => {
-        try {
-            const data = await api.get<Gamification>('/orders/gamification');
-            return data || {
-                currentStreak: 0,
-                totalSales: 0,
-                totalOrders: 0,
-                achievements: [],
-                bestDay: null,
-            };
-        } catch (e) {
-            return {
-                currentStreak: 0,
-                totalSales: 0,
-                totalOrders: 0,
-                achievements: [],
-                bestDay: null,
-            };
-        }
+        const data = await api.get<Gamification>('/orders/gamification');
+        return data || {
+            currentStreak: 0,
+            totalSales: 0,
+            totalOrders: 0,
+            achievements: [],
+            bestDay: null,
+        };
     });
 
     // Fetch weather
     const [weather] = createResource<Weather>(async () => {
-        try {
-            const data = await api.get<Weather>('/orders/weather');
-            return data || {
-                city: 'Tashkent',
-                temperature: 22,
-                condition: 'Clear',
-                description: 'clear sky',
-                icon: '01d',
-                humidity: 65,
-                windSpeed: 5,
-                feelsLike: 24,
-            };
-        } catch (e) {
-            return {
-                city: 'Tashkent',
-                temperature: 22,
-                condition: 'Clear',
-                description: 'clear sky',
-                icon: '01d',
-                humidity: 65,
-                windSpeed: 5,
-                feelsLike: 24,
-            };
-        }
+        const data = await api.get<Weather>('/orders/weather');
+        return data || {
+            city: 'Tashkent',
+            temperature: 22,
+            condition: 'Clear',
+            description: 'clear sky',
+            icon: '01d',
+            humidity: 65,
+            windSpeed: 5,
+            feelsLike: 24,
+        };
+    });
+
+    // Fetch follow-up summary
+    const [followUps] = createResource<FollowUpSummary>(async () => {
+        const data = await api.get<FollowUpSummary>('/visits/followups/summary');
+        return data || {
+            dueToday: 0,
+            overdue: 0,
+            upcoming: 0,
+            topDue: [],
+        };
     });
 
 
@@ -319,25 +284,29 @@ const Dashboard: Component = () => {
             label: t('salesApp.dashboard.todaysSales'),
             value: formatCurrency(stats()?.todaysSales || 0),
             icon: TrendingUp,
-            color: 'from-blue-600 to-indigo-600'
+            color: 'from-blue-600 to-indigo-600',
+            onClick: () => navigate('/sales/orders')
         },
         {
             label: t('salesApp.visits.today'),
             value: `${stats()?.visits?.completed || 0} / ${stats()?.visits?.total || 0}`,
             icon: MapPin,
-            color: 'from-emerald-500 to-teal-600'
+            color: 'from-emerald-500 to-teal-600',
+            onClick: () => navigate('/sales/visits')
         },
         {
             label: t('salesApp.dashboard.pendingOrders'),
             value: stats()?.pendingOrders || 0,
             icon: Clock,
-            color: 'from-amber-500 to-orange-600'
+            color: 'from-amber-500 to-orange-600',
+            onClick: () => navigate('/sales/orders?status=pending')
         },
         {
             label: t('salesApp.dashboard.myCustomers'),
             value: stats()?.customerCount || 0,
             icon: Users,
-            color: 'from-purple-500 to-pink-600'
+            color: 'from-purple-500 to-pink-600',
+            onClick: () => navigate('/sales/customers')
         }
     ];
 
@@ -444,25 +413,54 @@ const Dashboard: Component = () => {
                 </div>
             </Show>
 
+            {/* My Day Summary */}
+            <Show when={!stats.loading && !stats.error}>
+                <div class="mt-2 mb-2 bg-slate-900/70 border border-slate-800/70 rounded-2xl p-3 flex items-center justify-between text-sm">
+                    <div>
+                        <div class="text-slate-300 font-semibold">Today</div>
+                        <div class="text-slate-500 text-xs mt-0.5">
+                            {stats()?.visits?.total || 0} visits · {stats()?.visits?.completed || 0} done · {stats()?.pendingOrders || 0} pending orders
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/sales/visits')}
+                        class="px-3 py-1.5 rounded-full bg-blue-600 text-white text-xs font-medium active:scale-95 transition-transform"
+                    >
+                        View today's route
+                    </button>
+                </div>
+            </Show>
+
             {/* Stats Row */}
             <Show when={!stats.loading} fallback={
                 <div class="flex justify-center py-8">
                     <Loader2 class="w-6 h-6 text-blue-400 animate-spin" />
                 </div>
             }>
-                <div class="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x no-scrollbar">
-                    <For each={statCards()}>
-                        {(stat) => (
-                            <div class={`min-w-[140px] p-4 rounded-2xl bg-gradient-to-br ${stat.color} text-white shadow-lg snap-start`}>
-                                <div class="flex justify-between items-start mb-2">
-                                    <stat.icon class="w-5 h-5 opacity-80" />
-                                </div>
-                                <div class="text-2xl font-bold">{stat.value}</div>
-                                <div class="text-xs opacity-80 font-medium mt-1">{stat.label}</div>
-                            </div>
-                        )}
-                    </For>
-                </div>
+                <Show when={!stats.error} fallback={
+                    <div class="flex justify-center py-4 text-xs text-red-400">
+                        Failed to load dashboard stats. Please check your connection.
+                    </div>
+                }>
+                    <div class="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x no-scrollbar">
+                        <For each={statCards()}>
+                            {(stat) => (
+                                <button
+                                    type="button"
+                                    onClick={() => (stat as any).onClick?.()}
+                                    class={`min-w-[140px] p-4 rounded-2xl bg-gradient-to-br ${stat.color} text-white shadow-lg snap-start text-left active:scale-[0.98] transition-transform`}
+                                >
+                                    <div class="flex justify-between items-start mb-2">
+                                        <stat.icon class="w-5 h-5 opacity-80" />
+                                    </div>
+                                    <div class="text-2xl font-bold">{stat.value}</div>
+                                    <div class="text-xs opacity-80 font-medium mt-1">{stat.label}</div>
+                                </button>
+                            )}
+                        </For>
+                    </div>
+                </Show>
             </Show>
 
             {/* Quick Actions Widget */}
@@ -503,6 +501,76 @@ const Dashboard: Component = () => {
                 </div>
             </div>
 
+            {/* Follow-Ups Summary */}
+            <Show when={!followUps.loading} fallback={
+                <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4 flex justify-center py-4">
+                    <Loader2 class="w-5 h-5 text-blue-400 animate-spin" />
+                </div>
+            }>
+                <Show when={!followUps.error} fallback={
+                    <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4 text-xs text-red-400">
+                        Failed to load follow-ups. You can still view them in the Visits tab.
+                    </div>
+                }>
+                    <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <PhoneCall class="w-5 h-5 text-emerald-400" />
+                                <h2 class="text-lg font-semibold text-white">Customer Follow-Ups</h2>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/sales/visits')}
+                                class="text-xs text-blue-400 font-medium"
+                            >
+                                View all
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mb-3">
+                            <div class="p-3 bg-slate-800/60 rounded-xl">
+                                <div class="text-[11px] text-slate-400 uppercase mb-1">Due Today</div>
+                                <div class="text-xl font-semibold text-emerald-400">{followUps()?.dueToday || 0}</div>
+                            </div>
+                            <div class="p-3 bg-slate-800/60 rounded-xl">
+                                <div class="text-[11px] text-slate-400 uppercase mb-1">Overdue</div>
+                                <div class="text-xl font-semibold text-red-400">{followUps()?.overdue || 0}</div>
+                            </div>
+                            <div class="p-3 bg-slate-800/60 rounded-xl">
+                                <div class="text-[11px] text-slate-400 uppercase mb-1">Upcoming</div>
+                                <div class="text-xl font-semibold text-blue-400">{followUps()?.upcoming || 0}</div>
+                            </div>
+                        </div>
+                        <Show when={(followUps()?.topDue || []).length > 0} fallback={
+                            <div class="text-xs text-slate-500">
+                                You're all caught up on follow-ups.
+                            </div>
+                        }>
+                            <div class="mt-2 space-y-1.5">
+                                <div class="text-[11px] font-semibold text-slate-400 uppercase">Most urgent</div>
+                                <For each={followUps()?.topDue}>
+                                    {(item) => (
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate('/sales/visits')}
+                                            class="w-full flex items-center justify-between p-2 bg-slate-800/60 rounded-lg hover:bg-slate-800 transition-colors"
+                                        >
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-xs font-medium text-white truncate">{item.customerName}</div>
+                                                <div class="text-[11px] text-slate-500">
+                                                    {item.followUpDate
+                                                        ? formatDate(item.followUpDate, { month: 'short', day: 'numeric' })
+                                                        : 'No date'}
+                                                </div>
+                                            </div>
+                                        </button>
+                                    )}
+                                </For>
+                            </div>
+                        </Show>
+                    </div>
+                </Show>
+            </Show>
+
             {/* Goals/Targets Widget */}
             <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
                 <div class="flex items-center justify-between mb-3">
@@ -516,7 +584,7 @@ const Dashboard: Component = () => {
                         </div>
                     </Show>
                 </div>
-                <Show when={!goals.loading && goals() && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
+                <Show when={!goals.loading && !goals.error && goals() && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
                     <div class="space-y-3">
                         <Show when={goals()?.daily}>
                             <div>
@@ -574,12 +642,20 @@ const Dashboard: Component = () => {
                         </Show>
                     </div>
                 </Show>
-                <Show when={!goals.loading && goals() && !goals()?.daily && !goals()?.weekly && !goals()?.monthly}>
+                <Show when={!goals.loading && goals?.error}>
+                    <div class="text-center py-3 text-xs text-red-400">
+                        Failed to load sales goals. They will appear here when available.
+                    </div>
+                </Show>
+                <Show when={!goals.loading && !goals.error && goals() && !goals()?.daily && !goals()?.weekly && !goals()?.monthly}>
                     <div class="text-center py-4 text-slate-500 text-sm">
                         <Target class="w-8 h-8 mx-auto mb-2 opacity-50" />
                         <p>No sales goals set</p>
+                        <Show when={user?.role === 'sales_rep'}>
+                            <p class="text-xs mt-1">Ask your administrator to set daily/weekly targets for you.</p>
+                        </Show>
                         <Show when={['tenant_admin', 'super_admin', 'supervisor'].includes(user?.role || '')}>
-                            <p class="text-xs mt-1">Contact your administrator to set goals</p>
+                            <p class="text-xs mt-1">Configure goals in Business Settings so your team can track progress here.</p>
                         </Show>
                     </div>
                 </Show>
@@ -596,12 +672,12 @@ const Dashboard: Component = () => {
                             <Show when={(stats()?.weekOverWeek?.change || 0) >= 0} fallback={<TrendingDown class="w-5 h-5 text-red-400" />}>
                                 <TrendingUp class="w-5 h-5 text-emerald-400" />
                             </Show>
-                            <h3 class="text-base font-semibold text-white">Week Comparison</h3>
+                            <h3 class="text-base font-semibold text-white">Today vs Last Week</h3>
                         </div>
                         <div class="flex items-end justify-between">
                             <div>
                                 <div class="text-2xl font-bold text-white">{formatCurrency(stats()?.weekOverWeek?.thisWeek || 0)}</div>
-                                <div class="text-sm text-slate-400">This Week</div>
+                                <div class="text-sm text-slate-400">Today (delivered)</div>
                             </div>
                             <div class="text-right">
                                 <Show when={(stats()?.weekOverWeek?.change || 0) !== 0}>
@@ -614,16 +690,16 @@ const Dashboard: Component = () => {
                                         {Math.abs(stats()?.weekOverWeek?.change || 0).toFixed(1)}%
                                     </div>
                                     <div class="text-xs text-slate-500">
-                                        {formatCurrency(Math.abs(stats()?.weekOverWeek?.changeAmount || 0))} {(stats()?.weekOverWeek?.changeAmount ?? 0) >= 0 ? 'more' : 'less'} than last week
+                                        {formatCurrency(Math.abs(stats()?.weekOverWeek?.changeAmount || 0))} {(stats()?.weekOverWeek?.changeAmount ?? 0) >= 0 ? 'more' : 'less'} than same day last week
                                     </div>
                                 </Show>
                                 <Show when={(stats()?.weekOverWeek?.change || 0) === 0}>
-                                    <div class="text-sm text-slate-400">No change</div>
+                                    <div class="text-sm text-slate-400">No change vs same day last week</div>
                                 </Show>
                             </div>
                         </div>
                         <div class="mt-3 pt-3 border-t border-slate-800">
-                            <div class="text-sm text-slate-400">Last Week: {formatCurrency(stats()?.weekOverWeek?.lastWeek || 0)}</div>
+                            <div class="text-sm text-slate-400">Same day last week: {formatCurrency(stats()?.weekOverWeek?.lastWeek || 0)}</div>
                         </div>
                     </div>
                 </Show>
@@ -925,7 +1001,7 @@ const Dashboard: Component = () => {
                         </Show>
                         <Show when={gamification()?.bestDay}>
                             <div class="mt-4 pt-4 border-t border-purple-500/20">
-                                <div class="text-xs text-slate-400 mb-1">Best Day This Month</div>
+                                <div class="text-xs text-slate-400 mb-1">Best Day (Last 30 Days)</div>
                                 <div class="text-sm font-semibold text-white">
                                     {formatDate(gamification()?.bestDay?.date || '', { month: 'short', day: 'numeric' })}: {formatCurrency(gamification()?.bestDay?.sales || 0)}
                                 </div>

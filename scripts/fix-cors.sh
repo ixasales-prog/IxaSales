@@ -44,6 +44,9 @@ echo "Target directory: $TARGET_DIR"
 echo "CORS Origin: $CORS_ORIGIN"
 echo ""
 
+# Properly escape variables to prevent command injection
+printf -v escaped_cors_origin '%q' "$CORS_ORIGIN"
+
 # SSH into server and update .env file.
 # IMPORTANT: Avoid heredocs here because they make ssh stdin non-interactive,
 # which prevents sudo from prompting for a password (and you see "terminal is required").
@@ -52,7 +55,7 @@ echo ""
 # - If your sudo requires a password, you'll be prompted normally.
 ssh -tt $SERVER_USER@$SERVER_IP "bash -lc '
     set -e
-    cd \"$TARGET_DIR\"
+    cd \"\$TARGET_DIR\"
 
     # Check if .env exists
     if [ ! -f .env ]; then
@@ -64,14 +67,14 @@ ssh -tt $SERVER_USER@$SERVER_IP "bash -lc '
     cp .env .env.backup.\$(date +%Y%m%d_%H%M%S)
     echo \"✓ Backed up .env file\"
 
-    # Update CORS_ORIGIN in .env file
+    # Update CORS_ORIGIN in .env file - using properly escaped variable
     if grep -q \"^CORS_ORIGIN=\" .env; then
-        sed -i \"s|^CORS_ORIGIN=.*|CORS_ORIGIN=$CORS_ORIGIN|\" .env
+        sed -i \"s|^CORS_ORIGIN=.*|CORS_ORIGIN=$escaped_cors_origin|\" .env
         echo \"✓ Updated existing CORS_ORIGIN\"
     else
         echo \"\" >> .env
         echo \"# CORS Configuration\" >> .env
-        echo \"CORS_ORIGIN=$CORS_ORIGIN\" >> .env
+        echo \"CORS_ORIGIN=$escaped_cors_origin\" >> .env
         echo \"✓ Added CORS_ORIGIN\"
     fi
 
@@ -81,9 +84,9 @@ ssh -tt $SERVER_USER@$SERVER_IP "bash -lc '
 
     echo \"\"
     echo \"Restarting service...\"
-    sudo systemctl restart \"$SERVICE_NAME\"
+    sudo systemctl restart \"\$SERVICE_NAME\"
     sleep 2
-    sudo systemctl status \"$SERVICE_NAME\" --no-pager | head -20
+    sudo systemctl status \"\$SERVICE_NAME\" --no-pager | head -20
 '"
 
 echo ""
@@ -96,4 +99,3 @@ echo ""
 echo "To verify, check the service logs:"
 echo "ssh $SERVER_USER@$SERVER_IP 'journalctl -u $SERVICE_NAME -f'"
 echo ""
-

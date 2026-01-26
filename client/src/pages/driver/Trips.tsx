@@ -124,34 +124,34 @@ const Trips: Component = () => {
                                         href={`/driver/trips/${trip.id}`}
                                         class="block bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4 backdrop-blur-sm active:scale-[0.99] transition-transform"
                                     >
-                                        <div class="flex items-start justify-between mb-3">
-                                            <div>
-                                                <div class="text-white font-semibold">{trip.tripNumber}</div>
+                                        <div class="flex items-start justify-between mb-3 overflow-hidden">
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-white font-semibold truncate">{trip.tripNumber}</div>
                                                 <div class="flex items-center gap-1.5 mt-1 text-slate-500 text-xs">
-                                                    <Calendar class="w-3 h-3" />
+                                                    <Calendar class="w-3 h-3 flex-shrink-0" />
                                                     {formatDate(trip.plannedDate)}
                                                 </div>
                                             </div>
-                                            <span class={`flex items-center gap-1 px-2 py-1 rounded-full ${config.bg} ${config.color} text-[10px] font-bold border ${config.border}`}>
+                                            <span class={`flex items-center gap-1 px-2 py-1 rounded-full flex-shrink-0 ${config.bg} ${config.color} text-[10px] font-bold border ${config.border}`}>
                                                 <StatusIcon class="w-3 h-3" />
                                                 {config.label}
                                             </span>
                                         </div>
 
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex items-center gap-4">
+                                        <div class="flex items-center justify-between overflow-hidden">
+                                            <div class="flex items-center gap-4 flex-1 min-w-0">
                                                 <Show when={trip.vehicleName}>
-                                                    <div class="flex items-center gap-1.5 text-slate-400 text-xs">
-                                                        <Truck class="w-3.5 h-3.5" />
-                                                        {trip.vehicleName}
+                                                    <div class="flex items-center gap-1.5 text-slate-400 text-xs truncate">
+                                                        <Truck class="w-3.5 h-3.5 flex-shrink-0" />
+                                                        <span class="truncate">{trip.vehicleName}</span>
                                                     </div>
                                                 </Show>
-                                                <div class="flex items-center gap-1.5 text-slate-400 text-xs">
-                                                    <Package class="w-3.5 h-3.5" />
+                                                <div class="flex items-center gap-1.5 text-slate-400 text-xs truncate">
+                                                    <Package class="w-3.5 h-3.5 flex-shrink-0" />
                                                     {trip.orderCount} {trip.orderCount === 1 ? 'delivery' : 'deliveries'}
                                                 </div>
                                             </div>
-                                            <ChevronRight class="w-5 h-5 text-slate-600" />
+                                            <ChevronRight class="w-5 h-5 text-slate-600 flex-shrink-0" />
                                         </div>
                                     </A>
                                 );

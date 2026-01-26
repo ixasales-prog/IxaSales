@@ -118,7 +118,6 @@ export class VisitsService {
         completedAt: schema.salesVisits.completedAt,
         notes: schema.salesVisits.notes,
         outcomeNotes: schema.salesVisits.outcomeNotes,
-        orderId: schema.salesVisits.orderId,
         createdAt: schema.salesVisits.createdAt,
       })
       .from(schema.salesVisits)
@@ -169,7 +168,6 @@ export class VisitsService {
         startedAt: schema.salesVisits.startedAt,
         completedAt: schema.salesVisits.completedAt,
         notes: schema.salesVisits.notes,
-        orderId: schema.salesVisits.orderId,
       })
       .from(schema.salesVisits)
       .leftJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
@@ -188,51 +186,55 @@ export class VisitsService {
   }
 
   /**
-   * Get visit statistics for dashboard
+   * Get follow-up summary for a user
    */
-  async getVisitStats(tenantId: string, userId: string, role: string) {
-    const today = new Date().toISOString().split('T')[0];
-    const conditions: any[] = [eq(schema.salesVisits.tenantId, tenantId)];
+  async getFollowUpSummary(tenantId: string, userId: string, role: string) {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const conditions: any[] = [
+      eq(schema.salesVisits.tenantId, tenantId),
+      eq(schema.salesVisits.outcome, 'follow_up'),
+    ];
 
     if (role === 'sales_rep') {
       conditions.push(eq(schema.salesVisits.salesRepId, userId));
     }
 
-    // Today's visits
-    const todayConditions = [...conditions, eq(schema.salesVisits.plannedDate, today)];
-    const [todayStats] = await db
+    const [summary] = await db
       .select({
-        total: sql<number>`count(*)`,
-        completed: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
-        inProgress: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'in_progress')`,
+        dueToday: sql<number>`count(*) filter (where ${schema.salesVisits.followUpDate} = ${todayStr})`,
+        overdue: sql<number>`count(*) filter (where ${schema.salesVisits.followUpDate} < ${todayStr})`,
+        upcoming: sql<number>`count(*) filter (where ${schema.salesVisits.followUpDate} > ${todayStr})`,
       })
       .from(schema.salesVisits)
-      .where(and(...todayConditions));
+      .where(and(...conditions));
 
-    // This week's stats
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const weekConditions = [...conditions, gte(schema.salesVisits.plannedDate, weekStart.toISOString().split('T')[0])];
-    const [weekStats] = await db
+    const topDue = await db
       .select({
-        total: sql<number>`count(*)`,
-        completed: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
-        ordersPlaced: sql<number>`count(*) filter (where ${schema.salesVisits.outcome} = 'order_placed')`,
+        id: schema.salesVisits.id,
+        customerId: schema.salesVisits.customerId,
+        customerName: schema.customers.name,
+        followUpDate: schema.salesVisits.followUpDate,
       })
       .from(schema.salesVisits)
-      .where(and(...weekConditions));
+      .leftJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
+      .where(and(
+        ...conditions,
+        lte(schema.salesVisits.followUpDate, todayStr),
+      ))
+      .orderBy(schema.salesVisits.followUpDate, schema.salesVisits.createdAt)
+      .limit(5);
 
     return {
-      today: {
-        total: Number(todayStats?.total || 0),
-        completed: Number(todayStats?.completed || 0),
-        inProgress: Number(todayStats?.inProgress || 0),
-      },
-      thisWeek: {
-        total: Number(weekStats?.total || 0),
-        completed: Number(weekStats?.completed || 0),
-        ordersPlaced: Number(weekStats?.ordersPlaced || 0),
-      }
+      dueToday: Number(summary?.dueToday || 0),
+      overdue: Number(summary?.overdue || 0),
+      upcoming: Number(summary?.upcoming || 0),
+      topDue: topDue.map(v => ({
+        id: v.id,
+        customerId: v.customerId,
+        customerName: v.customerName,
+        followUpDate: v.followUpDate,
+      })),
     };
   }
 
@@ -262,7 +264,6 @@ export class VisitsService {
         endLongitude: schema.salesVisits.endLongitude,
         notes: schema.salesVisits.notes,
         outcomeNotes: schema.salesVisits.outcomeNotes,
-        orderId: schema.salesVisits.orderId,
         createdAt: schema.salesVisits.createdAt,
       })
       .from(schema.salesVisits)
@@ -494,7 +495,6 @@ export class VisitsService {
           outcome: input.outcome as any,
           outcomeNotes: sanitizedOutcomeNotes,
           photos: sanitizedPhotos,
-          orderId: input.orderId,
           endLatitude: input.latitude?.toString(),
           endLongitude: input.longitude?.toString(),
           updatedAt: new Date(),

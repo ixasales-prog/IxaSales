@@ -16,6 +16,7 @@ import {
 import { api } from '../../lib/api';
 import { useI18n } from '../../i18n';
 import toast from '../../components/Toast';
+import { setCustomer } from '../../stores/cart';
 
 // API base URL for constructing absolute image URLs
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -226,6 +227,8 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
         if (outcome === 'order_placed') {
             // Create visit and go to catalog
             createQuickVisit('order_placed').then(() => {
+                // Set the customer in the cart store to avoid re-selection
+                setCustomer(selectedCustomer()!.id);
                 props.onOrderPlaced(selectedCustomer()!.id);
             });
         } else if (outcome === 'no_order') {

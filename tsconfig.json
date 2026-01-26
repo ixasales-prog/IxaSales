@@ -45,6 +45,13 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "src/__tests__",
+    "tests",
+    "src/db/direct_migration.ts",
+    "src/db/inspect_db.ts",
+    "src/db/migrations/deep_follow_up_migration.ts",
+    "src/db/add-sample-data.ts",
+    "src/db/seed-simple.ts"
   ]
 }

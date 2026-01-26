@@ -1,19 +1,25 @@
-import { hash, verify } from '@node-rs/argon2';
+import bcrypt from 'bcryptjs';
 
-// Hash password using Argon2
+// Hash password using bcrypt
 export async function hashPassword(password: string): Promise<string> {
-    return await hash(password, {
-        memoryCost: 65536, // 64MB
-        timeCost: 3,
-        parallelism: 4,
-    });
+    const saltRounds = 12;
+    return await bcrypt.hash(password, saltRounds);
 }
 
-// Verify password against hash
+// Verify password against hash (bcrypt only)
 export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
     try {
-        return await verify(hashedPassword, password);
-    } catch {
+        // Legacy argon2 hashes are no longer supported
+        // Users with argon2 hashes must reset their passwords
+        if (hashedPassword.startsWith('$argon2')) {
+            console.warn('Argon2 password hash detected - password reset required');
+            return false;
+        }
+        
+        // Verify bcrypt hash
+        return await bcrypt.compare(password, hashedPassword);
+    } catch (error) {
+        console.error('Password verification error:', error);
         return false;
     }
 }

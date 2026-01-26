@@ -1,0 +1,13 @@
+Option 1:
+git add .
+git commit -m "Your update message"
+git push origin main
+
+
+Option 2 (Manual):
+./scripts/deploy.sh staging
+
+
+If CORS changed:
+# Windows PowerShell
+.\scripts\fix-systemd-cors.ps1 staging

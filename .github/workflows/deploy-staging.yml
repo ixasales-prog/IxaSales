@@ -40,6 +40,10 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
 
+      - name: Build backend
+        run: |
+          bun run build
+
       - name: Deploy to server
         run: |
           # Sync files
@@ -56,12 +60,66 @@ jobs:
         run: |
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
             cd ${{ env.TARGET_DIR }}
-            ~/.bun/bin/bun install --production
-            ~/.bun/bin/bun run db:push
+            # Use npm for better native module support (sharp)
+            npm install --omit=dev
+            npm run db:push
+            
+            # Rebuild sharp explicitly to ensure linux-x64 compatibility
+            npm rebuild sharp
+
+            
+            # Ensure CORS_ORIGIN is set in .env
+            if [ -f .env ]; then
+              if grep -q '^CORS_ORIGIN=' .env; then
+                sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=https://dev.ixasales.uz|' .env
+                echo "✓ Updated CORS_ORIGIN"
+              else
+                echo "" >> .env
+                echo "# CORS Configuration" >> .env
+                echo "CORS_ORIGIN=https://dev.ixasales.uz" >> .env
+                echo "✓ Added CORS_ORIGIN"
+              fi
+            else
+              echo "⚠ WARNING: .env file not found"
+            fi
+            
+            # Reload systemd daemon to pick up any service file changes
+            sudo systemctl daemon-reload
             sudo systemctl restart ixasales-staging
+          EOF
+
+      - name: Verify CORS Configuration
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            cd ${{ env.TARGET_DIR }}
+            echo "=== CORS Configuration Verification ==="
+            
+            # Check .env file
+            echo "1. CORS_ORIGIN in .env:"
+            grep '^CORS_ORIGIN=' .env || echo "   ❌ NOT FOUND"
+            
+            # Check service status
+            echo ""
+            echo "2. Service status:"
+            sudo systemctl status ixasales-staging --no-pager | head -15
+            
+            # Check service environment
+            echo ""
+            echo "3. Environment loaded by systemd:"
+            sudo systemctl show ixasales-staging --property=Environment | head -5
           EOF
 
       - name: Health Check
         run: |
           sleep 5
-          curl -f https://dev-api.ixasales.uz/api/health || echo "Health check failed - server may still be starting"
+          echo "=== API Health Check ==="
+          curl -f https://dev-api.ixasales.uz/health || echo "Health check failed - server may still be starting"
+          
+          echo ""
+          echo "=== CORS Preflight Test ==="
+          curl -sS -I -X OPTIONS \
+            -H "Origin: https://dev.ixasales.uz" \
+            -H "Access-Control-Request-Method: GET" \
+            -H "Access-Control-Request-Headers: Content-Type" \
+            https://dev-api.ixasales.uz/health 2>&1 | grep -i "access-control" || echo "⚠ No CORS headers in response"
+

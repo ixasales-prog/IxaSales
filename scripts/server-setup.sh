@@ -114,17 +114,32 @@ Type=simple
 User=$APP_USER
 Group=www-data
 WorkingDirectory=$APP_DIR
-ExecStart=/usr/bin/npm run start
+# Load environment from .env file (CRITICAL: contains DATABASE_URL, CORS_ORIGIN, etc.)
+EnvironmentFile=$APP_DIR/.env
+# Override with explicit production settings
+Environment=NODE_ENV=production
+Environment=PORT=$STAGING_PORT
+ExecStart=/usr/bin/node dist/index-fastify.js
 Restart=on-failure
 RestartSec=10
-Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+# Enable and start the service
 systemctl daemon-reload
-echo "Service created (will be enabled after first deployment)"
+systemctl enable ixasales-staging
+systemctl start ixasales-staging
+
+# Verify service is running
+if systemctl is-active --quiet ixasales-staging; then
+    echo -e "${GREEN}✓ ixasales-staging service is running${NC}"
+else
+    echo -e "${RED}✗ ixasales-staging service failed to start${NC}"
+    systemctl status ixasales-staging --no-pager
+    exit 1
+fi
 
 # -----------------------------------------------------------------------------
 # 7. Configure Nginx

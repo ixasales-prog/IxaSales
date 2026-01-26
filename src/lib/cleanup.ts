@@ -1,7 +1,8 @@
 import { readdir, stat, unlink, rmdir } from 'fs/promises';
 import { join } from 'path';
 import { db, schema } from '../db';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and, lt } from 'drizzle-orm';
+import { userSessions, userActivityEvents } from '../db/schema/users';
 
 /**
  * Cleanup utility for orphaned upload files
@@ -170,9 +171,73 @@ async function cleanupEmptyDirs(dir: string): Promise<void> {
     }
 }
 
+// Cleanup user activity data based on retention policy
+export async function cleanupUserActivityData() {
+    const result = {
+        sessionsDeleted: 0,
+        eventsDeleted: 0,
+        errors: [] as string[]
+    };
+    
+    try {
+        // Get tenant-specific retention setting (default to 90 days)
+        const retentionDays = parseInt(process.env.USER_ACTIVITY_RETENTION_DAYS || '90');
+        const cutoffDate = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+        
+        console.log(`Cleaning user activity data older than ${cutoffDate.toISOString()}`);
+        
+        // Count old activity events before deletion
+        const [eventsCount] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(userActivityEvents)
+            .where(lt(userActivityEvents.timestamp, cutoffDate));
+        
+        // Delete old activity events first (due to foreign key constraint)
+        await db
+            .delete(userActivityEvents)
+            .where(lt(userActivityEvents.timestamp, cutoffDate));
+        
+        result.eventsDeleted = eventsCount.count;
+        console.log(`Deleted ${result.eventsDeleted} old activity events`);
+        
+        // Count old sessions before deletion
+        const [sessionsCount] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(userSessions)
+            .where(and(
+                lt(userSessions.endedAt, cutoffDate),
+                sql`${userSessions.endedAt} IS NOT NULL`
+            ));
+        
+        // Delete old sessions (ended sessions only)
+        await db
+            .delete(userSessions)
+            .where(and(
+                lt(userSessions.endedAt, cutoffDate),
+                sql`${userSessions.endedAt} IS NOT NULL`
+            ));
+        
+        result.sessionsDeleted = sessionsCount.count;
+        console.log(`Deleted ${result.sessionsDeleted} old ended sessions`);
+        
+    } catch (err: any) {
+        result.errors.push(`Failed to clean user activity data: ${err.message}`);
+        console.error('Error cleaning user activity data:', err);
+    }
+    
+    return result;
+}
+
 // Can be called via API route or scheduled job
 export async function runCleanupJob() {
     console.log('Starting orphaned files cleanup...');
-    const result = await cleanupOrphanedFiles(24);
-    return result;
+    const filesResult = await cleanupOrphanedFiles(24);
+    
+    console.log('Starting user activity data cleanup...');
+    const activityResult = await cleanupUserActivityData();
+    
+    return {
+        files: filesResult,
+        userActivity: activityResult
+    };
 }
