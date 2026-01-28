@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
 import { eq, and, sql, desc, gte, lte } from 'drizzle-orm';
-import { VisitsService } from '../services/visits.service';
+import { VisitsService, UnifiedCreateVisitInput } from '../services/visits.service';
 
 // Create service instance
 const visitsService = new VisitsService();
@@ -25,20 +25,23 @@ const VisitIdParamsSchema = Type.Object({
     id: Type.String(),
 });
 
+// Unified create visit schema - supports both scheduled and quick modes
 const CreateVisitBodySchema = Type.Object({
+    // Common fields
     customerId: Type.String(),
-    salesRepId: Type.Optional(Type.String()),
-    visitType: Type.Optional(Type.String()),
-    plannedDate: Type.String(),
-    plannedTime: Type.Optional(Type.String()),
-    notes: Type.Optional(Type.String()),
-});
-
-const QuickVisitBodySchema = Type.Object({
-    customerId: Type.String(),
-    outcome: Type.String(),
     plannedDate: Type.Optional(Type.String()),
     plannedTime: Type.Optional(Type.String()),
+    notes: Type.Optional(Type.String()),
+    
+    // Mode determines the workflow: 'scheduled' or 'quick'
+    mode: Type.String({ default: 'scheduled' }),
+    
+    // Scheduled mode specific fields
+    salesRepId: Type.Optional(Type.String()),
+    visitType: Type.Optional(Type.String()),
+    
+    // Quick mode specific fields
+    outcome: Type.Optional(Type.String()),
     photo: Type.Optional(Type.String()),
     latitude: Type.Optional(Type.Number()),
     longitude: Type.Optional(Type.Number()),
@@ -77,7 +80,6 @@ const UpdateVisitBodySchema = Type.Object({
 type ListVisitsQuery = Static<typeof ListVisitsQuerySchema>;
 type TodayVisitsQuery = Static<typeof TodayVisitsQuerySchema>;
 type CreateVisitBody = Static<typeof CreateVisitBodySchema>;
-type QuickVisitBody = Static<typeof QuickVisitBodySchema>;
 type StartVisitBody = Static<typeof StartVisitBodySchema>;
 type CompleteVisitBody = Static<typeof CompleteVisitBodySchema>;
 type CancelVisitBody = Static<typeof CancelVisitBodySchema>;
@@ -191,7 +193,68 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // ----------------------------------------------------------------
-    // CREATE VISIT
+    // CREATE QUICK VISIT (Legacy endpoint - redirects to unified method)
+    // ----------------------------------------------------------------
+    fastify.post<{ Body: CreateVisitBody }>('/quick', {
+        preHandler: [fastify.authenticate],
+        schema: { body: CreateVisitBodySchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        const body = request.body;
+
+        try {
+            // Force mode to 'quick' for this endpoint
+            if (!body.outcome) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'MISSING_REQUIRED_FIELD',
+                        message: 'outcome is required for quick visits'
+                    }
+                });
+            }
+
+            const input: UnifiedCreateVisitInput = {
+                customerId: body.customerId,
+                plannedDate: body.plannedDate,
+                plannedTime: body.plannedTime,
+                notes: body.notes,
+                mode: 'quick',
+                salesRepId: body.salesRepId,
+                visitType: body.visitType,
+                outcome: body.outcome,
+                photo: body.photo,
+                latitude: body.latitude,
+                longitude: body.longitude,
+                outcomeNotes: body.outcomeNotes,
+                noOrderReason: body.noOrderReason,
+                followUpReason: body.followUpReason,
+                followUpDate: body.followUpDate,
+                followUpTime: body.followUpTime,
+            };
+
+            const visit = await visitsService.createVisitUnified(input, user.tenantId, user.id, user.role);
+
+            return { success: true, data: visit };
+        } catch (error: any) {
+            console.error('Create quick visit error:', error);
+            if (error.message === 'Customer not found') {
+                return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
+            } else if (error.message?.includes('Invalid outcome')) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_OUTCOME',
+                        message: error.message
+                    }
+                });
+            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
+        }
+    });
+
+    // ----------------------------------------------------------------
+    // CREATE VISIT (Unified - supports both scheduled and quick modes)
     // ----------------------------------------------------------------
     fastify.post<{ Body: CreateVisitBody }>('/', {
         preHandler: [fastify.authenticate],
@@ -201,7 +264,59 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
         const body = request.body;
 
         try {
-            const visit = await visitsService.createVisit(body, user.tenantId, user.id, user.role);
+            // Validate mode
+            const mode = body.mode || 'scheduled';
+            if (mode !== 'scheduled' && mode !== 'quick') {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_MODE',
+                        message: 'Mode must be either "scheduled" or "quick"'
+                    }
+                });
+            }
+
+            // Validate required fields based on mode
+            if (mode === 'scheduled' && !body.plannedDate) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'MISSING_REQUIRED_FIELD',
+                        message: 'plannedDate is required for scheduled visits'
+                    }
+                });
+            }
+
+            if (mode === 'quick' && !body.outcome) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'MISSING_REQUIRED_FIELD',
+                        message: 'outcome is required for quick visits'
+                    }
+                });
+            }
+
+            const input: UnifiedCreateVisitInput = {
+                customerId: body.customerId,
+                plannedDate: body.plannedDate,
+                plannedTime: body.plannedTime,
+                notes: body.notes,
+                mode: mode as 'scheduled' | 'quick',
+                salesRepId: body.salesRepId,
+                visitType: body.visitType,
+                outcome: body.outcome,
+                photo: body.photo,
+                latitude: body.latitude,
+                longitude: body.longitude,
+                outcomeNotes: body.outcomeNotes,
+                noOrderReason: body.noOrderReason,
+                followUpReason: body.followUpReason,
+                followUpDate: body.followUpDate,
+                followUpTime: body.followUpTime,
+            };
+
+            const visit = await visitsService.createVisitUnified(input, user.tenantId, user.id, user.role);
 
             return { success: true, data: visit };
         } catch (error: any) {
@@ -209,43 +324,28 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
             if (error.message === 'Customer not found') {
                 return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
             } else if (error.message === 'Planned date cannot be in the past') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_DATE', 
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_DATE',
                         message: error.message
-                    } 
+                    }
                 });
-            }
-            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
-        }
-    });
-
-    // ----------------------------------------------------------------
-    // QUICK VISIT (Create and complete in one step)
-    // ----------------------------------------------------------------
-    fastify.post<{ Body: QuickVisitBody }>('/quick', {
-        preHandler: [fastify.authenticate],
-        schema: { body: QuickVisitBodySchema },
-    }, async (request, reply) => {
-        const user = request.user!;
-        const body = request.body;
-
-        try {
-            const visit = await visitsService.createQuickVisit(body, user.tenantId, user.id);
-
-            return { success: true, data: visit };
-        } catch (error: any) {
-            console.error('Quick visit error:', error);
-            if (error.message === 'Customer not found') {
-                return reply.code(404).send({ success: false, error: { code: 'CUSTOMER_NOT_FOUND' } });
-            } else if (error.message === 'Planned date cannot be in the past') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_DATE', 
+            } else if (error.message?.includes('Invalid outcome')) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_OUTCOME',
                         message: error.message
-                    } 
+                    }
+                });
+            } else if (error.message?.includes('Invalid visit type')) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_VISIT_TYPE',
+                        message: error.message
+                    }
                 });
             }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
@@ -274,12 +374,12 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
             } else if (error.message === 'Forbidden') {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
             } else if (error.name === 'InvalidStatusTransitionError') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_STATUS_TRANSITION', 
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_STATUS_TRANSITION',
                         message: error.message
-                    } 
+                    }
                 });
             }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
@@ -308,12 +408,20 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
             } else if (error.message === 'Forbidden') {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
             } else if (error.name === 'InvalidStatusTransitionError') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_STATUS_TRANSITION', 
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_STATUS_TRANSITION',
                         message: error.message
-                    } 
+                    }
+                });
+            } else if (error.message?.includes('Invalid outcome')) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_OUTCOME',
+                        message: error.message
+                    }
                 });
             }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
@@ -342,12 +450,12 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
             } else if (error.message === 'Forbidden') {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
             } else if (error.name === 'InvalidStatusTransitionError') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_STATUS_TRANSITION', 
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_STATUS_TRANSITION',
                         message: error.message
-                    } 
+                    }
                 });
             }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
@@ -376,20 +484,28 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
             } else if (error.message === 'Forbidden') {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
             } else if (error.name === 'InvalidStatusTransitionError') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_STATUS_TRANSITION', 
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_STATUS_TRANSITION',
                         message: error.message
-                    } 
+                    }
                 });
             } else if (error.message === 'Planned date cannot be in the past') {
-                return reply.code(400).send({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_DATE', 
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_DATE',
                         message: error.message
-                    } 
+                    }
+                });
+            } else if (error.message?.includes('Invalid visit type')) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_VISIT_TYPE',
+                        message: error.message
+                    }
                 });
             }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error?.message } });
@@ -404,8 +520,8 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
 
-        // Only admins/managers can trigger this
-        if (!['admin', 'tenant_admin', 'manager'].includes(user.role)) {
+        // Only admins/supervisors can trigger this
+        if (!['admin', 'tenant_admin', 'supervisor'].includes(user.role)) {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
         }
 

@@ -146,31 +146,31 @@ if ($Environment -eq "staging") {
 } else {
     $corsCommand = "cd '$TARGET_DIR' && if [ -f .env ]; then if grep -q '^CORS_ORIGIN=' .env; then sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=https://ixasales.uz|' .env && echo 'Updated CORS_ORIGIN to https://ixasales.uz'; else echo '' >> .env && echo '# CORS Configuration' >> .env && echo 'CORS_ORIGIN=https://ixasales.uz' >> .env && echo 'Added CORS_ORIGIN=https://ixasales.uz'; fi; else echo 'WARNING: .env file not found'; fi"
 }
-ssh "${SERVER_USER}@${SERVER_IP}" $corsCommand
+ssh "$SERVER_USER@$SERVER_IP" $corsCommand
 
 # -----------------------------------------------------------------------------
 # 7. Run Database Migrations
 # -----------------------------------------------------------------------------
 Write-Host "`n[7/10] Running GPS tracking migration..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && npx tsx src/db/migrations/add_gps_tracking.ts"
+ssh "$SERVER_USER@$SERVER_IP" "cd $TARGET_DIR && npx tsx src/db/migrations/add_gps_tracking.ts"
 
 # -----------------------------------------------------------------------------
 # 8. Verify Installation
 # -----------------------------------------------------------------------------
 Write-Host "`n[8/10] Verifying installation..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && test -f dist/index-fastify.js && echo 'Backend build found' || echo 'WARNING: Backend build not found'"
+ssh "$SERVER_USER@$SERVER_IP" "cd $TARGET_DIR && test -f dist/index-fastify.js && echo 'Backend build found' || echo 'WARNING: Backend build not found'"
 
 # -----------------------------------------------------------------------------
 # 9. Fix Permissions & Restart Service
 # -----------------------------------------------------------------------------
 Write-Host "`n[9/10] Fixing permissions & restarting service..." -ForegroundColor Green
-ssh "${SERVER_USER}@${SERVER_IP}" -t "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME"
+ssh "$SERVER_USER@$SERVER_IP" -t "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME"
 
 # -----------------------------------------------------------------------------
 # 10. Verify Service is Running
 # -----------------------------------------------------------------------------
 Write-Host "`n[10/10] Verifying service status..." -ForegroundColor Green
-$serviceStatus = ssh "${SERVER_USER}@${SERVER_IP}" "sudo systemctl is-active $SERVICE_NAME"
+$serviceStatus = ssh "$SERVER_USER@$SERVER_IP" "sudo systemctl is-active $SERVICE_NAME"
 if ($serviceStatus.Trim() -ne "active") {
     Write-Host "ERROR: Service $SERVICE_NAME is not active (status: $serviceStatus)" -ForegroundColor Red
     exit 1

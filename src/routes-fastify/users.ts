@@ -84,6 +84,42 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: users, meta: { page, limit, total: Number(count), totalPages: Math.ceil(Number(count) / limit) } };
     });
 
+    // Get my assigned reps (for supervisors)
+    fastify.get('/my-reps', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+
+        if (user.role !== 'supervisor') {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only supervisors can access this endpoint' } });
+        }
+
+        if (!user.tenantId) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Tenant context required' } });
+        }
+
+        try {
+            const reps = await db.select({
+                id: schema.users.id,
+                name: schema.users.name,
+                email: schema.users.email,
+                phone: schema.users.phone,
+                isActive: schema.users.isActive,
+                lastLoginAt: schema.users.lastLoginAt,
+                createdAt: schema.users.createdAt,
+            }).from(schema.users).where(and(
+                eq(schema.users.supervisorId, user.id),
+                eq(schema.users.tenantId, user.tenantId),
+                eq(schema.users.role, 'sales_rep')
+            )).orderBy(desc(schema.users.createdAt));
+
+            return { success: true, data: reps };
+        } catch (error) {
+            console.error('Error fetching assigned reps:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to fetch assigned reps' } });
+        }
+    });
+
     // Create user
     fastify.post<{ Body: CreateUserBody }>('/', {
         preHandler: [fastify.authenticate],

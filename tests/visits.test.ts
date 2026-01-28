@@ -1,4 +1,4 @@
-import { describe, it, beforeAll, afterAll } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import { equal, ok } from 'assert';
 import Fastify from 'fastify';
 import { db } from '../src/db';
@@ -11,8 +11,9 @@ describe('Visits API Integration Tests', () => {
     let testUser: any;
     let testCustomer: any;
     let testVisit: any;
+    let quickVisit: any;
 
-    beforeAll(async () => {
+    before(async () => {
         server = Fastify({ logger: false });
         server.register(visitRoutes);
 
@@ -32,27 +33,28 @@ describe('Visits API Integration Tests', () => {
         const [customer] = await db
             .insert(schema.customers)
             .values({
-                id: 'test-customer-id',
                 tenantId: 'test-tenant-id',
                 name: 'Test Customer',
                 phone: '+1234567890',
                 address: '123 Test Street',
-                email: 'test@example.com',
-                status: 'active',
-                creditLimit: 1000,
-                outstandingBalance: 0
+                email: 'test@example.com'
             })
             .returning();
 
         testCustomer = customer;
     });
 
-    afterAll(async () => {
-        // Cleanup: Delete test visit if it exists
+    after(async () => {
+        // Cleanup: Delete test visits if they exist
         if (testVisit) {
             await db
                 .delete(schema.salesVisits)
                 .where(eq(schema.salesVisits.id, testVisit.id));
+        }
+        if (quickVisit) {
+            await db
+                .delete(schema.salesVisits)
+                .where(eq(schema.salesVisits.id, quickVisit.id));
         }
 
         // Delete test customer
@@ -63,20 +65,21 @@ describe('Visits API Integration Tests', () => {
         await server.close();
     });
 
-    it('should create a visit successfully', async () => {
+    it('should create a scheduled visit successfully', async () => {
         const plannedDate = new Date();
         plannedDate.setDate(plannedDate.getDate() + 1); // Tomorrow
         const formattedDate = plannedDate.toISOString().split('T')[0];
 
         const response = await server.inject({
             method: 'POST',
-            url: '/visits',
+            url: '/',
             payload: {
                 customerId: testCustomer.id,
                 plannedDate: formattedDate,
                 plannedTime: '10:00',
                 notes: 'Test visit for integration test',
-                visitType: 'scheduled'
+                visitType: 'scheduled',
+                mode: 'scheduled'
             }
         });
 
@@ -87,7 +90,103 @@ describe('Visits API Integration Tests', () => {
         equal(result.data.customerId, testCustomer.id);
         equal(result.data.status, 'planned');
         equal(result.data.plannedDate, formattedDate);
+        equal(result.data.visitType, 'scheduled');
         testVisit = result.data; // Store for later tests
+    });
+
+    it('should create a quick visit successfully', async () => {
+        const response = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                mode: 'quick',
+                outcome: 'order_placed',
+                outcomeNotes: 'Quick visit completed with order',
+                latitude: 40.7128,
+                longitude: -74.0060
+            }
+        });
+
+        equal(response.statusCode, 200);
+        const result = response.json();
+        ok(result.success);
+        ok(result.data);
+        equal(result.data.customerId, testCustomer.id);
+        equal(result.data.status, 'completed');
+        equal(result.data.outcome, 'order_placed');
+        equal(result.data.visitType, 'ad_hoc');
+        ok(result.data.startedAt);
+        ok(result.data.completedAt);
+        quickVisit = result.data; // Store for cleanup
+    });
+
+    it('should validate mode parameter', async () => {
+        const response = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                mode: 'invalid_mode',
+                plannedDate: '2025-01-01'
+            }
+        });
+
+        equal(response.statusCode, 400);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'INVALID_MODE');
+    });
+
+    it('should validate required fields for scheduled mode', async () => {
+        const response = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                mode: 'scheduled'
+                // Missing plannedDate
+            }
+        });
+
+        equal(response.statusCode, 400);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'MISSING_REQUIRED_FIELD');
+    });
+
+    it('should validate required fields for quick mode', async () => {
+        const response = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                mode: 'quick'
+                // Missing outcome
+            }
+        });
+
+        equal(response.statusCode, 400);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'MISSING_REQUIRED_FIELD');
+    });
+
+    it('should validate outcome enum for quick visits', async () => {
+        const response = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                mode: 'quick',
+                outcome: 'invalid_outcome'
+            }
+        });
+
+        equal(response.statusCode, 400);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'INVALID_OUTCOME');
     });
 
     it('should start a planned visit successfully', async () => {
@@ -97,7 +196,7 @@ describe('Visits API Integration Tests', () => {
 
         const response = await server.inject({
             method: 'PATCH',
-            url: `/visits/${testVisit.id}/start`,
+            url: `/${testVisit.id}/start`,
             payload: {
                 latitude: 40.7128,
                 longitude: -74.0060
@@ -118,7 +217,7 @@ describe('Visits API Integration Tests', () => {
 
         const response = await server.inject({
             method: 'PATCH',
-            url: `/visits/${testVisit.id}/complete`,
+            url: `/${testVisit.id}/complete`,
             payload: {
                 outcome: 'order_placed',
                 outcomeNotes: 'Successfully placed order',
@@ -136,6 +235,49 @@ describe('Visits API Integration Tests', () => {
         ok(result.data.completedAt);
     });
 
+    it('should validate outcome enum when completing visit', async () => {
+        // Create a new visit to test completion validation
+        const plannedDate = new Date();
+        plannedDate.setDate(plannedDate.getDate() + 1);
+        const formattedDate = plannedDate.toISOString().split('T')[0];
+
+        const createResponse = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                plannedDate: formattedDate,
+                mode: 'scheduled'
+            }
+        });
+
+        const newVisit = createResponse.json().data;
+
+        // Start the visit
+        await server.inject({
+            method: 'PATCH',
+            url: `/${newVisit.id}/start`,
+            payload: {}
+        });
+
+        // Try to complete with invalid outcome
+        const response = await server.inject({
+            method: 'PATCH',
+            url: `/${newVisit.id}/complete`,
+            payload: {
+                outcome: 'invalid_outcome'
+            }
+        });
+
+        equal(response.statusCode, 400);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'INVALID_OUTCOME');
+
+        // Cleanup
+        await db.delete(schema.salesVisits).where(eq(schema.salesVisits.id, newVisit.id));
+    });
+
     it('should validate status transitions', async () => {
         if (!testVisit) {
             throw new Error('Test visit not created');
@@ -144,7 +286,7 @@ describe('Visits API Integration Tests', () => {
         // Try to start a completed visit (should fail)
         const response = await server.inject({
             method: 'PATCH',
-            url: `/visits/${testVisit.id}/start`,
+            url: `/${testVisit.id}/start`,
             payload: {
                 latitude: 40.7128,
                 longitude: -74.0060
@@ -165,9 +307,10 @@ describe('Visits API Integration Tests', () => {
 
         const response = await server.inject({
             method: 'POST',
-            url: '/visits',
+            url: '/',
             payload: {
                 customerId: testCustomer.id,
+                mode: 'scheduled',
                 plannedDate: formattedDate,
                 plannedTime: '10:00',
                 notes: 'Test visit with past date'
@@ -179,5 +322,70 @@ describe('Visits API Integration Tests', () => {
         ok(!result.success);
         ok(result.error);
         equal(result.error.code, 'INVALID_DATE');
+    });
+
+    it('should validate visit type enum', async () => {
+        const plannedDate = new Date();
+        plannedDate.setDate(plannedDate.getDate() + 1);
+        const formattedDate = plannedDate.toISOString().split('T')[0];
+
+        const response = await server.inject({
+            method: 'POST',
+            url: '/',
+            payload: {
+                customerId: testCustomer.id,
+                mode: 'scheduled',
+                plannedDate: formattedDate,
+                visitType: 'invalid_type'
+            }
+        });
+
+        equal(response.statusCode, 400);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'INVALID_VISIT_TYPE');
+    });
+
+    it('should list visits with pagination', async () => {
+        const response = await server.inject({
+            method: 'GET',
+            url: '/?page=1&limit=10',
+        });
+
+        equal(response.statusCode, 200);
+        const result = response.json();
+        ok(result.success);
+        ok(Array.isArray(result.data));
+        ok(result.meta);
+        ok(typeof result.meta.total === 'number');
+        ok(typeof result.meta.totalPages === 'number');
+    });
+
+    it('should get visit by id', async () => {
+        if (!testVisit) {
+            throw new Error('Test visit not created');
+        }
+
+        const response = await server.inject({
+            method: 'GET',
+            url: `/${testVisit.id}`,
+        });
+
+        equal(response.statusCode, 200);
+        const result = response.json();
+        ok(result.success);
+        equal(result.data.id, testVisit.id);
+    });
+
+    it('should return 404 for non-existent visit', async () => {
+        const response = await server.inject({
+            method: 'GET',
+            url: '/non-existent-id',
+        });
+
+        equal(response.statusCode, 404);
+        const result = response.json();
+        ok(!result.success);
+        equal(result.error.code, 'NOT_FOUND');
     });
 });
