@@ -164,6 +164,9 @@ ssh "$SERVER_USER@$SERVER_IP" "cd $TARGET_DIR && test -f dist/index-fastify.js &
 # 9. Fix Permissions & Restart Service
 # -----------------------------------------------------------------------------
 Write-Host "`n[9/10] Fixing permissions & restarting service..." -ForegroundColor Green
+# Kill any process using the port before restarting to prevent EADDRINUSE errors
+$port = if ($Environment -eq "staging") { "3001" } else { "3000" }
+ssh "$SERVER_USER@$SERVER_IP" "sudo lsof -ti :$port | xargs -r sudo kill -9 2>/dev/null; echo 'Port $port cleared'"
 ssh "$SERVER_USER@$SERVER_IP" -t "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME"
 
 # -----------------------------------------------------------------------------

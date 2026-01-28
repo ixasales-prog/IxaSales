@@ -84,6 +84,39 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: users, meta: { page, limit, total: Number(count), totalPages: Math.ceil(Number(count) / limit) } };
     });
 
+    // Get all supervisors for the tenant (for assigning reps)
+    fastify.get('/supervisors', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can access supervisors list' } });
+        }
+
+        if (!user.tenantId) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Tenant context required' } });
+        }
+
+        try {
+            const supervisors = await db.select({
+                id: schema.users.id,
+                name: schema.users.name,
+                email: schema.users.email,
+                phone: schema.users.phone,
+            }).from(schema.users).where(and(
+                eq(schema.users.tenantId, user.tenantId),
+                eq(schema.users.role, 'supervisor'),
+                eq(schema.users.isActive, true)
+            )).orderBy(schema.users.name);
+
+            return { success: true, data: supervisors };
+        } catch (error) {
+            console.error('Error fetching supervisors:', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to fetch supervisors' } });
+        }
+    });
+
     // Get my assigned reps (for supervisors)
     fastify.get('/my-reps', {
         preHandler: [fastify.authenticate],
@@ -137,6 +170,32 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!targetTenantId && body.role !== 'super_admin') {
             return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Tenant ID is required' } });
+        }
+
+        // Validate supervisorId if provided
+        if (body.supervisorId) {
+            const [supervisor] = await db.select({ id: schema.users.id, role: schema.users.role, tenantId: schema.users.tenantId })
+                .from(schema.users)
+                .where(eq(schema.users.id, body.supervisorId))
+                .limit(1);
+            
+            if (!supervisor) {
+                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Supervisor not found' } });
+            }
+            
+            if (supervisor.role !== 'supervisor') {
+                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Assigned user is not a supervisor' } });
+            }
+            
+            // Ensure supervisor belongs to the same tenant
+            if (user.role !== 'super_admin' && supervisor.tenantId !== targetTenantId) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Supervisor does not belong to this tenant' } });
+            }
+            
+            // Prevent circular reference: a supervisor cannot be assigned to themselves
+            if (body.supervisorId === user.id && user.role === 'supervisor') {
+                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'A supervisor cannot assign themselves as their own supervisor' } });
+            }
         }
 
         // Check plan limits
@@ -208,6 +267,33 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!['tenant_admin', 'super_admin'].includes(user.role)) {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        // Validate supervisorId if provided
+        if (body.supervisorId) {
+            const [supervisor] = await db.select({ id: schema.users.id, role: schema.users.role, tenantId: schema.users.tenantId })
+                .from(schema.users)
+                .where(eq(schema.users.id, body.supervisorId))
+                .limit(1);
+            
+            if (!supervisor) {
+                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Supervisor not found' } });
+            }
+            
+            if (supervisor.role !== 'supervisor') {
+                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Assigned user is not a supervisor' } });
+            }
+            
+            // Ensure supervisor belongs to the same tenant
+            const targetTenantId = user.role === 'super_admin' ? (await db.select({ tenantId: schema.users.tenantId }).from(schema.users).where(eq(schema.users.id, id)).limit(1))[0]?.tenantId : user.tenantId;
+            if (supervisor.tenantId !== targetTenantId) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Supervisor does not belong to this tenant' } });
+            }
+            
+            // Prevent self-assignment as supervisor
+            if (body.supervisorId === id) {
+                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'A user cannot be their own supervisor' } });
+            }
         }
 
         const condition = user.role !== 'super_admin' && user.tenantId

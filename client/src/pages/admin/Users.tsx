@@ -89,6 +89,12 @@ const Users: Component = () => {
         return result || [];
     });
 
+    // Fetch supervisors for dropdown
+    const [supervisors] = createResource(async () => {
+        const result = await api<{ data: { id: string; name: string; email: string; phone: string | null }[] }>('/users/supervisors');
+        return result?.data || [];
+    });
+
     const userList = createMemo(() => (users() as any)?.data || users() || []);
     const total = createMemo(() => (users() as any)?.total || userList().length);
     const totalPages = createMemo(() => Math.ceil(total() / limit));
@@ -342,9 +348,9 @@ const Users: Component = () => {
                                         <tr class="border-b border-slate-800/50">
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">User</th>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Role</th>
+                                            <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Supervisor</th>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Status</th>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Last Login</th>
-                                            <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Created</th>
                                             <th class="text-right text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Actions</th>
                                         </tr>
                                     </thead>
@@ -353,6 +359,7 @@ const Users: Component = () => {
                                             {(user) => {
                                                 const roleConfig = getRoleConfig(user.role);
                                                 const RoleIcon = roleConfig.icon;
+                                                const assignedSupervisor = supervisors()?.find(s => s.id === user.supervisorId);
                                                 return (
                                                     <tr class="hover:bg-slate-800/30 transition-colors">
                                                         <td class="px-6 py-4">
@@ -373,6 +380,16 @@ const Users: Component = () => {
                                                             </span>
                                                         </td>
                                                         <td class="px-6 py-4">
+                                                            <Show when={user.role === 'sales_rep' && assignedSupervisor} fallback={
+                                                                <span class="text-slate-500 text-sm">-</span>
+                                                            }>
+                                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400">
+                                                                    <Shield class="w-3 h-3" />
+                                                                    {assignedSupervisor?.name}
+                                                                </span>
+                                                            </Show>
+                                                        </td>
+                                                        <td class="px-6 py-4">
                                                             <Show when={user.isActive} fallback={
                                                                 <span class="inline-flex items-center gap-1.5 text-red-400 text-sm">
                                                                     <XCircle class="w-4 h-4" /> Inactive
@@ -385,9 +402,6 @@ const Users: Component = () => {
                                                         </td>
                                                         <td class="px-6 py-4 text-slate-400 text-sm">
                                                             {formatDate(user.lastLoginAt)}
-                                                        </td>
-                                                        <td class="px-6 py-4 text-slate-400 text-sm">
-                                                            {formatDate(user.createdAt)}
                                                         </td>
                                                         <td class="px-6 py-4">
                                                             <div class="flex items-center justify-end gap-2">
@@ -431,6 +445,7 @@ const Users: Component = () => {
                                 {(user) => {
                                     const roleConfig = getRoleConfig(user.role);
                                     const RoleIcon = roleConfig.icon;
+                                    const assignedSupervisor = supervisors()?.find(s => s.id === user.supervisorId);
                                     return (
                                         <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6 hover:border-slate-700/50 transition-all group">
                                             <div class="flex items-start justify-between mb-4">
@@ -451,12 +466,21 @@ const Users: Component = () => {
                                             <h3 class="text-lg font-bold text-white mb-1">{user.name}</h3>
                                             <div class="text-slate-400 text-sm mb-4">{user.email}</div>
 
-                                            <div class="flex items-center gap-2 mb-4">
+                                            <div class="flex items-center gap-2 mb-2">
                                                 <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${roleConfig.bg} ${roleConfig.text}`}>
                                                     <RoleIcon class="w-3.5 h-3.5" />
                                                     {user.role.replace('_', ' ')}
                                                 </span>
                                             </div>
+
+                                            <Show when={user.role === 'sales_rep' && assignedSupervisor}>
+                                                <div class="flex items-center gap-2 mb-4">
+                                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400">
+                                                        <Shield class="w-3 h-3" />
+                                                        {assignedSupervisor?.name}
+                                                    </span>
+                                                </div>
+                                            </Show>
 
                                             <div class="flex items-center gap-2 pt-4 border-t border-slate-800/50">
                                                 <button
@@ -488,6 +512,7 @@ const Users: Component = () => {
                             <For each={userList()}>
                                 {(user) => {
                                     const roleConfig = getRoleConfig(user.role);
+                                    const assignedSupervisor = supervisors()?.find(s => s.id === user.supervisorId);
                                     return (
                                         <div class="group flex items-center justify-between p-2 pl-4 bg-slate-900/40 border border-slate-800/40 rounded-lg hover:border-slate-700 hover:bg-slate-800/60 transition-all">
                                             <div class="flex items-center gap-4 flex-1 min-w-0">
@@ -502,6 +527,12 @@ const Users: Component = () => {
                                                 <div class={`hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-semibold ${roleConfig.bg} ${roleConfig.text}`}>
                                                     {user.role.replace('_', ' ')}
                                                 </div>
+                                                <Show when={user.role === 'sales_rep' && assignedSupervisor}>
+                                                    <div class="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-semibold bg-blue-500/10 text-blue-400">
+                                                        <Shield class="w-3 h-3" />
+                                                        {assignedSupervisor?.name}
+                                                    </div>
+                                                </Show>
                                             </div>
 
                                             <div class="flex items-center gap-2 pl-4 border-l border-slate-800/50">
@@ -625,7 +656,14 @@ const Users: Component = () => {
                                     <label class="text-sm font-medium text-slate-300">Role</label>
                                     <select
                                         value={formData.role}
-                                        onInput={(e) => setFormData('role', e.currentTarget.value)}
+                                        onInput={(e) => {
+                                            const newRole = e.currentTarget.value;
+                                            setFormData('role', newRole);
+                                            // Clear supervisor if role is not sales_rep
+                                            if (newRole !== 'sales_rep') {
+                                                setFormData('supervisorId', '');
+                                            }
+                                        }}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
                                         <For each={creationRoles()}>
@@ -637,15 +675,39 @@ const Users: Component = () => {
                                     <label class="text-sm font-medium text-slate-300">Password</label>
                                     <input
                                         type="password"
-                                        required
+                                        required={!editingId()}
                                         minlength="8"
                                         value={formData.password}
                                         onInput={(e) => setFormData('password', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="Min. 8 characters"
+                                        placeholder={editingId() ? "Leave empty to keep current" : "Min. 8 characters"}
                                     />
                                 </div>
                             </div>
+
+                            {/* Supervisor Selection for Sales Reps */}
+                            <Show when={formData.role === 'sales_rep'}>
+                                <div class="space-y-1.5">
+                                    <label class="text-sm font-medium text-slate-300">Assign to Supervisor</label>
+                                    <select
+                                        value={formData.supervisorId}
+                                        onInput={(e) => setFormData('supervisorId', e.currentTarget.value)}
+                                        class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                    >
+                                        <option value="">No Supervisor</option>
+                                        <For each={supervisors()}>
+                                            {(supervisor) => (
+                                                <option value={supervisor.id}>
+                                                    {supervisor.name} ({supervisor.email})
+                                                </option>
+                                            )}
+                                        </For>
+                                    </select>
+                                    <p class="text-xs text-slate-500">
+                                        Optional: Assign this sales rep to a supervisor for management and reporting
+                                    </p>
+                                </div>
+                            </Show>
 
                             {/* Tenant Selection for Super Admin */}
                             {/* Tenant Selection for Super Admin */}
