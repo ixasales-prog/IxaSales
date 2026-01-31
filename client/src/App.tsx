@@ -1,13 +1,16 @@
 import { type Component, createEffect } from 'solid-js';
-import { Router, Route, useLocation } from '@solidjs/router';
+import { Router, Route, useLocation, useNavigate } from '@solidjs/router';
 import Login from './pages/auth/Login';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword from './pages/auth/ResetPassword';
 import MobileSalesLayout from './components/layout/MobileSalesLayout';
 import MobileDriverLayout from './components/layout/MobileDriverLayout';
+import MobileSupervisorLayout from './components/layout/MobileSupervisorLayout';
+import MobileWarehouseLayout from './components/layout/MobileWarehouseLayout';
 import AdminLayout from './components/layout/AdminLayout';
 import SuperAdminLayout from './components/layout/SuperAdminLayout';
 import { ToastContainer } from './components/Toast';
+import InstallGating from './components/pwa/InstallGating';
 import { currentUser } from './stores/auth';
 
 // Sales Pages
@@ -17,11 +20,33 @@ import Cart from './pages/sales/Cart';
 import SalesVisits from './pages/sales/Visits';
 import SalesCustomers from './pages/sales/Customers';
 import SalesOrders from './pages/sales/Orders';
+import SalesOrderDetail from './pages/sales/OrderDetail';
+import SalesCustomerDetail from './pages/sales/CustomerDetail';
+import SalesVisitDetail from './pages/sales/VisitDetail';
 
 // Driver Pages
 import Trips from './pages/driver/Trips';
 import TripDetail from './pages/driver/TripDetail';
 import Deliveries from './pages/driver/Deliveries';
+import DeliveryDetail from './pages/driver/DeliveryDetail';
+
+// Supervisor Pages
+import SupervisorDashboard from './pages/supervisor/Dashboard';
+import SupervisorApprovals from './pages/supervisor/Approvals';
+import SupervisorTeam from './pages/supervisor/Team';
+import SupervisorInsights from './pages/supervisor/Insights';
+import SupervisorApprovalDetail from './pages/supervisor/ApprovalDetail';
+import SupervisorTeamMemberDetail from './pages/supervisor/TeamMemberDetail';
+import SupervisorInsightDetail from './pages/supervisor/InsightDetail';
+
+// Warehouse Pages
+import WarehouseDashboard from './pages/warehouse/Dashboard';
+import WarehouseTasks from './pages/warehouse/Tasks';
+import WarehouseInventory from './pages/warehouse/Inventory';
+import WarehouseReceiving from './pages/warehouse/Receiving';
+import WarehouseTaskDetail from './pages/warehouse/TaskDetail';
+import WarehouseInventoryDetail from './pages/warehouse/InventoryDetail';
+import WarehouseReceivingDetail from './pages/warehouse/ReceivingDetail';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/Dashboard';
@@ -45,9 +70,11 @@ import GPSTrackingSettings from './pages/admin/GPSTrackingSettings';
 import UserLocationHistory from './pages/admin/UserLocationHistory';
 import UserLocationMapPage from './pages/admin/UserLocationMapPage';
 import AdminCustomerTiers from './pages/admin/CustomerTiers';
+import AdminTerritories from './pages/admin/Territories';
 import AdminReturns from './pages/admin/Returns';
 import AdminInventory from './pages/admin/Inventory';
 import AdminVehicles from './pages/admin/Vehicles';
+import AdminReports from './pages/admin/Reports';
 import SuperAdminDashboard from './pages/super/Dashboard';
 import SuperAdminTenants from './pages/super/Tenants';
 import SuperAdminSettings from './pages/super/Settings';
@@ -73,20 +100,67 @@ import CustomerPortalPage from './pages/customer/CustomerPortalPage';
 import CustomerOrderDetail from './pages/CustomerOrderDetail';
 
 const SalesLayoutWrapper: Component = (props: any) => (
-  <MobileSalesLayout>{props.children}</MobileSalesLayout>
+  <RoleGuard roles={['sales_rep']}>
+    <MobileSalesLayout>{props.children}</MobileSalesLayout>
+  </RoleGuard>
 );
 
 const DriverLayoutWrapper: Component = (props: any) => (
-  <MobileDriverLayout>{props.children}</MobileDriverLayout>
+  <RoleGuard roles={['driver']}>
+    <MobileDriverLayout>{props.children}</MobileDriverLayout>
+  </RoleGuard>
+);
+
+const SupervisorLayoutWrapper: Component = (props: any) => (
+  <RoleGuard roles={['supervisor']}>
+    <MobileSupervisorLayout>{props.children}</MobileSupervisorLayout>
+  </RoleGuard>
+);
+
+const WarehouseLayoutWrapper: Component = (props: any) => (
+  <RoleGuard roles={['warehouse']}>
+    <MobileWarehouseLayout>{props.children}</MobileWarehouseLayout>
+  </RoleGuard>
 );
 
 const AdminLayoutWrapper: Component = (props: any) => (
-  <AdminLayout>{props.children}</AdminLayout>
+  <RoleGuard roles={['tenant_admin']}>
+    <AdminLayout>{props.children}</AdminLayout>
+  </RoleGuard>
 );
 
 const SuperAdminLayoutWrapper: Component = (props: any) => (
-  <SuperAdminLayout>{props.children}</SuperAdminLayout>
+  <RoleGuard roles={['super_admin']}>
+    <SuperAdminLayout>{props.children}</SuperAdminLayout>
+  </RoleGuard>
 );
+
+const roleRedirects: Record<string, string> = {
+  sales_rep: '/sales',
+  supervisor: '/supervisor',
+  warehouse: '/warehouse',
+  driver: '/driver',
+  tenant_admin: '/admin',
+  super_admin: '/super'
+};
+
+const RoleGuard: Component<{ roles: string[]; children?: any }> = (props) => {
+  const navigate = useNavigate();
+
+  createEffect(() => {
+    const user = currentUser();
+    if (!user) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    if (!props.roles.includes(user.role)) {
+      navigate(roleRedirects[user.role] ?? '/login', { replace: true });
+    }
+  });
+
+  return <>{props.children}</>;
+};
 
 const PwaRoleMetaLayout: Component<{ children?: any }> = (props) => {
   const location = useLocation();
@@ -103,8 +177,12 @@ const PwaRoleMetaLayout: Component<{ children?: any }> = (props) => {
       manifestHref = '/manifest.customer.json';
       iconHref = '/icons/customer.svg';
       appleIconHref = '/icons/customer.svg';
-    } else if (role === 'sales_rep' || role === 'supervisor') {
+    } else if (role === 'sales_rep') {
       manifestHref = '/manifest.sales.json';
+      iconHref = '/icons/sales.svg';
+      appleIconHref = '/icons/sales.svg';
+    } else if (role === 'supervisor') {
+      manifestHref = '/manifest.supervisor.json';
       iconHref = '/icons/sales.svg';
       appleIconHref = '/icons/sales.svg';
     } else if (role === 'driver') {
@@ -151,6 +229,7 @@ const PwaRoleMetaLayout: Component<{ children?: any }> = (props) => {
 const App: Component = () => {
   return (
     <>
+      <InstallGating />
       <Router>
         <Route path="/" component={PwaRoleMetaLayout}>
           <Route path="/login" component={Login} />
@@ -171,8 +250,22 @@ const App: Component = () => {
             <Route path="/catalog" component={Catalog} />
             <Route path="/cart" component={Cart} />
             <Route path="/visits" component={SalesVisits} />
+            <Route path="/visits/:id" component={SalesVisitDetail} />
             <Route path="/orders" component={SalesOrders} />
+            <Route path="/orders/:id" component={SalesOrderDetail} />
             <Route path="/customers" component={SalesCustomers} />
+            <Route path="/customers/:id" component={SalesCustomerDetail} />
+          </Route>
+
+          {/* Supervisor App Routes */}
+          <Route path="/supervisor" component={SupervisorLayoutWrapper}>
+            <Route path="/" component={SupervisorDashboard} />
+            <Route path="/approvals" component={SupervisorApprovals} />
+            <Route path="/approvals/:id" component={SupervisorApprovalDetail} />
+            <Route path="/team" component={SupervisorTeam} />
+            <Route path="/team/:id" component={SupervisorTeamMemberDetail} />
+            <Route path="/insights" component={SupervisorInsights} />
+            <Route path="/insights/:id" component={SupervisorInsightDetail} />
           </Route>
 
           {/* Driver App Routes */}
@@ -180,6 +273,18 @@ const App: Component = () => {
             <Route path="/" component={Trips} />
             <Route path="/trips/:id" component={TripDetail} />
             <Route path="/deliveries" component={Deliveries} />
+            <Route path="/deliveries/:id" component={DeliveryDetail} />
+          </Route>
+
+          {/* Warehouse App Routes */}
+          <Route path="/warehouse" component={WarehouseLayoutWrapper}>
+            <Route path="/" component={WarehouseDashboard} />
+            <Route path="/tasks" component={WarehouseTasks} />
+            <Route path="/tasks/:id" component={WarehouseTaskDetail} />
+            <Route path="/inventory" component={WarehouseInventory} />
+            <Route path="/inventory/:id" component={WarehouseInventoryDetail} />
+            <Route path="/receiving" component={WarehouseReceiving} />
+            <Route path="/receiving/:id" component={WarehouseReceivingDetail} />
           </Route>
 
           {/* Super Admin Routes */}
@@ -214,9 +319,11 @@ const App: Component = () => {
             <Route path="/users" component={AdminUsers} />
             <Route path="/deliveries" component={AdminDeliveries} />
             <Route path="/vehicles" component={AdminVehicles} />
+            <Route path="/reports" component={AdminReports} />
             <Route path="/returns" component={AdminReturns} />
             <Route path="/inventory" component={AdminInventory} />
             <Route path="/customer-tiers" component={AdminCustomerTiers} />
+            <Route path="/territories" component={AdminTerritories} />
             <Route path="/settings" component={AdminSettings} />
             <Route path="/telegram" component={AdminTelegram} />
             <Route path="/notification-settings" component={AdminNotificationSettings} />

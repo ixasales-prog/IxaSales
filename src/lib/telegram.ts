@@ -17,7 +17,7 @@
 import { getTelegramSettings } from './systemSettings';
 import { db } from '../db';
 import * as schema from '../db/schema';
-import { eq, and, sql, lt } from 'drizzle-orm';
+import { eq, and, sql, lt, inArray } from 'drizzle-orm';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -678,6 +678,90 @@ export async function getTenantAdminsWithTelegram(tenantId: string): Promise<Arr
         console.error('[Telegram] Error fetching tenant admins:', error);
         return [];
     }
+}
+
+/**
+ * Get users with Telegram chat IDs for specific roles in a tenant
+ * Used for role-based notification assignment
+ */
+export async function getUsersWithTelegramByRoles(
+    tenantId: string,
+    roles: string[]
+): Promise<Array<{ id: string; telegramChatId: string; role: string }>> {
+    try {
+        if (roles.length === 0) return [];
+
+        return await db.select({
+            id: schema.users.id,
+            telegramChatId: schema.users.telegramChatId,
+            role: schema.users.role,
+        })
+            .from(schema.users)
+            .where(and(
+                eq(schema.users.tenantId, tenantId),
+                inArray(schema.users.role, roles as any),
+                sql`${schema.users.telegramChatId} IS NOT NULL`,
+                eq(schema.users.isActive, true)
+            )) as Array<{ id: string; telegramChatId: string; role: string }>;
+    } catch (error) {
+        console.error('[Telegram] Error fetching users by roles:', error);
+        return [];
+    }
+}
+
+/**
+ * Get enabled roles for a specific notification type
+ */
+export async function getNotificationRoles(
+    tenantId: string,
+    notificationType: string
+): Promise<string[]> {
+    try {
+        const settings = await db.select({
+            role: schema.notificationRoleSettings.role,
+        })
+            .from(schema.notificationRoleSettings)
+            .where(and(
+                eq(schema.notificationRoleSettings.tenantId, tenantId),
+                eq(schema.notificationRoleSettings.notificationType, notificationType),
+                eq(schema.notificationRoleSettings.enabled, true)
+            ));
+
+        return settings.map(s => s.role);
+    } catch (error) {
+        console.error('[Telegram] Error fetching notification roles:', error);
+        // Default to tenant_admin if no settings found
+        return ['tenant_admin'];
+    }
+}
+
+/**
+ * Check if a notification should be sent and get target roles
+ * Combines canSendTenantNotification with role-based targeting
+ */
+export async function canSendNotificationToRoles(
+    tenantId: string,
+    notificationType: AdminNotificationType
+): Promise<{
+    canSend: boolean;
+    targetRoles: string[];
+    settings: { lowStockThreshold?: number; dueDebtDaysThreshold?: number } | null;
+}> {
+    // First check if notification is enabled
+    const check = await canSendTenantNotification(tenantId, notificationType);
+
+    if (!check.canSend) {
+        return { canSend: false, targetRoles: [], settings: null };
+    }
+
+    // Get which roles should receive this notification
+    const roles = await getNotificationRoles(tenantId, notificationType);
+
+    return {
+        canSend: roles.length > 0,
+        targetRoles: roles,
+        settings: check.settings
+    };
 }
 
 // ============================================================================

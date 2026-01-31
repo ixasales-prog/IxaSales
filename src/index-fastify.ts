@@ -34,6 +34,8 @@ import { telegramWebhookRoutes } from './routes-fastify/telegram-webhook';
 import { customerPortalRoutes } from './routes-fastify/customer-portal';
 import { gpsTrackingRoutes } from './routes-fastify/gps-tracking';
 import userActivityRoutes from './routes-fastify/user-activity';
+import { supervisorRoutes } from './routes-fastify/supervisor';
+import { warehouseRoutes } from './routes-fastify/warehouse';
 
 // Initialize Redis rate limiter (if REDIS_URL is set)
 import { initRedisRateLimiter } from './lib/rate-limit';
@@ -248,7 +250,7 @@ export const buildServer = async (): Promise<FastifyInstance> => {
                 return { success: true, data: { currency: '', timezone: 'Asia/Tashkent', yandexGeocoderApiKey: '' } };
             }
 
-            const { db, schema } = await import('./db');
+            const { db, schema } = await import('./db/index');
             const { eq } = await import('drizzle-orm');
 
             const [tenant] = await db
@@ -288,6 +290,8 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         await api.register(tenantRoutes, { prefix: '/super/tenants' });
         await api.register(tenantSelfRoutes, { prefix: '/tenant' });
         await api.register(procurementRoutes, { prefix: '/procurement' });
+        await api.register(supervisorRoutes, { prefix: '/supervisor' });
+        await api.register(warehouseRoutes, { prefix: '/warehouse' });
         await api.register(uploadRoutes, { prefix: '/uploads' });
         await api.register(imageRoutes, { prefix: '/images' });
         await api.register(superRoutes, { prefix: '/super' });

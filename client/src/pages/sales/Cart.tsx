@@ -20,7 +20,9 @@ import {
     removeFromCart,
     clearCart,
     selectedCustomerId,
-    setCustomer
+    setCustomer,
+    pendingVisit,
+    setPendingVisit
 } from '../../stores/cart';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../stores/settings';
@@ -91,6 +93,16 @@ const Cart: Component = () => {
                 totalAmount: total,
                 items: orderItems
             });
+
+            const visitPayload = pendingVisit();
+            if (visitPayload) {
+                try {
+                    await api.post('/visits/quick', visitPayload);
+                } catch (visitError: any) {
+                    console.error('Failed to create visit after order:', visitError);
+                }
+                setPendingVisit(null);
+            }
 
             setSuccess(true);
             clearCart();

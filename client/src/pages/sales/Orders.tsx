@@ -3,9 +3,7 @@ import { A } from '@solidjs/router';
 import {
     ArrowLeft,
     Package,
-    Search,
-    X,
-    Loader2
+    Search
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency, formatDate } from '../../stores/settings';
@@ -21,23 +19,9 @@ interface Order {
     createdAt: string;
 }
 
-interface OrderDetail extends Order {
-    items: Array<{
-        id: string;
-        productName: string;
-        sku: string;
-        unitPrice: string;
-        qtyOrdered: number;
-        qtyDelivered: number;
-        lineTotal: string;
-    }>;
-    notes?: string;
-}
-
 const Orders: Component = () => {
     const [statusFilter, setStatusFilter] = createSignal('');
     const [search, setSearch] = createSignal('');
-    const [selectedOrderId, setSelectedOrderId] = createSignal<string | null>(null);
 
     const [orders] = createResource(
         () => ({ status: statusFilter(), search: search() }),
@@ -57,37 +41,12 @@ const Orders: Component = () => {
 
                 const res = await api.get('/orders', { params });
                 return (res as any)?.data || res || [];
-            } catch (e) {
+            } catch (_e) {
                 return [];
             }
         }
     );
 
-    const [orderDetail] = createResource(
-        () => selectedOrderId(),
-        async (orderId) => {
-            if (!orderId) return null;
-            try {
-                const res = await api.get(`/orders/${orderId}`);
-                return (res as any)?.data || res || null;
-            } catch (e) {
-                return null;
-            }
-        }
-    );
-
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'pending': return 'text-amber-400';
-            case 'confirmed': return 'text-blue-400';
-            case 'processing': return 'text-purple-400';
-            case 'delivering': return 'text-indigo-400';
-            case 'delivered':
-            case 'completed': return 'text-emerald-400';
-            case 'cancelled': return 'text-red-400';
-            default: return 'text-slate-400';
-        }
-    };
 
     const getPaymentBadge = (status: string) => {
         switch (status) {
@@ -182,9 +141,9 @@ const Orders: Component = () => {
                 <div class="space-y-1">
                     <For each={orders()}>
                         {(order: Order) => (
-                            <button
-                                onClick={() => setSelectedOrderId(order.id)}
-                                class="w-full relative overflow-hidden bg-slate-900/60 border border-slate-800/50 rounded-xl hover:bg-slate-800/60 active:scale-[0.99] transition-all text-left group"
+                            <A
+                                href={`/sales/orders/${order.id}`}
+                                class="block w-full relative overflow-hidden bg-slate-900/60 border border-slate-800/50 rounded-xl hover:bg-slate-800/60 active:scale-[0.99] transition-all text-left group"
                             >
                                 {/* Status Strip */}
                                 <div class={`absolute left-0 top-0 bottom-0 w-1.5 ${getStatusStripColor(order.status)} transition-all group-hover:w-2`} />
@@ -218,106 +177,11 @@ const Orders: Component = () => {
                                         </div>
                                     </div>
                                 </div>
-                            </button>
+                            </A>
                         )}
                     </For>
                 </div>
             </div>
-
-            {/* Order Detail Modal */}
-            <Show when={selectedOrderId()}>
-                <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-50 overflow-y-auto">
-                    <div class="min-h-screen p-4">
-                        {/* Modal Header */}
-                        <div class="flex items-center justify-between mb-4">
-                            <h2 class="text-lg font-bold text-white">Order Details</h2>
-                            <button
-                                onClick={() => setSelectedOrderId(null)}
-                                class="p-2 text-slate-400 hover:text-white"
-                            >
-                                <X class="w-5 h-5" />
-                            </button>
-                        </div>
-
-                        <Show when={orderDetail.loading}>
-                            <div class="text-center py-12">
-                                <Loader2 class="w-8 h-8 animate-spin text-blue-400 mx-auto" />
-                            </div>
-                        </Show>
-
-                        <Show when={!orderDetail.loading && orderDetail()}>
-                            {(detail: () => OrderDetail) => (
-                                <div class="space-y-4">
-                                    {/* Order Info */}
-                                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4">
-                                        <div class="flex justify-between items-start mb-3">
-                                            <div>
-                                                <div class="text-white font-bold">{detail().orderNumber}</div>
-                                                <div class="text-slate-400 text-sm">{detail().customerName}</div>
-                                            </div>
-                                            <span class={`px-2 py-1 rounded-full text-xs font-medium ${getPaymentBadge(detail().paymentStatus)}`}>
-                                                {detail().paymentStatus}
-                                            </span>
-                                        </div>
-                                        <div class="flex gap-4 text-sm">
-                                            <div>
-                                                <span class="text-slate-500">Status: </span>
-                                                <span class={getStatusColor(detail().status)}>{detail().status}</span>
-                                            </div>
-                                            <div>
-                                                <span class="text-slate-500">Total: </span>
-                                                <span class="text-white font-bold">{formatCurrency(detail().totalAmount)}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Products List */}
-                                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl overflow-hidden">
-                                        <div class="p-3 border-b border-slate-800/50">
-                                            <h3 class="text-white font-semibold text-sm">Products</h3>
-                                        </div>
-                                        <div class="divide-y divide-slate-800/50">
-                                            <For each={detail().items}>
-                                                {(item) => (
-                                                    <div class="p-3 flex items-center gap-3">
-                                                        <div class="w-10 h-10 bg-slate-800 rounded-lg flex items-center justify-center shrink-0">
-                                                            <Package class="w-5 h-5 text-slate-500" />
-                                                        </div>
-                                                        <div class="flex-1 min-w-0">
-                                                            <div class="text-white text-sm font-medium truncate">{item.productName}</div>
-                                                            <div class="text-slate-500 text-xs">{item.sku} • Qty: {item.qtyOrdered}</div>
-                                                        </div>
-                                                        <div class="text-right shrink-0">
-                                                            <div class="text-white font-medium text-sm">{formatCurrency(item.lineTotal)}</div>
-                                                            <div class="text-slate-500 text-[10px]">{formatCurrency(item.unitPrice)} each</div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </For>
-                                        </div>
-                                    </div>
-
-                                    {/* Notes */}
-                                    <Show when={detail().notes}>
-                                        <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4">
-                                            <h3 class="text-white font-semibold text-sm mb-2">Notes</h3>
-                                            <p class="text-slate-400 text-sm">{detail().notes}</p>
-                                        </div>
-                                    </Show>
-
-                                    {/* Close Button */}
-                                    <button
-                                        onClick={() => setSelectedOrderId(null)}
-                                        class="w-full py-3 bg-slate-800 text-white font-medium rounded-xl active:scale-[0.99] transition-transform"
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                            )}
-                        </Show>
-                    </div>
-                </div>
-            </Show>
         </div>
     );
 };

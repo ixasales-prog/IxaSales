@@ -16,7 +16,7 @@ import {
 import { api } from '../../lib/api';
 import { useI18n } from '../../i18n';
 import toast from '../../components/Toast';
-import { setCustomer } from '../../stores/cart';
+import { setCustomer, setPendingVisit } from '../../stores/cart';
 
 // API base URL for constructing absolute image URLs
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -225,12 +225,22 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
     // Handle outcome selection
     const handleOutcomeSelect = (outcome: 'order_placed' | 'no_order' | 'follow_up') => {
         if (outcome === 'order_placed') {
-            // Create visit and go to catalog
-            createQuickVisit('order_placed').then(() => {
-                // Set the customer in the cart store to avoid re-selection
-                setCustomer(selectedCustomer()!.id);
-                props.onOrderPlaced(selectedCustomer()!.id);
+            const today = new Date().toISOString().split('T')[0];
+            const now = new Date().toTimeString().slice(0, 5);
+
+            setPendingVisit({
+                customerId: selectedCustomer()!.id,
+                outcome: 'order_placed',
+                plannedDate: today,
+                plannedTime: now,
+                photo: photo() || undefined,
+                latitude: latitude() !== undefined ? latitude() : undefined,
+                longitude: longitude() !== undefined ? longitude() : undefined
             });
+
+            // Set the customer in the cart store to avoid re-selection
+            setCustomer(selectedCustomer()!.id);
+            props.onOrderPlaced(selectedCustomer()!.id);
         } else if (outcome === 'no_order') {
             setStep('no_order');
         } else if (outcome === 'follow_up') {

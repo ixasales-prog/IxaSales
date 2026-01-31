@@ -1,5 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#3b82f6"/>
-  <path d="M256 100L100 400L412 400z" fill="white"/>
-  <text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="Arial" font-size="100" fill="#1e293b">IxaSales</text>
+  <defs>
+    <radialGradient id="bg-default-192" cx="30%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0b1220"/>
+    </radialGradient>
+    <filter id="glow-default-192" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bg-default-192)"/>
+  <g stroke="#eaf2ff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow-default-192)">
+    <path d="M256 96c-84.8 0-154 69.2-154 154 0 119.3 154 230 154 230s154-110.7 154-230c0-84.8-69.2-154-154-154z"/>
+    <circle cx="256" cy="250" r="54"/>
+  </g>
 </svg>

@@ -49,6 +49,12 @@ const TenantSettingsBodySchema = Type.Object({
     customerNotifyPaymentDue: Type.Optional(Type.Boolean()),
     lowStockThreshold: Type.Optional(Type.Number({ minimum: 1 })),
     dueDebtDaysThreshold: Type.Optional(Type.Number({ minimum: 1 })),
+    // Role-based notification settings
+    roleSettings: Type.Optional(Type.Array(Type.Object({
+        notificationType: Type.String(),
+        role: Type.String(),
+        enabled: Type.Boolean(),
+    }))),
 });
 
 type ListNotificationsQuery = Static<typeof ListNotificationsQuerySchema>;
@@ -147,6 +153,10 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
         const [tenant] = await db.select({ telegramEnabled: schema.tenants.telegramEnabled })
             .from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
 
+        // Get role-based notification settings
+        const roleSettings = await db.select().from(schema.notificationRoleSettings)
+            .where(eq(schema.notificationRoleSettings.tenantId, user.tenantId));
+
         if (!settings) {
             return {
                 success: true, data: {
@@ -158,11 +168,16 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
                     customerNotifyOutForDelivery: true, customerNotifyDelivered: true, customerNotifyPartialDelivery: true,
                     customerNotifyReturned: false, customerNotifyPaymentReceived: true, customerNotifyPaymentDue: true,
                     lowStockThreshold: 10, dueDebtDaysThreshold: 7,
+                    roleSettings: roleSettings.length > 0 ? roleSettings : generateDefaultRoleSettings(user.tenantId),
                 }
             };
         }
 
-        return { success: true, data: { ...settings, telegramEnabledByAdmin: tenant?.telegramEnabled ?? false } };
+        return { success: true, data: { 
+            ...settings, 
+            telegramEnabledByAdmin: tenant?.telegramEnabled ?? false,
+            roleSettings: roleSettings.length > 0 ? roleSettings : generateDefaultRoleSettings(user.tenantId),
+        } };
     });
 
     // Update tenant notification settings
@@ -176,6 +191,8 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         const body = request.body;
+        
+        // Update main notification settings
         const [settings] = await db.insert(schema.tenantNotificationSettings).values({
             tenantId: user.tenantId,
             notifyNewOrder: body.notifyNewOrder ?? true, notifyOrderApproved: body.notifyOrderApproved ?? true,
@@ -192,9 +209,63 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
             lowStockThreshold: body.lowStockThreshold ?? 10, dueDebtDaysThreshold: body.dueDebtDaysThreshold ?? 7,
         }).onConflictDoUpdate({
             target: schema.tenantNotificationSettings.tenantId,
-            set: { ...body, updatedAt: new Date() } as any,
+            set: { 
+                notifyNewOrder: body.notifyNewOrder, notifyOrderApproved: body.notifyOrderApproved,
+                notifyOrderCancelled: body.notifyOrderCancelled, notifyOrderDelivered: body.notifyOrderDelivered,
+                notifyOrderPartialDelivery: body.notifyOrderPartialDelivery, notifyOrderReturned: body.notifyOrderReturned,
+                notifyOrderPartialReturn: body.notifyOrderPartialReturn, notifyOrderCompleted: body.notifyOrderCompleted,
+                notifyPaymentReceived: body.notifyPaymentReceived, notifyPaymentPartial: body.notifyPaymentPartial,
+                notifyPaymentComplete: body.notifyPaymentComplete, notifyLowStock: body.notifyLowStock,
+                notifyDueDebt: body.notifyDueDebt, customerNotifyOrderConfirmed: body.customerNotifyOrderConfirmed,
+                customerNotifyOrderApproved: body.customerNotifyOrderApproved, customerNotifyOrderCancelled: body.customerNotifyOrderCancelled,
+                customerNotifyOutForDelivery: body.customerNotifyOutForDelivery, customerNotifyDelivered: body.customerNotifyDelivered,
+                customerNotifyPartialDelivery: body.customerNotifyPartialDelivery, customerNotifyReturned: body.customerNotifyReturned,
+                customerNotifyPaymentReceived: body.customerNotifyPaymentReceived, customerNotifyPaymentDue: body.customerNotifyPaymentDue,
+                lowStockThreshold: body.lowStockThreshold, dueDebtDaysThreshold: body.dueDebtDaysThreshold,
+                updatedAt: new Date() 
+            } as any,
         }).returning();
+
+        // Update role-based settings if provided
+        if (body.roleSettings && body.roleSettings.length > 0) {
+            for (const roleSetting of body.roleSettings) {
+                await db.insert(schema.notificationRoleSettings).values({
+                    tenantId: user.tenantId,
+                    notificationType: roleSetting.notificationType,
+                    role: roleSetting.role as any,
+                    enabled: roleSetting.enabled,
+                }).onConflictDoUpdate({
+                    target: [schema.notificationRoleSettings.tenantId, schema.notificationRoleSettings.notificationType, schema.notificationRoleSettings.role],
+                    set: { enabled: roleSetting.enabled, updatedAt: new Date() },
+                });
+            }
+        }
 
         return { success: true, data: settings };
     });
 };
+
+// Helper function to generate default role settings
+function generateDefaultRoleSettings(tenantId: string) {
+    const adminNotificationTypes = [
+        'notifyNewOrder', 'notifyOrderApproved', 'notifyOrderCancelled', 'notifyOrderDelivered',
+        'notifyOrderPartialDelivery', 'notifyOrderReturned', 'notifyOrderPartialReturn', 'notifyOrderCompleted',
+        'notifyPaymentReceived', 'notifyPaymentPartial', 'notifyPaymentComplete', 'notifyLowStock', 'notifyDueDebt'
+    ];
+    
+    const defaultSettings = [];
+    
+    for (const notificationType of adminNotificationTypes) {
+        defaultSettings.push({
+            id: '',
+            tenantId,
+            notificationType,
+            role: 'tenant_admin',
+            enabled: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        });
+    }
+    
+    return defaultSettings;
+}

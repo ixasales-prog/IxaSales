@@ -1,24 +1,21 @@
 import { type Component, For, Show, createSignal, createResource } from 'solid-js';
-import { A, useSearchParams, useNavigate } from '@solidjs/router';
+import { A } from '@solidjs/router';
 import {
     Search,
     X,
     User,
     Phone,
     MapPin,
-    CreditCard,
     ChevronRight,
     Loader2,
-    AlertCircle,
     Star,
     Plus,
-    Calendar,
     Map
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../stores/settings';
 import { useI18n } from '../../i18n';
-import toast from '../../components/Toast';
+// import toast from '../../components/Toast';
 import AddCustomerModal from './AddCustomerModal';
 
 interface Customer {
@@ -36,14 +33,9 @@ interface Customer {
 
 const Customers: Component = () => {
     const { t } = useI18n();
-    const [searchParams] = useSearchParams();
-    const navigate = useNavigate();
-
     // State
     const [searchQuery, setSearchQuery] = createSignal('');
-    const [selectedCustomer, setSelectedCustomer] = createSignal<Customer | null>(null);
     const [showAddModal, setShowAddModal] = createSignal(false);
-    const [showScheduleVisitModal, setShowScheduleVisitModal] = createSignal(false);
 
     // Fetch customers — source must be a stable primitive to avoid infinite refetch
     const [customers, { refetch }] = createResource(
@@ -134,14 +126,9 @@ const Customers: Component = () => {
                                 const debtStatus = getDebtStatus(customer);
 
                                 return (
-                                    <button
-                                        onClick={() => {
-                                            setSelectedCustomer(customer);
-                                            if (searchParams.mode === 'schedule') {
-                                                setShowScheduleVisitModal(true);
-                                            }
-                                        }}
-                                        class="w-full bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4 backdrop-blur-sm active:scale-[0.99] transition-transform text-left"
+                                    <A
+                                        href={`/sales/customers/${customer.id}`}
+                                        class="block w-full bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4 backdrop-blur-sm active:scale-[0.99] transition-transform text-left"
                                     >
                                         <div class="flex items-start gap-3">
                                             {/* Avatar */}
@@ -193,7 +180,7 @@ const Customers: Component = () => {
                                                 <ChevronRight class="w-4 h-4 text-slate-600 mt-1" />
                                             </div>
                                         </div>
-                                    </button>
+                                    </A>
                                 );
                             }}
                         </For>
@@ -209,15 +196,6 @@ const Customers: Component = () => {
                 <Plus size={28} />
             </button>
 
-            {/* Customer Detail Modal */}
-            <Show when={selectedCustomer() && !showScheduleVisitModal()}>
-                <CustomerDetailModal
-                    customer={selectedCustomer()!}
-                    onClose={() => setSelectedCustomer(null)}
-                    onScheduleVisit={() => setShowScheduleVisitModal(true)}
-                />
-            </Show>
-
             {/* Add Customer Modal */}
             <Show when={showAddModal()}>
                 <AddCustomerModal
@@ -229,270 +207,6 @@ const Customers: Component = () => {
                 />
             </Show>
 
-            {/* Schedule Visit Modal */}
-            <Show when={showScheduleVisitModal() && selectedCustomer()}>
-                <ScheduleVisitModal
-                    customer={selectedCustomer()!}
-                    onClose={() => setShowScheduleVisitModal(false)}
-                    onSuccess={() => {
-                        setShowScheduleVisitModal(false);
-                        setSelectedCustomer(null);
-                        navigate('/sales/visits');
-                    }}
-                />
-            </Show>
-        </div>
-    );
-};
-
-// ... (CustomerDetailModal types)
-
-// Schedule Visit Modal
-const ScheduleVisitModal: Component<{
-    customer: Customer;
-    onClose: () => void;
-    onSuccess: () => void;
-}> = (props) => {
-    const { t } = useI18n();
-    const [loading, setLoading] = createSignal(false);
-
-    // Form state
-    const [formData, setFormData] = createSignal({
-        visitType: 'scheduled',
-        plannedDate: new Date().toISOString().split('T')[0],
-        plannedTime: new Date().toTimeString().slice(0, 5),
-        notes: ''
-    });
-
-    const handleSubmit = async (e: Event) => {
-        e.preventDefault();
-        setLoading(true);
-
-        try {
-            await api.post('/visits', {
-                customerId: props.customer.id,
-                ...formData()
-            });
-            toast.success(t('salesApp.visits.scheduleSuccess') || 'Visit scheduled successfully');
-            props.onSuccess();
-        } catch (error) {
-            console.error(error);
-            toast.error(t('salesApp.visits.scheduleFailed') || 'Failed to schedule visit');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-            <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl animate-scale-in">
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                        <Calendar class="w-6 h-6 text-blue-400" />
-                        {t('salesApp.visits.scheduleTitle') || 'Schedule Visit'}
-                    </h2>
-                    <button onClick={props.onClose} class="text-slate-400 hover:text-white">
-                        <X class="w-6 h-6" />
-                    </button>
-                </div>
-
-                <p class="text-slate-400 mb-6">
-                    {t('salesApp.visits.schedulingFor') || 'Scheduling for'}: <span class="text-white font-medium">{props.customer.name}</span>
-                </p>
-
-                <form onSubmit={handleSubmit} class="space-y-4">
-                    {/* Date */}
-                    <div>
-                        <label class="block text-slate-400 text-sm font-medium mb-1">
-                            {t('salesApp.visits.date') || 'Date'}
-                        </label>
-                        <input
-                            type="date"
-                            required
-                            value={formData().plannedDate}
-                            onInput={(e) => setFormData({ ...formData(), plannedDate: e.currentTarget.value })}
-                            class="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-blue-500"
-                        />
-                    </div>
-
-                    {/* Time */}
-                    <div>
-                        <label class="block text-slate-400 text-sm font-medium mb-1">
-                            {t('salesApp.visits.time') || 'Time (Optional)'}
-                        </label>
-                        <input
-                            type="time"
-                            value={formData().plannedTime}
-                            onInput={(e) => setFormData({ ...formData(), plannedTime: e.currentTarget.value })}
-                            class="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-blue-500"
-                        />
-                    </div>
-
-                    {/* Notes */}
-                    <div>
-                        <label class="block text-slate-400 text-sm font-medium mb-1">
-                            {t('salesApp.visits.notes') || 'Notes'}
-                        </label>
-                        <textarea
-                            value={formData().notes}
-                            onInput={(e) => setFormData({ ...formData(), notes: e.currentTarget.value })}
-                            placeholder={t('salesApp.visits.notesPlaceholder') || 'Add visit notes...'}
-                            class="w-full p-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 resize-none h-24"
-                        />
-                    </div>
-
-                    <div class="pt-2 flex gap-3">
-                        <button
-                            type="button"
-                            onClick={props.onClose}
-                            class="flex-1 py-3 bg-slate-800 text-slate-300 font-medium rounded-xl hover:bg-slate-700 transition-colors"
-                        >
-                            {t('salesApp.common.cancel')}
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading()}
-                            class="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            <Show when={loading()} fallback={<Calendar class="w-5 h-5" />}>
-                                <Loader2 class="w-5 h-5 animate-spin" />
-                            </Show>
-                            {t('salesApp.common.save')}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-// Customer Detail Modal
-const CustomerDetailModal: Component<{
-    customer: Customer;
-    onClose: () => void;
-    onScheduleVisit: () => void;
-}> = (props) => {
-    const { t } = useI18n();
-
-    const debtStatus = () => {
-        const debt = parseFloat(props.customer.currentDebt || '0');
-        const limit = parseFloat(props.customer.creditLimit || '0');
-        if (debt <= 0) return { color: 'text-green-400', label: t('salesApp.customerDetail.noBalance') };
-        if (limit > 0 && debt >= limit) return { color: 'text-red-400', label: t('salesApp.customerDetail.creditLimitReached') };
-        return { color: 'text-orange-400', label: t('salesApp.customerDetail.hasBalance') };
-    };
-
-    return (
-        <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-50 overflow-y-auto">
-            <div class="min-h-full p-4">
-                {/* Header */}
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-lg font-bold text-white">{t('salesApp.customerDetail.title')}</h2>
-                    <button
-                        onClick={props.onClose}
-                        class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white"
-                    >
-                        ✕
-                    </button>
-                </div>
-
-                {/* Customer Info Card */}
-                <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6 mb-4">
-                    <div class="flex items-center gap-4 mb-6">
-                        <div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-2xl">
-                            {props.customer.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                            <h3 class="text-white font-bold text-xl">{props.customer.name}</h3>
-                            <Show when={props.customer.tierName}>
-                                <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 text-yellow-400 text-xs font-bold rounded-full border border-yellow-500/20 mt-1">
-                                    <Star class="w-3 h-3" />
-                                    {props.customer.tierName}
-                                </span>
-                            </Show>
-                        </div>
-                    </div>
-
-                    <div class="space-y-4">
-                        <Show when={props.customer.phone}>
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center">
-                                    <Phone class="w-5 h-5 text-blue-400" />
-                                </div>
-                                <div>
-                                    <div class="text-slate-500 text-xs">{t('salesApp.customerDetail.phone')}</div>
-                                    <div class="text-white font-medium">{props.customer.phone}</div>
-                                </div>
-                            </div>
-                        </Show>
-
-                        <Show when={props.customer.address}>
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center">
-                                    <MapPin class="w-5 h-5 text-green-400" />
-                                </div>
-                                <div>
-                                    <div class="text-slate-500 text-xs">{t('salesApp.customerDetail.address')}</div>
-                                    <div class="text-white font-medium">{props.customer.address}</div>
-                                </div>
-                            </div>
-                        </Show>
-                    </div>
-                </div>
-
-                {/* Credit Info Card */}
-                <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
-                    <h4 class="text-white font-semibold mb-4 flex items-center gap-2">
-                        <CreditCard class="w-5 h-5 text-blue-400" />
-                        {t('salesApp.customerDetail.creditInfo')}
-                    </h4>
-
-                    <div class="grid grid-cols-2 gap-4 mb-4">
-                        <div class="bg-slate-800/50 rounded-xl p-4">
-                            <div class="text-slate-500 text-xs mb-1">{t('salesApp.customerDetail.creditLimit')}</div>
-                            <div class="text-white font-bold text-lg">
-                                {formatCurrency(props.customer.creditLimit || '0')}
-                            </div>
-                        </div>
-                        <div class="bg-slate-800/50 rounded-xl p-4">
-                            <div class="text-slate-500 text-xs mb-1">{t('salesApp.customerDetail.currentDebt')}</div>
-                            <div class={`font-bold text-lg ${parseFloat(props.customer.currentDebt || '0') > 0 ? 'text-orange-400' : 'text-green-400'}`}>
-                                {formatCurrency(props.customer.currentDebt || '0')}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class={`p-3 rounded-xl ${parseFloat(props.customer.currentDebt || '0') > 0 ? 'bg-orange-500/10 border border-orange-500/20' : 'bg-green-500/10 border border-green-500/20'}`}>
-                        <div class={`flex items-center gap-2 text-sm ${debtStatus().color}`}>
-                            <AlertCircle class="w-4 h-4" />
-                            {debtStatus().label}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div class="mt-6 space-y-3">
-                    <A
-                        href={`/sales/catalog?customer=${props.customer.id}`}
-                        class="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-                    >
-                        {t('salesApp.customerDetail.createOrder')}
-                    </A>
-                    <button
-                        onClick={props.onScheduleVisit}
-                        class="w-full py-3.5 bg-slate-800 border border-slate-700 text-blue-400 font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-                    >
-                        <Calendar class="w-5 h-5" />
-                        {t('salesApp.customerDetail.scheduleVisit')}
-                    </button>
-                    <button
-                        onClick={props.onClose}
-                        class="w-full py-3.5 bg-slate-800 text-white font-medium rounded-xl active:scale-[0.98] transition-all"
-                    >
-                        {t('salesApp.customerDetail.close')}
-                    </button>
-                </div>
-            </div>
         </div>
     );
 };

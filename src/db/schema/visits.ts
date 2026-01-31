@@ -24,8 +24,7 @@ export const visitTypeEnum = pgEnum('visit_type', [
 export const visitOutcomeEnum = pgEnum('visit_outcome', [
     'order_placed',
     'no_order',
-    'follow_up',
-    'not_available'
+    'follow_up'
 ]);
 
 // ============================================================================

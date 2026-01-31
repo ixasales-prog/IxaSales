@@ -74,7 +74,7 @@ const ProductDetailModal: Component<ProductDetailModalProps> = (props) => {
             try {
                 const res = await api.get(`/products/${id}`);
                 return res as ProductDetail;
-            } catch (e) {
+            } catch (_e) {
                 return null;
             }
         }

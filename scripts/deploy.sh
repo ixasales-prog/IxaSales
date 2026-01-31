@@ -126,7 +126,29 @@ ssh $SERVER_USER@$SERVER_IP "cd $TARGET_DIR && test -f dist/index-fastify.js && 
 # 8. Fix Permissions & Restart Service
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}[8/8] Fixing permissions & restarting service...${NC}"
-ssh -t $SERVER_USER@$SERVER_IP "sudo chmod 755 /var/www/ixasales && sudo chmod 755 $TARGET_DIR && sudo chmod 755 $TARGET_DIR/client && sudo chmod -R 755 $TARGET_DIR/client/dist && sudo systemctl restart $SERVICE_NAME && sudo systemctl status $SERVICE_NAME --no-pager"
+
+# Prompt for sudo password
+read -s -p "Enter sudo password: " SUDO_PASSWORD
+echo ""
+
+# Fix ownership to www-data for nginx access and set proper permissions
+ssh -t $SERVER_USER@$SERVER_IP "echo '$SUDO_PASSWORD' | sudo -S chown -R www-data:www-data $TARGET_DIR"
+ssh -t $SERVER_USER@$SERVER_IP "echo '$SUDO_PASSWORD' | sudo -S chmod 755 $TARGET_DIR"
+ssh -t $SERVER_USER@$SERVER_IP "echo '$SUDO_PASSWORD' | sudo -S chmod 755 $TARGET_DIR/client"
+ssh -t $SERVER_USER@$SERVER_IP "echo '$SUDO_PASSWORD' | sudo -S chmod -R 755 $TARGET_DIR/client/dist"
+
+# Determine port based on environment
+if [ "$ENV" = "staging" ]; then
+    PORT="3001"
+else
+    PORT="3000"
+fi
+
+# Kill any process using the port to prevent EADDRINUSE errors
+ssh -t $SERVER_USER@$SERVER_IP "echo '$SUDO_PASSWORD' | sudo -S sh -c 'lsof -ti :$PORT | xargs -r kill -9 2>/dev/null; echo Port $PORT cleared'"
+
+# Restart the service
+ssh -t $SERVER_USER@$SERVER_IP "echo '$SUDO_PASSWORD' | sudo -S systemctl restart $SERVICE_NAME && echo '$SUDO_PASSWORD' | sudo -S systemctl status $SERVICE_NAME --no-pager"
 
 echo ""
 echo "======================================"

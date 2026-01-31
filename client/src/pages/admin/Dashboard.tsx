@@ -7,10 +7,29 @@ import {
     ArrowUpRight,
     ArrowDownRight,
     Loader2,
-    Check
+    Check,
+    Clock,
+    MapPin,
+    TrendingUp
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency, formatCurrencyShort, formatDate } from '../../stores/settings';
+
+interface VisitDurationByRep {
+    salesRepId: string;
+    salesRepName: string;
+    totalVisits: number;
+    avgDurationMinutes: number;
+    minDurationMinutes: number;
+    maxDurationMinutes: number;
+    totalDurationMinutes: number;
+}
+
+interface VisitDurationTrend {
+    date: string;
+    totalVisits: number;
+    avgDurationMinutes: number;
+}
 
 interface SalesByRep {
     salesRepId: string;
@@ -82,6 +101,18 @@ const Dashboard: Component = () => {
         return result || [];
     });
 
+    // Fetch visit duration by rep
+    const [visitDurationByRep] = createResource(async () => {
+        const result = await api<VisitDurationByRep[]>('/reports/visit-duration-by-rep?startDate=' + new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+        return result || [];
+    });
+
+    // Fetch visit duration trends
+    const [visitDurationTrends] = createResource(async () => {
+        const result = await api<VisitDurationTrend[]>('/reports/visit-duration-trends?days=30');
+        return result || [];
+    });
+
     // Calculate totals
     const totalSales = createMemo(() => {
         const reps = salesByRep() || [];
@@ -115,7 +146,35 @@ const Dashboard: Component = () => {
         return [...debts].slice(0, 5);
     });
 
+    // Visit duration metrics
+    const avgVisitDuration = createMemo(() => {
+        const reps = visitDurationByRep() || [];
+        if (reps.length === 0) return 0;
+        const totalAvg = reps.reduce((sum, rep) => sum + (rep.avgDurationMinutes || 0), 0);
+        return Math.round(totalAvg / reps.length);
+    });
+
+    const totalVisitsCompleted = createMemo(() => {
+        const reps = visitDurationByRep() || [];
+        return reps.reduce((sum, rep) => sum + (rep.totalVisits || 0), 0);
+    });
+
+    const topPerformersByDuration = createMemo(() => {
+        const reps = visitDurationByRep() || [];
+        return [...reps]
+            .sort((a, b) => (b.avgDurationMinutes || 0) - (a.avgDurationMinutes || 0))
+            .slice(0, 5);
+    });
+
     // formatCurrency is now imported from settings store
+
+    // Format minutes to readable duration
+    const formatDuration = (minutes: number) => {
+        if (minutes < 60) return `${minutes}m`;
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    };
 
     const stats = [
         { label: 'Total Sales', value: () => formatCurrencyShort(totalSales()), icon: DollarSign, color: 'from-emerald-500 to-teal-600', change: '+12.5%', up: true },
@@ -124,7 +183,12 @@ const Dashboard: Component = () => {
         { label: 'Inventory Value', value: () => formatCurrencyShort(inventoryValue()), icon: Package, color: 'from-purple-500 to-pink-600', change: '+5.4%', up: true },
     ];
 
-    const loading = () => salesByRep.loading || customerDebts.loading || inventory.loading || recentOrders.loading || lowStockItems.loading;
+    const visitStats = [
+        { label: 'Avg Visit Duration', value: () => formatDuration(avgVisitDuration()), icon: Clock, color: 'from-cyan-500 to-blue-600' },
+        { label: 'Visits Completed', value: () => totalVisitsCompleted().toString(), icon: MapPin, color: 'from-violet-500 to-purple-600' },
+    ];
+
+    const loading = () => salesByRep.loading || customerDebts.loading || inventory.loading || recentOrders.loading || lowStockItems.loading || visitDurationByRep.loading || visitDurationTrends.loading;
 
     return (
         <div class="p-6 lg:p-8">
@@ -155,6 +219,23 @@ const Dashboard: Component = () => {
                                         {stat.up ? <ArrowUpRight class="w-4 h-4" /> : <ArrowDownRight class="w-4 h-4" />}
                                         {stat.change}
                                     </span>
+                                </div>
+                                <div class="text-2xl lg:text-3xl font-bold text-white mb-1">{stat.value()}</div>
+                                <div class="text-slate-400 text-sm">{stat.label}</div>
+                            </div>
+                        )}
+                    </For>
+                </div>
+
+                {/* Visit Analytics Stats */}
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">
+                    <For each={visitStats}>
+                        {(stat) => (
+                            <div class="relative overflow-hidden bg-slate-900/60 border border-slate-800/50 rounded-2xl p-5">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div class={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center shadow-lg`}>
+                                        <stat.icon class="w-6 h-6 text-white" />
+                                    </div>
                                 </div>
                                 <div class="text-2xl lg:text-3xl font-bold text-white mb-1">{stat.value()}</div>
                                 <div class="text-slate-400 text-sm">{stat.label}</div>
@@ -240,6 +321,90 @@ const Dashboard: Component = () => {
                             </For>
                             <Show when={topDebtors().length === 0}>
                                 <div class="text-center py-8 text-slate-500">No outstanding debts</div>
+                            </Show>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Visit Duration Analytics */}
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    {/* Visit Duration by Rep */}
+                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
+                        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                            <Clock class="w-5 h-5 text-cyan-400" />
+                            Visit Duration by Rep (Last 30 Days)
+                        </h3>
+                        <div class="space-y-4">
+                            <For each={topPerformersByDuration()}>
+                                {(rep, index) => {
+                                    const maxDuration = topPerformersByDuration()[0]?.avgDurationMinutes || 1;
+                                    const percent = ((rep.avgDurationMinutes || 0) / maxDuration) * 100;
+                                    return (
+                                        <div>
+                                            <div class="flex items-center justify-between mb-1.5">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-bold flex items-center justify-center">
+                                                        {index() + 1}
+                                                    </span>
+                                                    <span class="text-white font-medium text-sm">{rep.salesRepName || 'Unknown'}</span>
+                                                </div>
+                                                <div class="text-right">
+                                                    <span class="text-slate-400 text-sm">{formatDuration(rep.avgDurationMinutes || 0)} avg</span>
+                                                    <span class="text-slate-500 text-xs ml-2">({rep.totalVisits} visits)</span>
+                                                </div>
+                                            </div>
+                                            <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                                                <div
+                                                    class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-500"
+                                                    style={{ width: `${percent}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                }}
+                            </For>
+                            <Show when={topPerformersByDuration().length === 0}>
+                                <div class="text-center py-8 text-slate-500">No visit data available</div>
+                            </Show>
+                        </div>
+                    </div>
+
+                    {/* Visit Duration Trends */}
+                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
+                        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                            <TrendingUp class="w-5 h-5 text-violet-400" />
+                            Visit Trends (Last 30 Days)
+                        </h3>
+                        <div class="space-y-3">
+                            <For each={visitDurationTrends()}>
+                                {(trend) => {
+                                    const maxVisits = Math.max(...(visitDurationTrends() || []).map(t => t.totalVisits), 1);
+                                    const percent = (trend.totalVisits / maxVisits) * 100;
+                                    return (
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-16 text-xs text-slate-400 text-right">
+                                                {new Date(trend.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            </div>
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-2 mb-1">
+                                                    <div
+                                                        class="bg-gradient-to-r from-violet-500 to-purple-500 rounded-full h-5 transition-all duration-500"
+                                                        style={{ width: `${percent}%` }}
+                                                    />
+                                                    <div class="text-sm font-semibold text-white min-w-[60px]">
+                                                        {trend.totalVisits} visits
+                                                    </div>
+                                                </div>
+                                                <div class="text-xs text-slate-500 ml-2">
+                                                    Avg: {formatDuration(trend.avgDurationMinutes || 0)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                }}
+                            </For>
+                            <Show when={(visitDurationTrends() || []).length === 0}>
+                                <div class="text-center py-8 text-slate-500">No trend data available</div>
                             </Show>
                         </div>
                     </div>

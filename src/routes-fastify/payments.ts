@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
+import { buildSalesCustomerAssignmentCondition } from '../lib/sales-scope';
 import { eq, and, sql, desc } from 'drizzle-orm';
 
 // Schemas
@@ -85,7 +86,9 @@ export const paymentRoutes: FastifyPluginAsync = async (fastify) => {
         const conditions: any[] = [eq(schema.payments.tenantId, user.tenantId)];
         if (customerId) conditions.push(eq(schema.payments.customerId, customerId));
         if (orderId) conditions.push(eq(schema.payments.orderId, orderId));
-        if (user.role === 'sales_rep' || user.role === 'driver') {
+        if (user.role === 'sales_rep') {
+            conditions.push(buildSalesCustomerAssignmentCondition(schema.payments.customerId, user.tenantId, user.id));
+        } else if (user.role === 'driver') {
             conditions.push(eq(schema.payments.collectedBy, user.id));
         }
 
@@ -126,9 +129,9 @@ export const paymentRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         if (user.role === 'sales_rep') {
-            const [customer] = await db.select({ createdByUserId: schema.customers.createdByUserId })
+            const [customer] = await db.select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
                 .from(schema.customers).where(eq(schema.customers.id, body.customerId)).limit(1);
-            if (!customer || customer.createdByUserId !== user.id) {
+            if (!customer || customer.assignedSalesRepId !== user.id) {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
             }
         }

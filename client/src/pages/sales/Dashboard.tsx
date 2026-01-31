@@ -153,6 +153,18 @@ interface FollowUpSummary {
     }>;
 }
 
+interface DashboardPayload {
+    stats: DashboardStats;
+    goals: SalesGoals;
+    salesTrends: SalesTrend[];
+    timeInsights: TimeInsights;
+    performanceMetrics: PerformanceMetrics;
+    routeOptimization: RouteOptimization;
+    gamification: Gamification;
+    weather: Weather;
+    followUps: FollowUpSummary;
+}
+
 
 const Dashboard: Component = () => {
     const { t, language, setLanguage, availableLanguages } = useI18n();
@@ -194,89 +206,51 @@ const Dashboard: Component = () => {
         });
     };
 
-    // Fetch dashboard stats
-    const [stats] = createResource<DashboardStats>(async () => {
-        const data = await api.get<DashboardStats>('/orders/dashboard-stats');
-        return data || { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, inProgress: 0 } };
-    });
-
-    // Fetch sales goals
-    const [goals] = createResource<SalesGoals>(async () => {
-        const data = await api.get<SalesGoals>('/orders/sales-goals');
-        return data || { daily: 0, weekly: 0, monthly: 0 };
-    });
-
-    // Fetch sales trends
-    const [salesTrends] = createResource<SalesTrend[]>(async () => {
-        const data = await api.get<SalesTrend[]>('/orders/sales-trends?period=7d');
-        return data || [];
-    });
-
-    // Fetch time insights
-    const [timeInsights] = createResource<TimeInsights>(async () => {
-        const data = await api.get<TimeInsights>('/orders/time-insights');
-        return data || { bestHours: [], bestDays: [] };
-    });
-
-    // Fetch performance metrics
-    const [performanceMetrics] = createResource<PerformanceMetrics>(async () => {
-        const data = await api.get<PerformanceMetrics>('/orders/performance-metrics');
-        return data || {
-            totalRevenue: 0,
-            totalOrders: 0,
-            avgOrderValue: 0,
-            conversionRate: 0,
-            visitCompletionRate: 0,
-            newCustomers: 0,
-            totalVisits: 0,
-            completedVisits: 0,
-            visitsWithOrders: 0,
+    // Fetch consolidated dashboard payload
+    const [dashboardData] = createResource<DashboardPayload>(async () => {
+        const data = await api.get<{ data: DashboardPayload } | DashboardPayload>('/orders/dashboard/sales');
+        const payload = (data as any)?.data ?? data;
+        return payload || {
+            stats: { todaysSales: 0, pendingOrders: 0, customerCount: 0, visits: { total: 0, completed: 0, inProgress: 0 } },
+            goals: { daily: 0, weekly: 0, monthly: 0 },
+            salesTrends: [],
+            timeInsights: { bestHours: [], bestDays: [] },
+            performanceMetrics: {
+                totalRevenue: 0,
+                totalOrders: 0,
+                avgOrderValue: 0,
+                conversionRate: 0,
+                visitCompletionRate: 0,
+                newCustomers: 0,
+                totalVisits: 0,
+                completedVisits: 0,
+                visitsWithOrders: 0,
+            },
+            routeOptimization: { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 },
+            gamification: { currentStreak: 0, totalSales: 0, totalOrders: 0, achievements: [], bestDay: null },
+            weather: {
+                city: 'Tashkent',
+                temperature: 22,
+                condition: 'Clear',
+                description: 'clear sky',
+                icon: '01d',
+                humidity: 65,
+                windSpeed: 5,
+                feelsLike: 24,
+            },
+            followUps: { dueToday: 0, overdue: 0, upcoming: 0, topDue: [] },
         };
     });
 
-    // Fetch route optimization
-    const [routeOptimization] = createResource<RouteOptimization>(async () => {
-        const data = await api.get<RouteOptimization>('/orders/route-optimization');
-        return data || { visits: [], totalVisits: 0, estimatedDistance: 0, estimatedTime: 0 };
-    });
-
-    // Fetch gamification data
-    const [gamification] = createResource<Gamification>(async () => {
-        const data = await api.get<Gamification>('/orders/gamification');
-        return data || {
-            currentStreak: 0,
-            totalSales: 0,
-            totalOrders: 0,
-            achievements: [],
-            bestDay: null,
-        };
-    });
-
-    // Fetch weather
-    const [weather] = createResource<Weather>(async () => {
-        const data = await api.get<Weather>('/orders/weather');
-        return data || {
-            city: 'Tashkent',
-            temperature: 22,
-            condition: 'Clear',
-            description: 'clear sky',
-            icon: '01d',
-            humidity: 65,
-            windSpeed: 5,
-            feelsLike: 24,
-        };
-    });
-
-    // Fetch follow-up summary
-    const [followUps] = createResource<FollowUpSummary>(async () => {
-        const data = await api.get<FollowUpSummary>('/visits/followups/summary');
-        return data || {
-            dueToday: 0,
-            overdue: 0,
-            upcoming: 0,
-            topDue: [],
-        };
-    });
+    const stats = () => dashboardData()?.stats;
+    const goals = () => dashboardData()?.goals;
+    const salesTrends = () => dashboardData()?.salesTrends || [];
+    const timeInsights = () => dashboardData()?.timeInsights;
+    const performanceMetrics = () => dashboardData()?.performanceMetrics;
+    const routeOptimization = () => dashboardData()?.routeOptimization;
+    const gamification = () => dashboardData()?.gamification;
+    const weather = () => dashboardData()?.weather;
+    const followUps = () => dashboardData()?.followUps;
 
 
     const statCards = () => [
@@ -317,7 +291,7 @@ const Dashboard: Component = () => {
     };
 
     return (
-        <div class="px-4 pt-14 pb-4">
+        <div class="px-4 pt-14 pb-24">
             {/* Header */}
             <div class="flex justify-between items-center mb-6">
                 <div>
@@ -414,7 +388,7 @@ const Dashboard: Component = () => {
             </Show>
 
             {/* My Day Summary */}
-            <Show when={!stats.loading && !stats.error}>
+            <Show when={!dashboardData.loading && !dashboardData.error}>
                 <div class="mt-2 mb-2 bg-slate-900/70 border border-slate-800/70 rounded-2xl p-3 flex items-center justify-between text-sm">
                     <div>
                         <div class="text-slate-300 font-semibold">Today</div>
@@ -433,12 +407,12 @@ const Dashboard: Component = () => {
             </Show>
 
             {/* Stats Row */}
-            <Show when={!stats.loading} fallback={
+            <Show when={!dashboardData.loading} fallback={
                 <div class="flex justify-center py-8">
                     <Loader2 class="w-6 h-6 text-blue-400 animate-spin" />
                 </div>
             }>
-                <Show when={!stats.error} fallback={
+                <Show when={!dashboardData.error} fallback={
                     <div class="flex justify-center py-4 text-xs text-red-400">
                         Failed to load dashboard stats. Please check your connection.
                     </div>
@@ -502,12 +476,12 @@ const Dashboard: Component = () => {
             </div>
 
             {/* Follow-Ups Summary */}
-            <Show when={!followUps.loading} fallback={
+            <Show when={!dashboardData.loading} fallback={
                 <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4 flex justify-center py-4">
                     <Loader2 class="w-5 h-5 text-blue-400 animate-spin" />
                 </div>
             }>
-                <Show when={!followUps.error} fallback={
+                <Show when={!dashboardData.error} fallback={
                     <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4 text-xs text-red-400">
                         Failed to load follow-ups. You can still view them in the Visits tab.
                     </div>
@@ -578,13 +552,13 @@ const Dashboard: Component = () => {
                         <Target class="w-5 h-5 text-blue-400" />
                         <h2 class="text-lg font-semibold text-white">Sales Goals</h2>
                     </div>
-                    <Show when={!goals.loading && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
+                    <Show when={!dashboardData.loading && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
                         <div class="text-xs text-slate-500">
                             {goals()?.daily ? 'Daily' : goals()?.weekly ? 'Weekly' : 'Monthly'} Target
                         </div>
                     </Show>
                 </div>
-                <Show when={!goals.loading && !goals.error && goals() && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
+                <Show when={!dashboardData.loading && !dashboardData.error && goals() && (goals()?.daily || goals()?.weekly || goals()?.monthly)}>
                     <div class="space-y-3">
                         <Show when={goals()?.daily}>
                             <div>
@@ -642,12 +616,12 @@ const Dashboard: Component = () => {
                         </Show>
                     </div>
                 </Show>
-                <Show when={!goals.loading && goals?.error}>
+                <Show when={!dashboardData.loading && dashboardData.error}>
                     <div class="text-center py-3 text-xs text-red-400">
                         Failed to load sales goals. They will appear here when available.
                     </div>
                 </Show>
-                <Show when={!goals.loading && !goals.error && goals() && !goals()?.daily && !goals()?.weekly && !goals()?.monthly}>
+                <Show when={!dashboardData.loading && !dashboardData.error && goals() && !goals()?.daily && !goals()?.weekly && !goals()?.monthly}>
                     <div class="text-center py-4 text-slate-500 text-sm">
                         <Target class="w-8 h-8 mx-auto mb-2 opacity-50" />
                         <p>No sales goals set</p>
@@ -705,7 +679,7 @@ const Dashboard: Component = () => {
                 </Show>
 
                 {/* Performance Metrics */}
-                <Show when={!performanceMetrics.loading}>
+                <Show when={!dashboardData.loading}>
                     <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
                         <div class="flex items-center gap-2 mb-4">
                             <Activity class="w-5 h-5 text-emerald-400" />
@@ -814,7 +788,7 @@ const Dashboard: Component = () => {
                 <h2 class="text-lg font-semibold text-white mb-4">Analytics & Insights</h2>
 
                 {/* Sales Trends Chart */}
-                <Show when={!salesTrends.loading && (salesTrends() || []).length > 0}>
+                <Show when={!dashboardData.loading && (salesTrends() || []).length > 0}>
                     <div class="bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
                         <div class="flex items-center gap-2 mb-4">
                             <BarChart3 class="w-5 h-5 text-blue-400" />
@@ -858,7 +832,7 @@ const Dashboard: Component = () => {
                 </Show>
 
                 {/* Time-Based Insights */}
-                <Show when={!timeInsights.loading && (timeInsights()?.bestHours?.length || 0) > 0}>
+                <Show when={!dashboardData.loading && (timeInsights()?.bestHours?.length || 0) > 0}>
                     <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
                         <div class="flex items-center gap-2 mb-4">
                             <Timer class="w-5 h-5 text-purple-400" />
@@ -908,7 +882,7 @@ const Dashboard: Component = () => {
                 </Show>
 
                 {/* Route Optimization */}
-                <Show when={!routeOptimization.loading && routeOptimization() && (routeOptimization()?.totalVisits ?? 0) > 0}>
+                <Show when={!dashboardData.loading && routeOptimization() && (routeOptimization()?.totalVisits ?? 0) > 0}>
                     <div class="mt-4 bg-slate-900/50 border border-slate-800/50 rounded-2xl p-4">
                         <div class="flex items-center justify-between mb-4">
                             <div class="flex items-center gap-2">
@@ -958,7 +932,7 @@ const Dashboard: Component = () => {
             <div class="mt-6">
                 <h2 class="text-lg font-semibold text-white mb-4">Engagement & Tools</h2>
 
-                    <Show when={!gamification.loading}>
+                    <Show when={!dashboardData.loading}>
                     <div class="bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-purple-500/30 rounded-2xl p-4">
                         <div class="flex items-center gap-2 mb-4">
                             <Trophy class="w-5 h-5 text-yellow-400" />
@@ -1011,7 +985,7 @@ const Dashboard: Component = () => {
                 </Show>
 
                 {/* Weather Widget */}
-                <Show when={!weather.loading}>
+                <Show when={!dashboardData.loading}>
                     <div class="mt-4 bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border border-blue-500/30 rounded-2xl p-4">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-2">

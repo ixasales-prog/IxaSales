@@ -11,10 +11,21 @@ export interface CartItem {
     image?: string;
 }
 
+export interface PendingVisitPayload {
+    customerId: string;
+    outcome: 'order_placed';
+    plannedDate: string;
+    plannedTime: string;
+    photo?: string;
+    latitude?: number;
+    longitude?: number;
+}
+
 const rootState = createRoot(() => {
     // Cart state
     const [cartItems, setCartItems] = createSignal<CartItem[]>([]);
     const [selectedCustomerId, setSelectedCustomerId] = createSignal<string | null>(null);
+    const [pendingVisit, setPendingVisit] = createSignal<PendingVisitPayload | null>(null);
 
     // Computed values
     const cartCount = createMemo(() => cartItems().reduce((sum, item) => sum + item.quantity, 0));
@@ -34,6 +45,8 @@ const rootState = createRoot(() => {
         setCartItems,
         selectedCustomerId,
         setSelectedCustomerId,
+        pendingVisit,
+        setPendingVisit,
         cartCount,
         cartSubtotal,
         cartDiscount,
@@ -45,6 +58,7 @@ const rootState = createRoot(() => {
 export const {
     cartItems,
     selectedCustomerId,
+    pendingVisit,
     cartCount,
     cartSubtotal,
     cartDiscount,
@@ -85,8 +99,13 @@ export function removeFromCart(productId: string) {
 export function clearCart() {
     rootState.setCartItems([]);
     rootState.setSelectedCustomerId(null);
+    rootState.setPendingVisit(null);
 }
 
 export function setCustomer(customerId: string) {
     rootState.setSelectedCustomerId(customerId);
+}
+
+export function setPendingVisit(payload: PendingVisitPayload | null) {
+    rootState.setPendingVisit(payload);
 }

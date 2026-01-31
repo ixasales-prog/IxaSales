@@ -50,7 +50,7 @@ const ResetPassword: Component = () => {
             } else {
                 setError(data.error?.message || 'Something went wrong');
             }
-        } catch (err) {
+        } catch (_err) {
             setError('Network error. Please try again.');
         } finally {
             setLoading(false);

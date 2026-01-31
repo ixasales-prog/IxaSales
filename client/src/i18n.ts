@@ -438,6 +438,7 @@ export const translations = {
                 inProgress: 'Jarayonda',
                 completed: 'Bajarilgan',
                 cancelled: 'Bekor qilingan',
+                started: 'Boshlangan',
                 noVisits: 'Tashriflar yo\'q',
                 noVisitsDesc: 'Bugun uchun rejalashtirilgan tashriflar yo\'q',
                 start: 'Boshlash',
@@ -469,8 +470,17 @@ export const translations = {
                 previousDay: 'Oldingi kun',
                 nextDay: 'Keyingi kun',
                 callCustomer: 'Mijozga qo\'ng\'iroq qilish',
+                callNow: 'Hozir qo\'ng\'iroq qilish',
                 addPhoto: 'Rasm qo\'shish',
-                removePhoto: 'Rasmni o\'chirish'
+                removePhoto: 'Rasmni o\'chirish',
+                filter: 'Filtr',
+                filters: 'Filtrlar',
+                filtersActive: 'Filtrlar faol',
+                all: 'Barchasi',
+                status: 'Holat',
+                outcome: 'Natija',
+                reset: 'Bekor qilish',
+                apply: 'Qo\'llash'
             },
             customerDetail: {
                 title: 'Mijoz tafsilotlari',
@@ -965,6 +975,7 @@ export const translations = {
                 inProgress: 'В процессе',
                 completed: 'Выполнено',
                 cancelled: 'Отменено',
+                started: 'Начат',
                 noVisits: 'Нет визитов',
                 noVisitsDesc: 'На сегодня визитов не запланировано',
                 start: 'Начать',
@@ -998,7 +1009,15 @@ export const translations = {
                 callCustomer: 'Позвонить клиенту',
                 callNow: 'Позвонить сейчас',
                 addPhoto: 'Добавить фото',
-                removePhoto: 'Удалить фото'
+                removePhoto: 'Удалить фото',
+                filter: 'Фильтр',
+                filters: 'Фильтры',
+                filtersActive: 'Фильтры активны',
+                all: 'Все',
+                status: 'Статус',
+                outcome: 'Результат',
+                reset: 'Сбросить',
+                apply: 'Применить'
             },
             customerDetail: {
                 title: 'Детали клиента',
@@ -1493,6 +1512,7 @@ export const translations = {
                 inProgress: 'In Progress',
                 completed: 'Completed',
                 cancelled: 'Cancelled',
+                started: 'Started',
                 noVisits: 'No visits',
                 noVisitsDesc: 'No visits scheduled for today',
                 start: 'Start',
@@ -1526,7 +1546,15 @@ export const translations = {
                 callCustomer: 'Call customer',
                 callNow: 'Call now',
                 addPhoto: 'Add photo',
-                removePhoto: 'Remove photo'
+                removePhoto: 'Remove photo',
+                filter: 'Filter',
+                filters: 'Filters',
+                filtersActive: 'Filters Active',
+                all: 'All',
+                status: 'Status',
+                outcome: 'Outcome',
+                reset: 'Reset',
+                apply: 'Apply'
             },
             customerDetail: {
                 title: 'Customer Details',

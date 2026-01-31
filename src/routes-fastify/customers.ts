@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
+import { buildSalesCustomerScope } from '../lib/sales-scope';
 import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 
 // Schemas
@@ -13,6 +14,19 @@ const CreateTierBodySchema = Type.Object({
     paymentTermsDays: Type.Number({ minimum: 0 }),
     discountPercent: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
     sortOrder: Type.Optional(Type.Number()),
+});
+
+const MAX_TERRITORY_LEVEL = 4;
+
+const CreateTerritoryBodySchema = Type.Object({
+    name: Type.String({ minLength: 2 }),
+    parentId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+});
+
+const UpdateTerritoryBodySchema = Type.Object({
+    name: Type.Optional(Type.String({ minLength: 2 })),
+    parentId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    isActive: Type.Optional(Type.Boolean()),
 });
 
 const CreateRuleBodySchema = Type.Object({
@@ -66,6 +80,8 @@ const ParamsSchema = Type.Object({ id: Type.String() });
 
 type CreateTierBody = Static<typeof CreateTierBodySchema>;
 type CreateRuleBody = Static<typeof CreateRuleBodySchema>;
+type CreateTerritoryBody = Static<typeof CreateTerritoryBodySchema>;
+type UpdateTerritoryBody = Static<typeof UpdateTerritoryBodySchema>;
 type ListCustomersQuery = Static<typeof ListCustomersQuerySchema>;
 type CreateCustomerBody = Static<typeof CreateCustomerBodySchema>;
 type UpdateCustomerBody = Static<typeof UpdateCustomerBodySchema>;
@@ -187,13 +203,208 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+        const territories = user.role === 'sales_rep'
+            ? (await db
+                .select()
+                .from(schema.territories)
+                .innerJoin(
+                    schema.userTerritories,
+                    eq(schema.userTerritories.territoryId, schema.territories.id)
+                )
+                .where(and(
+                    eq(schema.territories.tenantId, user.tenantId),
+                    eq(schema.userTerritories.userId, user.id)
+                ))
+                .orderBy(schema.territories.name))
+                .map((row) => row.territories)
+            : await db
+                .select()
+                .from(schema.territories)
+                .where(eq(schema.territories.tenantId, user.tenantId))
+                .orderBy(schema.territories.name);
+
+        return { success: true, data: territories };
+    });
+
+    // Territory tree
+    fastify.get('/territories/tree', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
         const territories = await db
             .select()
             .from(schema.territories)
             .where(eq(schema.territories.tenantId, user.tenantId))
             .orderBy(schema.territories.name);
 
-        return { success: true, data: territories };
+        const byId = new Map(territories.map((t) => [t.id, { ...t, children: [] as any[] }]));
+        const roots: any[] = [];
+
+        byId.forEach((territory) => {
+            if (territory.parentId && byId.has(territory.parentId)) {
+                byId.get(territory.parentId)!.children.push(territory);
+            } else {
+                roots.push(territory);
+            }
+        });
+
+        return { success: true, data: roots };
+    });
+
+    // Create territory
+    fastify.post<{ Body: CreateTerritoryBody }>('/territories', {
+        preHandler: [fastify.authenticate],
+        schema: { body: CreateTerritoryBodySchema }
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { name, parentId } = request.body;
+        const normalizedParentId = parentId && parentId.trim() !== '' ? parentId : null;
+        let level = 1;
+
+        if (normalizedParentId) {
+            const [parent] = await db
+                .select({ id: schema.territories.id, level: schema.territories.level })
+                .from(schema.territories)
+                .where(and(eq(schema.territories.id, normalizedParentId), eq(schema.territories.tenantId, user.tenantId)))
+                .limit(1);
+
+            if (!parent) {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Parent territory not found' } });
+            }
+
+            level = (parent.level || 1) + 1;
+        }
+
+        if (level > MAX_TERRITORY_LEVEL) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: `Territory depth cannot exceed ${MAX_TERRITORY_LEVEL}` } });
+        }
+
+        const [territory] = await db
+            .insert(schema.territories)
+            .values({
+                tenantId: user.tenantId,
+                name,
+                parentId: normalizedParentId,
+                level,
+                isActive: true,
+            })
+            .returning();
+
+        return { success: true, data: territory };
+    });
+
+    // Update territory
+    fastify.patch<{ Params: Static<typeof ParamsSchema>; Body: UpdateTerritoryBody }>('/territories/:id', {
+        preHandler: [fastify.authenticate],
+        schema: { params: ParamsSchema, body: UpdateTerritoryBodySchema }
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { id } = request.params;
+        const { name, parentId, isActive } = request.body;
+        const normalizedParentId = parentId === undefined || parentId === null
+            ? parentId
+            : (parentId.trim() !== '' ? parentId : null);
+
+        const territories = await db
+            .select()
+            .from(schema.territories)
+            .where(eq(schema.territories.tenantId, user.tenantId));
+
+        const territoryMap = new Map(territories.map((t) => [t.id, t]));
+        const current = territoryMap.get(id);
+
+        if (!current) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+        }
+
+        if (normalizedParentId === id) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Territory cannot be its own parent' } });
+        }
+
+        const childrenMap = new Map<string, string[]>();
+        territories.forEach((territory) => {
+            if (!territory.parentId) return;
+            const list = childrenMap.get(territory.parentId) || [];
+            list.push(territory.id);
+            childrenMap.set(territory.parentId, list);
+        });
+
+        const getSubtreeIds = (rootId: string) => {
+            const stack = [rootId];
+            const result: string[] = [];
+            while (stack.length) {
+                const nodeId = stack.pop()!;
+                const children = childrenMap.get(nodeId) || [];
+                children.forEach((childId) => {
+                    result.push(childId);
+                    stack.push(childId);
+                });
+            }
+            return result;
+        };
+
+        const getMaxDepth = (rootId: string): number => {
+            const children = childrenMap.get(rootId) || [];
+            if (children.length === 0) return 1;
+            return 1 + Math.max(...children.map((childId) => getMaxDepth(childId)));
+        };
+
+        const descendantIds = getSubtreeIds(id);
+
+        if (normalizedParentId && descendantIds.includes(normalizedParentId)) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Parent cannot be a descendant territory' } });
+        }
+
+        const resolvedParentId = normalizedParentId === undefined ? current.parentId : normalizedParentId;
+        let newLevel = current.level || 1;
+
+        if (resolvedParentId) {
+            const parent = territoryMap.get(resolvedParentId);
+            if (!parent) {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Parent territory not found' } });
+            }
+            newLevel = (parent.level || 1) + 1;
+        } else {
+            newLevel = 1;
+        }
+
+        const subtreeDepth = getMaxDepth(id);
+        if (newLevel + subtreeDepth - 1 > MAX_TERRITORY_LEVEL) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: `Territory depth cannot exceed ${MAX_TERRITORY_LEVEL}` } });
+        }
+
+        const updates: any = { updatedAt: new Date() };
+        if (name !== undefined) updates.name = name;
+        if (normalizedParentId !== undefined) updates.parentId = normalizedParentId;
+        if (isActive !== undefined) updates.isActive = isActive;
+
+        const levelDelta = newLevel - (current.level || 1);
+        if (levelDelta !== 0) {
+            updates.level = newLevel;
+        }
+
+        const [updated] = await db
+            .update(schema.territories)
+            .set(updates)
+            .where(and(eq(schema.territories.id, id), eq(schema.territories.tenantId, user.tenantId)))
+            .returning();
+
+        if (levelDelta !== 0 && descendantIds.length > 0) {
+            await db
+                .update(schema.territories)
+                .set({ level: sql`${schema.territories.level} + ${levelDelta}`, updatedAt: new Date() })
+                .where(and(eq(schema.territories.tenantId, user.tenantId), inArray(schema.territories.id, descendantIds)));
+        }
+
+        return { success: true, data: updated };
     });
 
     // ----------------------------------------------------------------
@@ -224,7 +435,7 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
         if (isActive !== undefined) conditions.push(eq(schema.customers.isActive, isActive === 'true'));
 
         if (user.role === 'sales_rep') {
-            conditions.push(eq(schema.customers.createdByUserId, user.id));
+            conditions.push(buildSalesCustomerScope(user.tenantId, user.id));
         }
 
         const customers = await db
@@ -350,7 +561,7 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
         }
 
-        if (user.role === 'sales_rep' && customer.createdByUserId !== user.id) {
+        if (user.role === 'sales_rep' && customer.assignedSalesRepId !== user.id) {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only view customers you created' } });
         }
 
@@ -379,7 +590,7 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
         }
 
-        if (user.role === 'sales_rep' && customer.createdByUserId !== user.id) {
+        if (user.role === 'sales_rep' && customer.assignedSalesRepId !== user.id) {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only update customers you created' } });
         }
 

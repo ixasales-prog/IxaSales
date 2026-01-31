@@ -307,6 +307,32 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: updated };
     });
 
+    // Get assigned territories for a user
+    fastify.get<{ Params: Static<typeof UserIdParamsSchema> }>('/:id/territories', {
+        preHandler: [fastify.authenticate],
+        schema: { params: UserIdParamsSchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { id } = request.params;
+
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const targetUserCondition = user.role !== 'super_admin' && user.tenantId
+            ? and(eq(schema.users.id, id), eq(schema.users.tenantId, user.tenantId))
+            : eq(schema.users.id, id);
+
+        const [targetUser] = await db.select({ id: schema.users.id }).from(schema.users).where(targetUserCondition).limit(1);
+        if (!targetUser) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+
+        const territoryRows = await db.select({ territoryId: schema.userTerritories.territoryId })
+            .from(schema.userTerritories)
+            .where(eq(schema.userTerritories.userId, id));
+
+        return { success: true, data: territoryRows.map((row) => row.territoryId) };
+    });
+
     // Assign territories
     fastify.put<{ Params: Static<typeof UserIdParamsSchema>; Body: Static<typeof AssignTerritoriesBodySchema> }>('/:id/territories', {
         preHandler: [fastify.authenticate],

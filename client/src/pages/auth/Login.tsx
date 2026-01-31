@@ -29,10 +29,14 @@ const Login: Component = () => {
             await initSettings();
 
             // Redirect based on role
-            if (['sales_rep', 'supervisor'].includes(res.user.role)) {
+            if (res.user.role === 'sales_rep') {
                 navigate('/sales');
+            } else if (res.user.role === 'supervisor') {
+                navigate('/supervisor');
             } else if (res.user.role === 'driver') {
                 navigate('/driver');
+            } else if (res.user.role === 'warehouse') {
+                navigate('/warehouse');
             } else if (res.user.role === 'super_admin') {
                 navigate('/super');
             } else {

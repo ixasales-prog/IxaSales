@@ -1,8 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <rect width="96" height="96" fill="#f97316"/>
-  <polygon points="12,40 48,16 84,40" fill="#fed7aa"/>
-  <rect x="16" y="40" width="64" height="40" fill="white"/>
-  <rect x="24" y="52" width="14" height="20" fill="#f97316"/>
-  <rect x="41" y="52" width="14" height="20" fill="#f97316"/>
-  <rect x="58" y="52" width="14" height="20" fill="#f97316"/>
+  <defs>
+    <radialGradient id="bg-warehouse" cx="30%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#0b1220"/>
+    </radialGradient>
+    <filter id="glow-warehouse" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="96" height="96" rx="22" fill="url(#bg-warehouse)"/>
+  <g stroke="#eaf2ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow-warehouse)">
+    <path d="M16 42l32-18 32 18v28H16z"/>
+    <path d="M30 42v28"/>
+    <path d="M48 42v28"/>
+    <path d="M66 42v28"/>
+  </g>
 </svg>

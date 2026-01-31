@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, boolean, integer, decimal, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, boolean, integer, decimal, pgEnum, unique } from 'drizzle-orm/pg-core';
 
 // ============================================================================
 // ENUMS
@@ -192,6 +192,22 @@ export const sessions = pgTable('sessions', {
     expiresAt: timestamp('expires_at').notNull(),
     createdAt: timestamp('created_at').defaultNow(),
 });
+// ============================================================================
+// NOTIFICATION ROLE SETTINGS (Which roles receive which notifications)
+// ============================================================================
+
+export const notificationRoleSettings = pgTable('notification_role_settings', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+    notificationType: varchar('notification_type', { length: 100 }).notNull(), // e.g., 'notifyNewOrder'
+    role: userRoleEnum('role').notNull(), // 'tenant_admin', 'supervisor', 'sales_rep', 'warehouse', 'driver'
+    enabled: boolean('enabled').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+    uniqueRoleSetting: unique('unique_role_setting').on(table.tenantId, table.notificationType, table.role),
+}));
+
 // ============================================================================
 // PAYMENT TOKENS (for secure payment portal links)
 // ============================================================================

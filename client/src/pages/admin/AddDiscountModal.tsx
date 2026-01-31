@@ -48,14 +48,14 @@ const AddDiscountModal: Component<AddDiscountModalProps> = (props) => {
         try {
             const res = await api.get('/products/categories');
             return Array.isArray(res) ? res : (res as any)?.data || [];
-        } catch (e) { return []; }
+        } catch (_e) { return []; }
     });
 
     const [brands] = createResource(async () => {
         try {
             const res = await api.get('/products/brands');
             return Array.isArray(res) ? res : (res as any)?.data || [];
-        } catch (e) { return []; }
+        } catch (_e) { return []; }
     });
 
     const [products] = createResource(
@@ -65,7 +65,7 @@ const AddDiscountModal: Component<AddDiscountModalProps> = (props) => {
             try {
                 const res = await api.get('/products', { params: { search, limit: '20' } });
                 return Array.isArray(res) ? res : (res as any)?.data || [];
-            } catch (e) { return []; }
+            } catch (_e) { return []; }
         }
     );
 

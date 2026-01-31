@@ -51,7 +51,7 @@ const PaymentSettings: Component = () => {
                 body: JSON.stringify(settings()),
             });
             showToast('To\'lov sozlamalari saqlandi', 'success');
-        } catch (error) {
+        } catch (_error) {
             showToast('Xatolik yuz berdi', 'error');
         } finally {
             setSaving(false);

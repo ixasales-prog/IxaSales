@@ -18,7 +18,9 @@ import {
     RotateCcw,
     Warehouse,
     CarFront,
-    CreditCard
+    CreditCard,
+    BarChart3,
+    MapPin
 } from 'lucide-solid';
 import { logout } from '../../stores/auth';
 import { useBranding } from '../../stores/branding';
@@ -46,10 +48,12 @@ const AdminLayout: Component<{ children: any }> = (props) => {
         { path: '/admin/discounts', icon: Percent, label: 'Discounts' },
         { path: '/admin/procurement', icon: ShoppingBag, label: 'Procurement' },
         { path: '/admin/customers', icon: Users, label: 'Customers' },
+        { path: '/admin/territories', icon: MapPin, label: 'Territories' },
         { path: '/admin/customer-tiers', icon: Crown, label: 'Customer Tiers' },
         { path: '/admin/users', icon: Users, label: 'Users' },
         { path: '/admin/deliveries', icon: Truck, label: 'Deliveries' },
         { path: '/admin/vehicles', icon: CarFront, label: 'Vehicles' },
+        { path: '/admin/reports', icon: BarChart3, label: 'Reports' },
         { path: '/admin/notification-settings', icon: Bell, label: 'Notifications' },
         { path: '/admin/payment-settings', icon: CreditCard, label: 'Payment Gateway' },
     ];

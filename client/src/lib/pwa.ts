@@ -230,6 +230,15 @@ export function wasInstalledPreviously(): boolean {
 }
 
 /**
+ * Clear installation tracking when app is not installed (e.g., after uninstall)
+ */
+export function syncInstallState(): void {
+    if (!isInstalledPWA() && wasInstalledPreviously()) {
+        localStorage.removeItem(PWA_INSTALLED_KEY);
+    }
+}
+
+/**
  * Reset installation tracking (for testing)
  */
 export function resetInstallTracking(): void {
@@ -278,6 +287,7 @@ export const pwa = {
     canInstall,
     isInstalledPWA,
     wasInstalledPreviously,
+    syncInstallState,
     resetInstallTracking,
 };
 

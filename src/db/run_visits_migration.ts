@@ -27,7 +27,7 @@ async function main() {
 
         await db.execute(sql`
             DO $$ BEGIN
-                CREATE TYPE visit_outcome AS ENUM ('order_placed', 'no_order', 'follow_up', 'not_available');
+                CREATE TYPE visit_outcome AS ENUM ('order_placed', 'no_order', 'follow_up');
             EXCEPTION
                 WHEN duplicate_object THEN null;
             END $$;

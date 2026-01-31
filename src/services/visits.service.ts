@@ -1,4 +1,5 @@
 import { db, schema } from '../db';
+import { getTenantDayRange } from '../lib/tenant-time';
 import { eq, and, sql, desc, gte, lte, inArray, SQL } from 'drizzle-orm';
 import { InvalidStatusTransitionError } from '../errors';
 import { PgColumn } from 'drizzle-orm/pg-core';
@@ -19,7 +20,7 @@ const sanitizeArray = (input: string[] | null | undefined): string[] | null => {
 };
 
 // Valid enum values
-const VALID_OUTCOMES = ['order_placed', 'no_order', 'follow_up', 'not_available'] as const;
+const VALID_OUTCOMES = ['order_placed', 'no_order', 'follow_up'] as const;
 const VALID_VISIT_TYPES = ['scheduled', 'ad_hoc', 'phone_call'] as const;
 
 type Outcome = typeof VALID_OUTCOMES[number];
@@ -251,7 +252,8 @@ export class VisitsService {
    * Get today's visits for a user
    */
   async getTodayVisits(tenantId: string, userId: string, role: string, date?: string) {
-    const actualDate = date || new Date().toISOString().split('T')[0];
+    const { todayStr } = await getTenantDayRange(tenantId);
+    const actualDate = date || todayStr;
 
     const conditions: SQL<unknown>[] = [
       eq(schema.salesVisits.tenantId, tenantId),
@@ -298,8 +300,22 @@ export class VisitsService {
     const inProgress = visits.filter(v => v.status === 'in_progress').length;
     const planned = visits.filter(v => v.status === 'planned').length;
 
+    // Calculate duration for completed visits
+    const visitsWithDuration = visits.map(visit => {
+      let durationMinutes: number | null = null;
+      if (visit.startedAt && visit.completedAt) {
+        const start = new Date(visit.startedAt).getTime();
+        const end = new Date(visit.completedAt).getTime();
+        durationMinutes = Math.round((end - start) / 60000);
+      }
+      return {
+        ...visit,
+        durationMinutes,
+      };
+    });
+
     return {
-      data: visits,
+      data: visitsWithDuration,
       stats: { total: visits.length, completed, inProgress, planned }
     };
   }
@@ -403,6 +419,11 @@ export class VisitsService {
         eq(schema.salesVisits.id, id),
         eq(schema.salesVisits.tenantId, tenantId)
       ));
+
+    // Post-process: if visit is not 'planned' status, clear the plannedTime
+    if (visit && visit.status !== 'planned') {
+      visit.plannedTime = null;
+    }
 
     if (!visit) {
       return null;

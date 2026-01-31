@@ -2,7 +2,7 @@
     "name": "IxaSales Warehouse",
     "short_name": "Warehouse",
     "description": "Distribution ERP for Sales & Delivery",
-    "start_url": "/admin",
+    "start_url": "/warehouse",
     "display": "standalone",
     "background_color": "#020617",
     "theme_color": "#3b82f6",

@@ -43,7 +43,7 @@ const Procurement: Component = () => {
                 const res = await api.get('/procurement/purchase-orders', { params });
                 // Handle both cases: res could be the array directly or { data: [...] }
                 return Array.isArray(res) ? res : (res?.data || []);
-            } catch (e) { return []; }
+            } catch (_e) { return []; }
         }
     );
 
@@ -55,7 +55,7 @@ const Procurement: Component = () => {
                 const res = await api.get('/procurement/suppliers');
                 // Handle both cases: res could be the array directly or { data: [...] }
                 return Array.isArray(res) ? res : (res?.data || []);
-            } catch (e) { return []; }
+            } catch (_e) { return []; }
         }
     );
 

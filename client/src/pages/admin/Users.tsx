@@ -23,6 +23,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatDate } from '../../stores/settings';
+import toast from '../../components/Toast';
 
 interface UserData {
     id: string;
@@ -37,6 +38,14 @@ interface UserData {
     tenantId?: string | null;
     gpsTrackingEnabled?: boolean;
     lastLocationUpdateAt?: string | null;
+}
+
+interface Territory {
+    id: string;
+    name: string;
+    parentId: string | null;
+    level: number | null;
+    children?: Territory[];
 }
 
 const Users: Component = () => {
@@ -64,7 +73,8 @@ const Users: Component = () => {
         role: 'sales_rep',
         phone: '',
         tenantId: '', // For super admins
-        supervisorId: '' // For sales reps (future)
+        supervisorId: '', // For sales reps
+        territoryIds: [] as string[]
     });
 
     const [users, { refetch }] = createResource(
@@ -91,9 +101,53 @@ const Users: Component = () => {
 
     // Fetch supervisors for dropdown
     const [supervisors] = createResource(async () => {
-        const result = await api<{ data: { id: string; name: string; email: string; phone: string | null }[] }>('/users/supervisors');
-        return result?.data || [];
+        try {
+            const result = await api<{ id: string; name: string; email: string; phone: string | null }[]>('/users/supervisors');
+            return result || [];
+        } catch (err: any) {
+            console.error('Failed to load supervisors:', err);
+            toast.error(err?.message || 'Failed to load supervisors');
+            return [];
+        }
     });
+
+    const [territoryTree] = createResource(async () => {
+        const result = await api<Territory[]>('/customers/territories/tree');
+        return result || [];
+    });
+
+    const [assignedTerritories] = createResource(
+        () => editingId(),
+        async (userId) => {
+            if (!userId) return [] as string[];
+            const result = await api<string[]>(`/users/${userId}/territories`);
+            return result || [];
+        }
+    );
+
+    const collectTerritoryIds = (node: Territory): string[] => {
+        const ids = [node.id];
+        if (node.children?.length) {
+            node.children.forEach((child) => ids.push(...collectTerritoryIds(child)));
+        }
+        return ids;
+    };
+
+    const isTerritorySelected = (id: string) => (formData.territoryIds || []).includes(id);
+
+    const toggleTerritory = (node: Territory) => {
+        const ids = collectTerritoryIds(node);
+        const current = new Set(formData.territoryIds || []);
+        const allSelected = ids.every((id) => current.has(id));
+        ids.forEach((id) => {
+            if (allSelected) {
+                current.delete(id);
+            } else {
+                current.add(id);
+            }
+        });
+        setFormData('territoryIds', Array.from(current));
+    };
 
     const userList = createMemo(() => (users() as any)?.data || users() || []);
     const total = createMemo(() => (users() as any)?.total || userList().length);
@@ -155,10 +209,20 @@ const Users: Component = () => {
             role: user.role,
             phone: user.phone || '',
             supervisorId: user.supervisorId || '',
-            tenantId: user.tenantId || ''
+            tenantId: user.tenantId || '',
+            territoryIds: []
         });
         setShowCreateModal(true);
     };
+
+    createEffect(() => {
+        if (!editingId()) return;
+        const ids = assignedTerritories();
+        if (ids) {
+            setFormData('territoryIds', ids);
+        }
+    });
+
 
     const handleDelete = async (id: string) => {
         if (!confirm('Are you sure you want to delete this user?')) return;
@@ -176,13 +240,34 @@ const Users: Component = () => {
         setError(null);
 
         try {
-            await api(editingId() ? `/users/${editingId()}` : '/users', {
+            if (formData.role === 'sales_rep' && (!formData.territoryIds || formData.territoryIds.length === 0)) {
+                setError('Please assign at least one territory to the sales rep.');
+                setSubmitting(false);
+                return;
+            }
+            const { territoryIds, ...userPayload } = formData;
+            const normalizedPayload = {
+                ...userPayload,
+                supervisorId: userPayload.supervisorId?.trim() ? userPayload.supervisorId : null,
+            } as typeof userPayload & { supervisorId: string | null };
+            if (editingId()) {
+                delete (normalizedPayload as any).tenantId;
+            }
+            const result = await api(editingId() ? `/users/${editingId()}` : '/users', {
                 method: editingId() ? 'PATCH' : 'POST',
                 body: JSON.stringify({
-                    ...formData,
+                    ...normalizedPayload,
                     password: formData.password || undefined // Only send if changed
                 })
             });
+
+            const userId = editingId() || (result as any)?.data?.id;
+            if (userId && formData.role === 'sales_rep') {
+                await api(`/users/${userId}/territories`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ territoryIds: formData.territoryIds || [] })
+                });
+            }
 
             setShowCreateModal(false);
             setEditingId(null);
@@ -193,7 +278,8 @@ const Users: Component = () => {
                 role: 'sales_rep',
                 phone: '',
                 tenantId: '',
-                supervisorId: ''
+                supervisorId: '',
+                territoryIds: []
             });
             refetch();
         } catch (err: any) {
@@ -615,6 +701,48 @@ const Users: Component = () => {
                                 </div>
                             </Show>
 
+                            {/* Territory Selection for Sales Reps */}
+                            <Show when={formData.role === 'sales_rep'}>
+                                <div class="space-y-3">
+                                    <label class="text-sm font-medium text-slate-300">Assigned Territories</label>
+                                    <div class="space-y-2 max-h-64 overflow-auto border border-slate-800 rounded-xl bg-slate-950/60 p-3">
+                                        <For each={territoryTree() || []}>
+                                            {(node) => {
+                                                const renderNode = (territory: Territory, depth = 0) => (
+                                                    <div class="space-y-1">
+                                                        <label class="flex items-center gap-2 text-sm text-slate-200" style={{ 'padding-left': `${depth * 16}px` }}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isTerritorySelected(territory.id)}
+                                                                onChange={() => toggleTerritory(territory)}
+                                                                class="accent-blue-500"
+                                                            />
+                                                            <span>{territory.name}</span>
+                                                        </label>
+                                                        <Show when={territory.children?.length}>
+                                                            <div class="space-y-1">
+                                                                <For each={territory.children}>
+                                                                    {(child) => renderNode(child, depth + 1)}
+                                                                </For>
+                                                            </div>
+                                                        </Show>
+                                                    </div>
+                                                );
+                                                return renderNode(node, 0);
+                                            }}
+                                        </For>
+                                    </div>
+                                    <Show when={territoryTree() && territoryTree()!.length === 0}>
+                                        <p class="text-xs text-amber-400">
+                                            No territories available. Create territories first in Admin → Territories.
+                                        </p>
+                                    </Show>
+                                    <p class="text-xs text-slate-500">
+                                        Selecting a parent will toggle all child territories.
+                                    </p>
+                                </div>
+                            </Show>
+
                             <div class="space-y-1.5">
                                 <label class="text-sm font-medium text-slate-300">Full Name</label>
                                 <input
@@ -662,6 +790,7 @@ const Users: Component = () => {
                                             // Clear supervisor if role is not sales_rep
                                             if (newRole !== 'sales_rep') {
                                                 setFormData('supervisorId', '');
+                                                setFormData('territoryIds', []);
                                             }
                                         }}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
@@ -689,23 +818,37 @@ const Users: Component = () => {
                             <Show when={formData.role === 'sales_rep'}>
                                 <div class="space-y-1.5">
                                     <label class="text-sm font-medium text-slate-300">Assign to Supervisor</label>
-                                    <select
-                                        value={formData.supervisorId}
-                                        onInput={(e) => setFormData('supervisorId', e.currentTarget.value)}
-                                        class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                    >
-                                        <option value="">No Supervisor</option>
-                                        <For each={supervisors()}>
-                                            {(supervisor) => (
-                                                <option value={supervisor.id}>
-                                                    {supervisor.name} ({supervisor.email})
-                                                </option>
-                                            )}
-                                        </For>
-                                    </select>
-                                    <p class="text-xs text-slate-500">
-                                        Optional: Assign this sales rep to a supervisor for management and reporting
-                                    </p>
+                                    <Show when={!supervisors.loading} fallback={
+                                        <div class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-400 flex items-center gap-2">
+                                            <Loader2 class="w-4 h-4 animate-spin" />
+                                            Loading supervisors...
+                                        </div>
+                                    }>
+                                        <select
+                                            value={formData.supervisorId}
+                                            onChange={(e) => setFormData('supervisorId', e.currentTarget.value)}
+                                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="">No Supervisor</option>
+                                            <For each={supervisors()}>
+                                                {(supervisor) => (
+                                                    <option value={supervisor.id}>
+                                                        {supervisor.name} ({supervisor.email})
+                                                    </option>
+                                                )}
+                                            </For>
+                                        </select>
+                                    </Show>
+                                    <Show when={supervisors() && supervisors()!.length === 0 && !supervisors.loading}>
+                                        <p class="text-xs text-amber-400">
+                                            No supervisors found. Create a supervisor user first.
+                                        </p>
+                                    </Show>
+                                    <Show when={supervisors() && supervisors()!.length > 0}>
+                                        <p class="text-xs text-slate-500">
+                                            Optional: Assign this sales rep to a supervisor for management and reporting
+                                        </p>
+                                    </Show>
                                 </div>
                             </Show>
 

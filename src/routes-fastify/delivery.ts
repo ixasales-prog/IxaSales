@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
-import { eq, and, sql, desc, inArray } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray, or } from 'drizzle-orm';
 
 // Schemas
 const CreateVehicleBodySchema = Type.Object({
@@ -28,6 +28,7 @@ const CreateTripBodySchema = Type.Object({
 
 const TripIdParamsSchema = Type.Object({ id: Type.String() });
 const UpdateTripStatusBodySchema = Type.Object({ status: Type.String() });
+const DeliveryOrderParamsSchema = Type.Object({ id: Type.String() });
 
 type CreateVehicleBody = Static<typeof CreateVehicleBodySchema>;
 type ListTripsQuery = Static<typeof ListTripsQuerySchema>;
@@ -232,5 +233,47 @@ export const deliveryRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         return { success: true, data: trip };
+    });
+
+    // Get delivery order detail
+    fastify.get<{ Params: Static<typeof DeliveryOrderParamsSchema> }>('/orders/:id', {
+        preHandler: [fastify.authenticate],
+        schema: { params: DeliveryOrderParamsSchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { id } = request.params;
+
+        const [order] = await db.select({
+            id: schema.orders.id,
+            orderNumber: schema.orders.orderNumber,
+            customerName: schema.customers.name,
+            address: schema.customers.address,
+            totalAmount: schema.orders.totalAmount,
+            status: schema.orders.status,
+            deliveryNotes: schema.orders.deliveryNotes,
+            driverId: schema.orders.driverId,
+        }).from(schema.orders)
+            .leftJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
+            .where(and(eq(schema.orders.id, id), eq(schema.orders.tenantId, user.tenantId)))
+            .limit(1);
+
+        if (!order) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+        }
+
+        if (user.role === 'driver') {
+            const [assigned] = await db.select({
+                tripDriverId: schema.trips.driverId,
+            }).from(schema.tripOrders)
+                .leftJoin(schema.trips, eq(schema.tripOrders.tripId, schema.trips.id))
+                .where(eq(schema.tripOrders.orderId, order.id))
+                .limit(1);
+
+            if (order.driverId !== user.id && assigned?.tripDriverId !== user.id) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            }
+        }
+
+        return { success: true, data: order };
     });
 };

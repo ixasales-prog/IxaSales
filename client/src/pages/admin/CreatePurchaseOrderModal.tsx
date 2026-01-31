@@ -24,7 +24,7 @@ const CreatePurchaseOrderModal: Component<CreatePurchaseOrderModalProps> = (prop
         try {
             const res = await api.get('/procurement/suppliers');
             return Array.isArray(res) ? res : (res as any)?.data || [];
-        } catch (e) { return []; }
+        } catch (_e) { return []; }
     });
 
     const [products] = createResource(search, async (query) => {
@@ -32,7 +32,7 @@ const CreatePurchaseOrderModal: Component<CreatePurchaseOrderModalProps> = (prop
         try {
             const res = await api.get('/products', { params: { search: query, limit: '10' } });
             return Array.isArray(res) ? res : (res as any)?.data || [];
-        } catch (e) { return []; }
+        } catch (_e) { return []; }
     });
 
     const addItem = (product: any) => {

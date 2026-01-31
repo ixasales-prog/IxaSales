@@ -1,5 +1,5 @@
 import { type Component, For, Show, createResource, createMemo } from 'solid-js';
-import { A } from '@solidjs/router';
+import { A, useNavigate } from '@solidjs/router';
 import {
     MapPin,
     Clock,
@@ -36,6 +36,7 @@ interface TripWithOrders extends Trip {
 }
 
 const Deliveries: Component = () => {
+    const navigate = useNavigate();
     // Fetch active trip
     const [activeTrip] = createResource(async () => {
         // Get trips in progress
@@ -128,7 +129,18 @@ const Deliveries: Component = () => {
                         <div class="space-y-3 mb-6">
                             <For each={pendingOrders()}>
                                 {(order) => (
-                                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4">
+                                    <div
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => navigate(`/driver/deliveries/${order.id}`)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                navigate(`/driver/deliveries/${order.id}`);
+                                            }
+                                        }}
+                                        class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-4"
+                                    >
                                         <div class="flex items-center gap-2 overflow-hidden">
                                             <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center flex-shrink-0">
                                                 {order.sequence}
@@ -148,7 +160,10 @@ const Deliveries: Component = () => {
                                             </div>
                                             <Show when={order.address}>
                                                 <button
-                                                    onClick={() => openMaps(order.address!)}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        openMaps(order.address!);
+                                                    }}
                                                     class="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg flex items-center gap-1 active:scale-95 transition-transform"
                                                 >
                                                     <Navigation class="w-4 h-4" />
@@ -171,7 +186,18 @@ const Deliveries: Component = () => {
                         <div class="space-y-2">
                             <For each={completedOrders()}>
                                 {(order) => (
-                                    <div class="bg-slate-900/40 border border-slate-800/30 rounded-xl p-3 opacity-60">
+                                    <div
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => navigate(`/driver/deliveries/${order.id}`)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                navigate(`/driver/deliveries/${order.id}`);
+                                            }
+                                        }}
+                                        class="bg-slate-900/40 border border-slate-800/30 rounded-xl p-3 opacity-60"
+                                    >
                                         <div class="flex items-center justify-between">
                                             <div class="flex items-center gap-2">
                                                 <CheckCircle2 class="w-4 h-4 text-green-400" />

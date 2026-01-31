@@ -1,6 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
+import { buildSalesCustomerAssignmentCondition, buildSalesCustomerScope } from '../lib/sales-scope';
+import { getTenantDayRange } from '../lib/tenant-time';
+import { VisitsService } from '../services/visits.service';
 import { eq, and, sql, desc, inArray, gte, lt } from 'drizzle-orm';
 
 // Schemas
@@ -55,6 +58,8 @@ type UpdateStatusBody = Static<typeof UpdateStatusBodySchema>;
 type CancelOrderBody = Static<typeof CancelOrderBodySchema>;
 
 export const orderRoutes: FastifyPluginAsync = async (fastify) => {
+    const visitsService = new VisitsService();
+
     // ----------------------------------------------------------------
     // DASHBOARD STATS
     // ----------------------------------------------------------------
@@ -63,50 +68,15 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
 
-        const [tenant] = await db
-            .select({ timezone: schema.tenants.timezone })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, user.tenantId))
-            .limit(1);
-
-        const timezone = tenant?.timezone || 'Asia/Tashkent';
-        const now = new Date();
-        let startOfDay: Date;
-        let endOfDay: Date;
-
-        try {
-            const dayFormatter = new Intl.DateTimeFormat('en-CA', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                timeZone: timezone,
-            });
-            const localDateStr = dayFormatter.format(now);
-            startOfDay = new Date(`${localDateStr}T00:00:00`);
-
-            const offsetFormatter = new Intl.DateTimeFormat('en-US', {
-                timeZone: timezone,
-                timeZoneName: 'shortOffset',
-            });
-            const offsetMatch = offsetFormatter.format(now).match(/GMT([+-]\d+)/);
-            if (offsetMatch) {
-                const offsetHours = parseInt(offsetMatch[1]);
-                startOfDay = new Date(startOfDay.getTime() - offsetHours * 60 * 60 * 1000);
-            }
-        } catch {
-            startOfDay = new Date(now);
-            startOfDay.setHours(0, 0, 0, 0);
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
         }
 
-        endOfDay = new Date(startOfDay);
-        endOfDay.setDate(endOfDay.getDate() + 1);
+        const { startOfDay, endOfDay, todayStr } = await getTenantDayRange(user.tenantId);
 
         const orderConditions: any[] = [eq(schema.orders.tenantId, user.tenantId)];
-        if (user.role === 'sales_rep') {
-            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
-        } else if (user.role === 'driver') {
-            orderConditions.push(eq(schema.orders.driverId, user.id));
-        }
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
 
         const [todaySales] = await db
             .select({
@@ -128,24 +98,18 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                 eq(schema.orders.status, 'pending')
             ));
 
-        const customerConditions: any[] = [eq(schema.customers.tenantId, user.tenantId)];
-        if (user.role === 'sales_rep') {
-            customerConditions.push(eq(schema.customers.createdByUserId, user.id));
-        }
+        const customerConditions: any[] = [buildSalesCustomerScope(user.tenantId, user.id)];
 
         const [customerCount] = await db
             .select({ count: sql<number>`count(*)` })
             .from(schema.customers)
             .where(and(...customerConditions));
 
-        const today = new Date().toISOString().split('T')[0];
         const visitConditions: any[] = [
             eq(schema.salesVisits.tenantId, user.tenantId),
-            eq(schema.salesVisits.plannedDate, today)
+            eq(schema.salesVisits.plannedDate, todayStr)
         ];
-        if (user.role === 'sales_rep') {
-            visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
-        }
+        visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
 
         const [visitStats] = await db
             .select({
@@ -200,28 +164,6 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             .from(schema.customers)
             .where(and(...customerConditions));
 
-        // Top customers by revenue (last 30 days)
-        const thirtyDaysAgo = new Date(startOfDay);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        const topCustomersByRevenue = await db
-            .select({
-                customerId: schema.orders.customerId,
-                customerName: schema.customers.name,
-                totalRevenue: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
-                orderCount: sql<number>`count(*)`,
-            })
-            .from(schema.orders)
-            .innerJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
-            .where(and(
-                ...orderConditions,
-                eq(schema.orders.status, 'delivered'),
-                gte(schema.orders.createdAt, thirtyDaysAgo)
-            ))
-            .groupBy(schema.orders.customerId, schema.customers.name)
-            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`))
-            .limit(5);
-
         const todaySalesValue = Number(todaySales?.total || 0);
         const lastWeekSalesValue = Number(lastWeekSales?.total || 0);
         const weekOverWeekChange = lastWeekSalesValue > 0 
@@ -257,12 +199,503 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                     totalDebt: Number(debtSummary?.totalDebt || 0),
                     customerCount: Number(debtSummary?.customerCount || 0),
                 },
-                topCustomersByRevenue: topCustomersByRevenue.map(c => ({
-                    customerId: c.customerId,
-                    customerName: c.customerName,
-                    totalRevenue: Number(c.totalRevenue || 0),
-                    orderCount: Number(c.orderCount || 0),
+            }
+        };
+    });
+
+    // ----------------------------------------------------------------
+    // CONSOLIDATED SALES DASHBOARD
+    // ----------------------------------------------------------------
+    fastify.get('/dashboard/sales', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
+
+        const { startOfDay, endOfDay, todayStr } = await getTenantDayRange(user.tenantId);
+
+        const orderConditions: any[] = [eq(schema.orders.tenantId, user.tenantId)];
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
+
+        const [todaySales] = await db
+            .select({ total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)` })
+            .from(schema.orders)
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'delivered'),
+                gte(schema.orders.createdAt, startOfDay),
+                lt(schema.orders.createdAt, endOfDay)
+            ));
+
+        const [pendingOrders] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.orders)
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'pending')
+            ));
+
+        const customerConditions: any[] = [buildSalesCustomerScope(user.tenantId, user.id)];
+        const [customerCount] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.customers)
+            .where(and(...customerConditions));
+
+        const visitConditions: any[] = [
+            eq(schema.salesVisits.tenantId, user.tenantId),
+            eq(schema.salesVisits.plannedDate, todayStr),
+            eq(schema.salesVisits.salesRepId, user.id)
+        ];
+
+        const [visitStats] = await db
+            .select({
+                total: sql<number>`count(*)`,
+                completed: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
+                inProgress: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'in_progress')`,
+            })
+            .from(schema.salesVisits)
+            .where(and(...visitConditions));
+
+        const lastWeekStart = new Date(startOfDay);
+        lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+        const lastWeekEnd = new Date(lastWeekStart);
+        lastWeekEnd.setDate(lastWeekEnd.getDate() + 1);
+
+        const [lastWeekSales] = await db
+            .select({ total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)` })
+            .from(schema.orders)
+            .where(and(
+                ...orderConditions,
+                eq(schema.orders.status, 'delivered'),
+                gte(schema.orders.createdAt, lastWeekStart),
+                lt(schema.orders.createdAt, lastWeekEnd)
+            ));
+
+        const topCustomersWithDebt = await db
+            .select({
+                id: schema.customers.id,
+                name: schema.customers.name,
+                debtBalance: schema.customers.debtBalance,
+                phone: schema.customers.phone,
+                address: schema.customers.address,
+            })
+            .from(schema.customers)
+            .where(and(
+                ...customerConditions,
+                sql`${schema.customers.debtBalance} > 0`
+            ))
+            .orderBy(desc(schema.customers.debtBalance))
+            .limit(5);
+
+        const [debtSummary] = await db
+            .select({
+                totalDebt: sql<number>`coalesce(sum(${schema.customers.debtBalance}), 0)`,
+                customerCount: sql<number>`count(*) filter (where ${schema.customers.debtBalance} > 0)`,
+            })
+            .from(schema.customers)
+            .where(and(...customerConditions));
+
+        const todaySalesValue = Number(todaySales?.total || 0);
+        const lastWeekSalesValue = Number(lastWeekSales?.total || 0);
+        const weekOverWeekChange = lastWeekSalesValue > 0
+            ? ((todaySalesValue - lastWeekSalesValue) / lastWeekSalesValue) * 100
+            : 0;
+
+        const goals = await db
+            .select()
+            .from(schema.tenantSettings)
+            .where(and(
+                eq(schema.tenantSettings.tenantId, user.tenantId),
+                sql`${schema.tenantSettings.key} LIKE 'sales_goal_%'`
+            ));
+
+        const goalsMap: Record<string, number> = {};
+        goals.forEach(g => {
+            const period = g.key.replace('sales_goal_', '');
+            goalsMap[period] = parseFloat(g.value || '0');
+        });
+
+        const periodStartDate = new Date(startOfDay);
+        periodStartDate.setDate(periodStartDate.getDate() - 7);
+
+        const trendsConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, periodStartDate)
+        ];
+        trendsConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
+
+        const dailySales = await db
+            .select({
+                date: sql<string>`DATE(${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...trendsConditions))
+            .groupBy(sql`DATE(${schema.orders.createdAt})`)
+            .orderBy(sql`DATE(${schema.orders.createdAt})`);
+
+        const insightStartDate = new Date(startOfDay);
+        insightStartDate.setDate(insightStartDate.getDate() - 30);
+
+        const insightConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, insightStartDate)
+        ];
+        insightConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
+
+        const hourlySales = await db
+            .select({
+                hour: sql<number>`EXTRACT(HOUR FROM ${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...insightConditions))
+            .groupBy(sql`EXTRACT(HOUR FROM ${schema.orders.createdAt})`)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`));
+
+        const dailyInsightSales = await db
+            .select({
+                dayOfWeek: sql<number>`EXTRACT(DOW FROM ${schema.orders.createdAt})`,
+                dayName: sql<string>`TO_CHAR(${schema.orders.createdAt}, 'Day')`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...insightConditions))
+            .groupBy(sql`EXTRACT(DOW FROM ${schema.orders.createdAt})`, sql`TO_CHAR(${schema.orders.createdAt}, 'Day')`)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`));
+
+        const metricsConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, insightStartDate)
+        ];
+        metricsConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
+
+        const [orderStats] = await db
+            .select({
+                totalRevenue: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                totalOrders: sql<number>`count(*)`,
+                avgOrderValue: sql<number>`coalesce(avg(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(...metricsConditions));
+
+        const [visitStats30d] = await db
+            .select({
+                totalVisits: sql<number>`count(*)`,
+                completedVisits: sql<number>`count(*) filter (where ${schema.salesVisits.status} = 'completed')`,
+                visitsWithOrders: sql<number>`count(*) filter (where ${schema.salesVisits.outcome} = 'order_placed')`,
+            })
+            .from(schema.salesVisits)
+            .where(and(
+                eq(schema.salesVisits.tenantId, user.tenantId),
+                eq(schema.salesVisits.salesRepId, user.id),
+                gte(schema.salesVisits.plannedDate, insightStartDate.toISOString().split('T')[0])
+            ));
+
+        const [customerStats] = await db
+            .select({ newCustomers: sql<number>`count(*)` })
+            .from(schema.customers)
+            .where(and(
+                buildSalesCustomerScope(user.tenantId, user.id),
+                gte(schema.customers.createdAt, insightStartDate)
+            ));
+
+        const totalRevenue = Number(orderStats?.totalRevenue || 0);
+        const totalOrders = Number(orderStats?.totalOrders || 0);
+        const avgOrderValue = Number(orderStats?.avgOrderValue || 0);
+        const totalVisits = Number(visitStats30d?.totalVisits || 0);
+        const completedVisits = Number(visitStats30d?.completedVisits || 0);
+        const visitsWithOrders = Number(visitStats30d?.visitsWithOrders || 0);
+        const newCustomers = Number(customerStats?.newCustomers || 0);
+
+        const conversionRate = totalVisits > 0 ? (visitsWithOrders / totalVisits) * 100 : 0;
+        const visitCompletionRate = totalVisits > 0 ? (completedVisits / totalVisits) * 100 : 0;
+
+        const routeVisits = await db
+            .select({
+                visitId: schema.salesVisits.id,
+                customerId: schema.customers.id,
+                customerName: schema.customers.name,
+                customerAddress: schema.customers.address,
+                latitude: schema.customers.latitude,
+                longitude: schema.customers.longitude,
+                plannedTime: schema.salesVisits.plannedTime,
+                visitType: schema.salesVisits.visitType,
+            })
+            .from(schema.salesVisits)
+            .innerJoin(schema.customers, eq(schema.salesVisits.customerId, schema.customers.id))
+            .where(and(
+                eq(schema.salesVisits.tenantId, user.tenantId),
+                eq(schema.salesVisits.plannedDate, todayStr),
+                eq(schema.salesVisits.status, 'planned'),
+                eq(schema.salesVisits.salesRepId, user.id)
+            ));
+
+        const visitsWithCoords = routeVisits
+            .filter(v => v.latitude && v.longitude)
+            .map(visit => ({
+                visitId: visit.visitId,
+                customerId: visit.customerId,
+                customerName: visit.customerName,
+                customerAddress: visit.customerAddress,
+                latitude: Number(visit.latitude || 0),
+                longitude: Number(visit.longitude || 0),
+                plannedTime: visit.plannedTime,
+                visitType: visit.visitType,
+            }));
+
+        const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        };
+
+        const optimizedRoute: Array<typeof visitsWithCoords[0] & { sequence: number }> = [];
+        const unvisited = [...visitsWithCoords];
+        if (unvisited.length > 0) {
+            let current = unvisited.shift()!;
+            optimizedRoute.push({ ...current, sequence: 1 });
+
+            while (unvisited.length > 0) {
+                let nearestIndex = 0;
+                let nearestDistance = Infinity;
+
+                for (let i = 0; i < unvisited.length; i++) {
+                    const distance = haversineDistance(
+                        current.latitude,
+                        current.longitude,
+                        unvisited[i].latitude,
+                        unvisited[i].longitude
+                    );
+                    if (distance < nearestDistance) {
+                        nearestDistance = distance;
+                        nearestIndex = i;
+                    }
+                }
+
+                current = unvisited.splice(nearestIndex, 1)[0];
+                optimizedRoute.push({ ...current, sequence: optimizedRoute.length + 1 });
+            }
+        }
+
+        let totalDistance = 0;
+        for (let i = 0; i < optimizedRoute.length - 1; i++) {
+            totalDistance += haversineDistance(
+                optimizedRoute[i].latitude,
+                optimizedRoute[i].longitude,
+                optimizedRoute[i + 1].latitude,
+                optimizedRoute[i + 1].longitude
+            );
+        }
+
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const gamificationConditions: any[] = [
+            eq(schema.orders.tenantId, user.tenantId),
+            eq(schema.orders.status, 'delivered'),
+            gte(schema.orders.createdAt, thirtyDaysAgo)
+        ];
+        gamificationConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
+
+        const gamificationDailySales = await db
+            .select({
+                date: sql<string>`DATE(${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(...gamificationConditions))
+            .groupBy(sql`DATE(${schema.orders.createdAt})`)
+            .orderBy(desc(sql`DATE(${schema.orders.createdAt})`));
+
+        let currentStreak = 0;
+        const salesDates = new Set(gamificationDailySales.map(d => d.date));
+        for (let i = 0; i < 365; i++) {
+            const checkDate = new Date();
+            checkDate.setDate(checkDate.getDate() - i);
+            const checkDateStr = checkDate.toISOString().split('T')[0];
+            if (salesDates.has(checkDateStr)) {
+                currentStreak++;
+            } else {
+                break;
+            }
+        }
+
+        const [totalSales] = await db
+            .select({
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+                orderCount: sql<number>`count(*)`,
+            })
+            .from(schema.orders)
+            .where(and(...gamificationConditions));
+
+        const totalSalesValue = Number(totalSales?.total || 0);
+        const totalOrdersValue = Number(totalSales?.orderCount || 0);
+
+        const achievements = [] as Array<{ id: string; name: string; description: string; icon: string }>;
+        if (currentStreak >= 7) achievements.push({ id: 'streak_7', name: 'Week Warrior', description: '7 day sales streak', icon: '🔥' });
+        if (currentStreak >= 30) achievements.push({ id: 'streak_30', name: 'Month Master', description: '30 day sales streak', icon: '⭐' });
+        if (totalSalesValue >= 10000000) achievements.push({ id: 'sales_10m', name: 'Millionaire', description: '10M in sales', icon: '💰' });
+        if (totalOrdersValue >= 100) achievements.push({ id: 'orders_100', name: 'Centurion', description: '100 orders', icon: '🎯' });
+        if (totalOrdersValue >= 500) achievements.push({ id: 'orders_500', name: 'Sales Legend', description: '500 orders', icon: '👑' });
+
+        const [bestDay] = await db
+            .select({
+                date: sql<string>`DATE(${schema.orders.createdAt})`,
+                total: sql<number>`coalesce(sum(${schema.orders.totalAmount}), 0)`,
+            })
+            .from(schema.orders)
+            .where(and(...gamificationConditions))
+            .groupBy(sql`DATE(${schema.orders.createdAt})`)
+            .orderBy(desc(sql`sum(${schema.orders.totalAmount})`))
+            .limit(1);
+
+        const [tenant] = await db
+            .select({
+                timezone: schema.tenants.timezone,
+                city: schema.tenants.city,
+                country: schema.tenants.country,
+                openWeatherApiKey: schema.tenants.openWeatherApiKey,
+            })
+            .from(schema.tenants)
+            .where(eq(schema.tenants.id, user.tenantId))
+            .limit(1);
+
+        const city = tenant?.city || 'Tashkent';
+        const country = tenant?.country || 'UZ';
+        let weatherData = {
+            city,
+            temperature: 22,
+            condition: 'Clear',
+            description: 'clear sky',
+            icon: '01d',
+            humidity: 65,
+            windSpeed: 5,
+            feelsLike: 24,
+            note: 'Mock data - configure OpenWeather API key in Business Settings for real weather',
+        };
+
+        try {
+            const apiKey = tenant?.openWeatherApiKey || process.env.OPENWEATHER_API_KEY;
+            if (apiKey) {
+                const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=${city},${country}&appid=${apiKey}&units=metric`;
+                const response = await fetch(weatherUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    weatherData = {
+                        city: data.name,
+                        temperature: Math.round(data.main.temp),
+                        condition: data.weather[0].main,
+                        description: data.weather[0].description,
+                        icon: data.weather[0].icon,
+                        humidity: data.main.humidity,
+                        windSpeed: data.wind?.speed || 0,
+                        feelsLike: Math.round(data.main.feels_like),
+                        note: 'Live weather data',
+                    };
+                }
+            }
+        } catch {
+            // fall back to mock
+        }
+
+        const followUps = await visitsService.getFollowUpSummary(user.tenantId, user.id, user.role);
+
+        return {
+            success: true,
+            data: {
+                stats: {
+                    todaysSales: todaySalesValue,
+                    pendingOrders: Number(pendingOrders?.count || 0),
+                    customerCount: Number(customerCount?.count || 0),
+                    visits: {
+                        total: Number(visitStats?.total || 0),
+                        completed: Number(visitStats?.completed || 0),
+                        inProgress: Number(visitStats?.inProgress || 0),
+                    },
+                    weekOverWeek: {
+                        thisWeek: todaySalesValue,
+                        lastWeek: lastWeekSalesValue,
+                        change: weekOverWeekChange,
+                        changeAmount: todaySalesValue - lastWeekSalesValue,
+                    },
+                    topCustomersWithDebt: topCustomersWithDebt.map(c => ({
+                        id: c.id,
+                        name: c.name,
+                        debtBalance: Number(c.debtBalance || 0),
+                        phone: c.phone,
+                        address: c.address,
+                    })),
+                    debtSummary: {
+                        totalDebt: Number(debtSummary?.totalDebt || 0),
+                        customerCount: Number(debtSummary?.customerCount || 0),
+                    },
+                },
+                goals: {
+                    daily: goalsMap.daily || 0,
+                    weekly: goalsMap.weekly || 0,
+                    monthly: goalsMap.monthly || 0,
+                },
+                salesTrends: dailySales.map((d: { date: string; total: number; orderCount: number }) => ({
+                    date: d.date,
+                    sales: Number(d.total),
+                    orders: Number(d.orderCount),
                 })),
+                timeInsights: {
+                    bestHours: hourlySales.slice(0, 5).map(h => ({
+                        hour: Number(h.hour),
+                        sales: Number(h.total),
+                        orders: Number(h.orderCount),
+                    })),
+                    bestDays: dailyInsightSales.map(d => ({
+                        dayOfWeek: Number(d.dayOfWeek),
+                        dayName: d.dayName.trim(),
+                        sales: Number(d.total),
+                        orders: Number(d.orderCount),
+                    })),
+                },
+                performanceMetrics: {
+                    totalRevenue,
+                    totalOrders,
+                    avgOrderValue,
+                    conversionRate: Number(conversionRate.toFixed(2)),
+                    visitCompletionRate: Number(visitCompletionRate.toFixed(2)),
+                    newCustomers,
+                    totalVisits,
+                    completedVisits,
+                    visitsWithOrders,
+                },
+                routeOptimization: {
+                    visits: optimizedRoute,
+                    totalVisits: optimizedRoute.length,
+                    estimatedDistance: Number(totalDistance.toFixed(2)),
+                    estimatedTime: Math.round(totalDistance * 2),
+                },
+                gamification: {
+                    currentStreak,
+                    totalSales: totalSalesValue,
+                    totalOrders: totalOrdersValue,
+                    achievements,
+                    bestDay: bestDay ? { date: bestDay.date, sales: Number(bestDay.total) } : null,
+                },
+                weather: weatherData,
+                followUps,
             }
         };
     });
@@ -272,6 +705,11 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
 
         // Get goals from tenant settings
         const goals = await db
@@ -375,6 +813,11 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
         const period = request.query.period || '7d';
         const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
 
@@ -394,9 +837,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.orders.status, 'delivered'),
             gte(schema.orders.createdAt, startDate)
         ];
-        if (user.role === 'sales_rep') {
-            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
-        }
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
 
         const dailySales = await db
             .select({
@@ -411,7 +852,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
 
         return {
             success: true,
-            data: dailySales.map(d => ({
+            data: dailySales.map((d: { date: string; total: number; orderCount: number }) => ({
                 date: d.date,
                 sales: Number(d.total),
                 orders: Number(d.orderCount),
@@ -434,9 +875,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.orders.status, 'delivered'),
             gte(schema.orders.createdAt, startDate)
         ];
-        if (user.role === 'sales_rep') {
-            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
-        }
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
 
         const productPerformance = await db
             .select({
@@ -473,6 +912,11 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
         const days = 30;
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
@@ -482,9 +926,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.orders.status, 'delivered'),
             gte(schema.orders.createdAt, startDate)
         ];
-        if (user.role === 'sales_rep') {
-            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
-        }
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
 
         const hourlySales = await db
             .select({
@@ -532,6 +974,11 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
         const days = 30;
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
@@ -541,9 +988,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.orders.status, 'delivered'),
             gte(schema.orders.createdAt, startDate)
         ];
-        if (user.role === 'sales_rep') {
-            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
-        }
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
 
         const [orderStats] = await db
             .select({
@@ -558,9 +1003,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.salesVisits.tenantId, user.tenantId),
             gte(schema.salesVisits.plannedDate, startDate.toISOString().split('T')[0])
         ];
-        if (user.role === 'sales_rep') {
-            visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
-        }
+        visitConditions.push(eq(schema.salesVisits.salesRepId, user.id));
 
         const [visitStats] = await db
             .select({
@@ -572,12 +1015,9 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             .where(and(...visitConditions));
 
         const customerConditions: any[] = [
-            eq(schema.customers.tenantId, user.tenantId),
+            buildSalesCustomerScope(user.tenantId, user.id),
             gte(schema.customers.createdAt, startDate)
         ];
-        if (user.role === 'sales_rep') {
-            customerConditions.push(eq(schema.customers.createdByUserId, user.id));
-        }
 
         const [customerStats] = await db
             .select({
@@ -618,10 +1058,15 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
-        const today = new Date().toISOString().split('T')[0];
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
+        const { todayStr } = await getTenantDayRange(user.tenantId);
         const visitConditions: any[] = [
             eq(schema.salesVisits.tenantId, user.tenantId),
-            eq(schema.salesVisits.plannedDate, today),
+            eq(schema.salesVisits.plannedDate, todayStr),
             eq(schema.salesVisits.status, 'planned')
         ];
         if (user.role === 'sales_rep') {
@@ -722,6 +1167,11 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
         const now = new Date();
         const thirtyDaysAgo = new Date(now);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -731,9 +1181,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.orders.status, 'delivered'),
             gte(schema.orders.createdAt, thirtyDaysAgo)
         ];
-        if (user.role === 'sales_rep') {
-            orderConditions.push(eq(schema.orders.createdByUserId, user.id));
-        }
+        orderConditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
 
         const dailySales = await db
             .select({
@@ -810,6 +1258,11 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
+
+        if (user.role !== 'sales_rep') {
+            reply.code(403);
+            return { success: false, error: { code: 'FORBIDDEN', message: 'Sales dashboard is restricted to sales reps' } };
+        }
 
         const [tenant] = await db
             .select({ 
@@ -906,7 +1359,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         if (endDate) conditions.push(sql`${schema.orders.createdAt} <= ${new Date(endDate).toISOString()}`);
 
         if (user.role === 'sales_rep') {
-            conditions.push(eq(schema.orders.createdByUserId, user.id));
+            conditions.push(buildSalesCustomerAssignmentCondition(schema.orders.customerId, user.tenantId, user.id));
         } else if (user.role === 'driver') {
             conditions.push(eq(schema.orders.driverId, user.id));
         }
@@ -996,7 +1449,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                     tierId: schema.customers.tierId,
                     debtBalance: schema.customers.debtBalance,
                     creditBalance: schema.customers.creditBalance,
-                    createdByUserId: schema.customers.createdByUserId,
+                    assignedSalesRepId: schema.customers.assignedSalesRepId,
                 })
                 .from(schema.customers)
                 .where(eq(schema.customers.id, orderData.customerId))
@@ -1007,8 +1460,8 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             }
 
             // 2. Check ownership
-            if (user.role === 'sales_rep' && customer.createdByUserId !== user.id) {
-                return { error: { code: 'FORBIDDEN', message: 'You can only create orders for customers you created', status: 403 } };
+            if (user.role === 'sales_rep' && customer.assignedSalesRepId !== user.id) {
+                return { error: { code: 'FORBIDDEN', message: 'You can only create orders for your assigned customers', status: 403 } };
             }
 
             // 3. Validate credit/tier limits
@@ -1323,8 +1776,15 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // Role-based access control: sales reps and drivers can only access their own orders
-        if (user.role === 'sales_rep' && order.createdByUserId !== user.id && order.salesRepId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only view your own orders' } });
+        if (user.role === 'sales_rep') {
+            const [customer] = await db
+                .select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
+                .from(schema.customers)
+                .where(eq(schema.customers.id, order.customerId))
+                .limit(1);
+            if (!customer || customer.assignedSalesRepId !== user.id) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only view orders for your assigned customers' } });
+            }
         }
 
         if (user.role === 'driver' && order.driverId !== user.id) {
@@ -1587,8 +2047,15 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
         }
 
-        if (user.role === 'sales_rep' && order.createdByUserId !== user.id) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only cancel your own orders' } });
+        if (user.role === 'sales_rep') {
+            const [customer] = await db
+                .select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
+                .from(schema.customers)
+                .where(eq(schema.customers.id, order.customerId))
+                .limit(1);
+            if (!customer || customer.assignedSalesRepId !== user.id) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only cancel orders for your assigned customers' } });
+            }
         }
 
         if (!order.status || !['pending', 'confirmed'].includes(order.status)) {
