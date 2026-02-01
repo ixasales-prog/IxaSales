@@ -36,8 +36,14 @@ const AdminTerritories: Component = () => {
     const canManage = () => ['tenant_admin', 'super_admin'].includes(currentUser()?.role);
 
     const [territoryTree, { refetch }] = createResource(async () => {
-        const response = await api.get<Territory[]>('/customers/territories/tree');
-        return response || [];
+        try {
+            const response = await api.get<Territory[]>('/customers/territories/tree');
+            return response || [];
+        } catch (err: any) {
+            console.error('Failed to load territories:', err);
+            toast.error(err?.message || 'Failed to load territories');
+            return [];
+        }
     });
 
     const allFlatTerritories = () => flattenTerritories(territoryTree() || []);
@@ -217,15 +223,30 @@ const AdminTerritories: Component = () => {
                         <p>Loading territories...</p>
                     </div>
                 }>
-                    <Show when={(filteredTerritories() || []).length > 0} fallback={
-                        <div class="p-12 flex flex-col items-center justify-center text-slate-500">
-                            <FolderTree class="w-16 h-16 mb-4 opacity-20" />
-                            <p class="text-lg font-medium text-slate-400">No territories found</p>
-                            <p class="text-sm">Create a new territory to get started.</p>
-                        </div>
+                    <Show when={territoryTree.error} fallback={
+                        <Show when={(filteredTerritories() || []).length > 0} fallback={
+                            <div class="p-12 flex flex-col items-center justify-center text-slate-500">
+                                <FolderTree class="w-16 h-16 mb-4 opacity-20" />
+                                <p class="text-lg font-medium text-slate-400">No territories found</p>
+                                <p class="text-sm">Create a new territory to get started.</p>
+                            </div>
+                        }>
+                            <div class="divide-y divide-slate-800">
+                                <For each={filteredTerritories()}>{(territory) => renderTerritory(territory, 0)}</For>
+                            </div>
+                        </Show>
                     }>
-                        <div class="divide-y divide-slate-800">
-                            <For each={filteredTerritories()}>{(territory) => renderTerritory(territory, 0)}</For>
+                        <div class="p-12 flex flex-col items-center justify-center text-slate-500">
+                            <FolderTree class="w-16 h-16 mb-4 opacity-20 text-red-400" />
+                            <p class="text-lg font-medium text-red-400">Failed to load territories</p>
+                            <p class="text-sm">{(territoryTree.error as any)?.message || 'An error occurred while loading territories.'}</p>
+                            <button
+                                onClick={() => refetch()}
+                                class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex items-center gap-2"
+                            >
+                                <RefreshCw class="w-4 h-4" />
+                                Retry
+                            </button>
                         </div>
                     </Show>
                 </Show>
