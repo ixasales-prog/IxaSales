@@ -13,81 +13,7 @@ import { customerPortalLogger as logger } from '../../lib/logger';
 import { createErrorResponse, createSuccessResponse } from '../../lib/error-codes';
 import { MAX_PENDING_ORDERS, type OrderItemInput } from './types';
 import { requireCustomerAuth } from './middleware';
-
-// ============================================================================
-// ORDER NUMBER GENERATION
-// ============================================================================
-
-async function generateOrderNumber(
-    tx: any,
-    tenantId: string
-): Promise<string> {
-    const [tenant] = await tx
-        .select({
-            orderNumberPrefix: schema.tenants.orderNumberPrefix,
-            timezone: schema.tenants.timezone,
-        })
-        .from(schema.tenants)
-        .where(eq(schema.tenants.id, tenantId))
-        .limit(1);
-
-    const prefix = tenant?.orderNumberPrefix || '';
-    const timezone = tenant?.timezone || 'Asia/Tashkent';
-    const now = new Date();
-
-    // Format time
-    let timeStr: string;
-    try {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: timezone,
-        });
-        const parts = formatter.formatToParts(now);
-        const hour = parts.find(p => p.type === 'hour')?.value || '00';
-        const minute = parts.find(p => p.type === 'minute')?.value || '00';
-        timeStr = `${hour}${minute}`;
-    } catch {
-        timeStr = now.toISOString().slice(11, 16).replace(':', '');
-    }
-
-    // Get start of day
-    let startOfDay: Date;
-    try {
-        const dayFormatter = new Intl.DateTimeFormat('en-CA', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            timeZone: timezone,
-        });
-        const localDateStr = dayFormatter.format(now);
-        startOfDay = new Date(`${localDateStr}T00:00:00`);
-        const offsetFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: timezone,
-            timeZoneName: 'shortOffset',
-        });
-        const offsetMatch = offsetFormatter.format(now).match(/GMT([+-]\d+)/);
-        if (offsetMatch) {
-            const offsetHours = parseInt(offsetMatch[1]);
-            startOfDay = new Date(startOfDay.getTime() - offsetHours * 60 * 60 * 1000);
-        }
-    } catch {
-        startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-    }
-
-    const [{ count: orderCount }] = await tx
-        .select({ count: sql<number>`count(*)` })
-        .from(schema.orders)
-        .where(and(
-            eq(schema.orders.tenantId, tenantId),
-            sql`${schema.orders.createdAt} >= ${startOfDay.toISOString()}`
-        ));
-
-    const sequence = (Number(orderCount) + 1).toString().padStart(2, '0');
-    return `${prefix}${sequence}${timeStr}`;
-}
+import { ordersService } from '../../services/orders.service';
 
 // ============================================================================
 // SCHEMAS
@@ -217,7 +143,8 @@ export const reorderRoutes: FastifyPluginAsync = async (fastify) => {
                 };
             }
 
-            const orderNumber = await generateOrderNumber(tx, customerAuth.tenantId);
+            // Generate order number using shared service
+            const orderNumber = await ordersService.generateOrderNumber(tx, customerAuth.tenantId);
 
             const [newOrder] = await tx
                 .insert(schema.orders)
@@ -236,6 +163,7 @@ export const reorderRoutes: FastifyPluginAsync = async (fastify) => {
                 })
                 .returning();
 
+            // Insert order items
             for (const item of newItems) {
                 await tx.insert(schema.orderItems).values({
                     orderId: newOrder.id,
@@ -245,38 +173,22 @@ export const reorderRoutes: FastifyPluginAsync = async (fastify) => {
                     unitPrice: String(item.unitPrice),
                     lineTotal: String(item.lineTotal),
                 });
-
-                await tx
-                    .update(schema.products)
-                    .set({
-                        reservedQuantity: sql`COALESCE(${schema.products.reservedQuantity}, 0) + ${item.qty}`,
-                    })
-                    .where(eq(schema.products.id, item.productId));
             }
 
-            // Update customer debt
-            const [customer] = await tx
-                .select({ debtBalance: schema.customers.debtBalance })
-                .from(schema.customers)
-                .where(eq(schema.customers.id, customerAuth.customerId))
-                .limit(1);
+            // Reserve stock using shared service
+            await ordersService.reserveStock(tx, newItems.map(item => ({
+                productId: item.productId,
+                productName: item.productName,
+                unitPrice: item.unitPrice,
+                quantity: item.qty,
+                lineTotal: item.lineTotal,
+            })));
 
-            if (customer) {
-                const currentDebt = Number(customer.debtBalance || 0);
-                await tx
-                    .update(schema.customers)
-                    .set({
-                        debtBalance: String(currentDebt + totalAmount),
-                        updatedAt: new Date()
-                    })
-                    .where(eq(schema.customers.id, customerAuth.customerId));
-            }
+            // Update customer debt using shared service
+            await ordersService.updateCustomerDebt(tx, customerAuth.customerId, totalAmount);
 
-            await tx.insert(schema.orderStatusHistory).values({
-                orderId: newOrder.id,
-                toStatus: 'pending',
-                notes: `Reorder from ${originalOrder.orderNumber}`,
-            });
+            // Log status change using shared service
+            await ordersService.logStatusChange(tx, newOrder.id, 'pending', undefined, `Reorder from ${originalOrder.orderNumber}`);
 
             logger.info('Reorder created via customer portal', {
                 orderId: newOrder.id,
