@@ -1,0 +1,222 @@
+{
+  "products": [
+    {
+      "id": "514da308-0734-40ed-bb9e-61560581a70a",
+      "name": "Huggies 5kg",
+      "sku": "Hug5",
+      "barcode": null,
+      "description": null,
+      "price": "160.00",
+      "costPrice": "155.00",
+      "stockQuantity": 2000,
+      "reorderPoint": 10,
+      "unit": "piece",
+      "isActive": true,
+      "subcategoryId": "d59a90c9-36a0-450c-913e-5cf27a18df78",
+      "brandId": "1fb96e96-196d-4d59-8895-a63c3d99f505",
+      "createdAt": "2026-02-02T19:39:02.566Z"
+    },
+    {
+      "id": "3aaf6155-b1a0-4515-8edb-2a624cd8c546",
+      "name": "Huggies 4kg",
+      "sku": "Hug4",
+      "barcode": null,
+      "description": null,
+      "price": "150.00",
+      "costPrice": "145.00",
+      "stockQuantity": 2000,
+      "reorderPoint": 10,
+      "unit": "piece",
+      "isActive": true,
+      "subcategoryId": "d59a90c9-36a0-450c-913e-5cf27a18df78",
+      "brandId": "1fb96e96-196d-4d59-8895-a63c3d99f505",
+      "createdAt": "2026-02-02T19:37:57.426Z"
+    },
+    {
+      "id": "2f2460dd-99e1-4420-92c5-1422c6cd4394",
+      "name": "Sok 1litr",
+      "sku": "Sok1l",
+      "barcode": null,
+      "description": null,
+      "price": "50.00",
+      "costPrice": "45.00",
+      "stockQuantity": 1000,
+      "reorderPoint": 10,
+      "unit": "piece",
+      "isActive": true,
+      "subcategoryId": "c85d8808-d455-4e50-809f-383256fc4452",
+      "brandId": "7f70940f-fa10-4a2d-a2cf-5ec5250701ab",
+      "createdAt": "2026-02-02T19:41:50.473Z"
+    },
+    {
+      "id": "387c2d18-abe2-4b64-882b-5d4ae1f1ccff",
+      "name": "SHampun 1,5l",
+      "sku": "SHam15l",
+      "barcode": null,
+      "description": null,
+      "price": "110.00",
+      "costPrice": "105.00",
+      "stockQuantity": 1000,
+      "reorderPoint": 10,
+      "unit": "piece",
+      "isActive": true,
+      "subcategoryId": "d9c5d6ce-ea1b-45a0-8e85-3743adcf7111",
+      "brandId": "05b7b685-261b-4784-8d74-298e6ad17acd",
+      "createdAt": "2026-02-02T19:40:56.493Z"
+    },
+    {
+      "id": "d456775f-aa8e-43ae-8b83-9bb4a86a09b0",
+      "name": "Sok 2l",
+      "sku": "Sok2l",
+      "barcode": null,
+      "description": null,
+      "price": "60.00",
+      "costPrice": "55.00",
+      "stockQuantity": 1000,
+      "reorderPoint": 10,
+      "unit": "piece",
+      "isActive": true,
+      "subcategoryId": "c85d8808-d455-4e50-809f-383256fc4452",
+      "brandId": "7f70940f-fa10-4a2d-a2cf-5ec5250701ab",
+      "createdAt": "2026-02-02T19:43:40.812Z"
+    },
+    {
+      "id": "2d346abf-0a68-4511-bddd-d27c41006682",
+      "name": "Shampun 1litr",
+      "sku": "Sham1l",
+      "barcode": null,
+      "description": null,
+      "price": "100.00",
+      "costPrice": "95.00",
+      "stockQuantity": 1000,
+      "reorderPoint": 10,
+      "unit": "piece",
+      "isActive": true,
+      "subcategoryId": "d9c5d6ce-ea1b-45a0-8e85-3743adcf7111",
+      "brandId": "05b7b685-261b-4784-8d74-298e6ad17acd",
+      "createdAt": "2026-02-02T19:40:03.572Z"
+    }
+  ],
+  "customers": [
+    {
+      "id": "38e5f5c4-3240-42fb-b669-b050c062e1de",
+      "name": "Shahriyor aka",
+      "phone": "1111",
+      "email": null,
+      "address": "10 yo'li",
+      "waymark": "Masjid ro'parasida",
+      "creditBalance": "0.00",
+      "debtBalance": "0.00",
+      "tierId": null,
+      "territoryId": "cecea748-b6e5-4b1d-abc0-7474fa7e2a3a",
+      "isActive": true,
+      "createdAt": "2026-01-31T11:44:57.102Z"
+    },
+    {
+      "id": "1d8ea4b4-0dc3-4b46-8ae5-d8dcd0c50875",
+      "name": "Ravshan aka",
+      "phone": "1212",
+      "email": null,
+      "address": "16 yo'li",
+      "waymark": "16 market qarshisida",
+      "creditBalance": "0.00",
+      "debtBalance": "580.00",
+      "tierId": null,
+      "territoryId": "b0b18b95-ff07-453e-a971-020a64b0c474",
+      "isActive": true,
+      "createdAt": "2026-01-31T11:45:25.563Z"
+    },
+    {
+      "id": "39b78f14-5375-4d97-977b-a2c1c67778b0",
+      "name": "Ilhom",
+      "phone": "+998976309599",
+      "email": null,
+      "address": "1 ni yo'li",
+      "waymark": "5555 ofis",
+      "creditBalance": "0.00",
+      "debtBalance": "0.00",
+      "tierId": null,
+      "territoryId": "74326f83-3ab2-4a22-abd6-5b2c4e251d6c",
+      "isActive": true,
+      "createdAt": "2026-02-02T19:52:14.218Z"
+    }
+  ],
+  "orders": [
+    {
+      "id": "5c6078cf-290a-48b5-87c9-e8372aab86e2",
+      "orderNumber": "ORD-011950",
+      "customerId": "1d8ea4b4-0dc3-4b46-8ae5-d8dcd0c50875",
+      "totalAmount": "580.00",
+      "discountAmount": "0.00",
+      "paidAmount": "0.00",
+      "status": "pending",
+      "paymentStatus": "unpaid",
+      "notes": null,
+      "deliveryNotes": null,
+      "createdAt": "2026-02-02T19:50:45.127Z"
+    }
+  ],
+  "payments": [],
+  "inventory": [
+    {
+      "productId": "514da308-0734-40ed-bb9e-61560581a70a",
+      "productName": "Huggies 5kg",
+      "sku": "Hug5",
+      "stockQuantity": 2000,
+      "reservedQuantity": 0,
+      "reorderPoint": 10
+    },
+    {
+      "productId": "3aaf6155-b1a0-4515-8edb-2a624cd8c546",
+      "productName": "Huggies 4kg",
+      "sku": "Hug4",
+      "stockQuantity": 2000,
+      "reservedQuantity": 0,
+      "reorderPoint": 10
+    },
+    {
+      "productId": "2f2460dd-99e1-4420-92c5-1422c6cd4394",
+      "productName": "Sok 1litr",
+      "sku": "Sok1l",
+      "stockQuantity": 1000,
+      "reservedQuantity": 0,
+      "reorderPoint": 10
+    },
+    {
+      "productId": "387c2d18-abe2-4b64-882b-5d4ae1f1ccff",
+      "productName": "SHampun 1,5l",
+      "sku": "SHam15l",
+      "stockQuantity": 1000,
+      "reservedQuantity": 0,
+      "reorderPoint": 10
+    },
+    {
+      "productId": "d456775f-aa8e-43ae-8b83-9bb4a86a09b0",
+      "productName": "Sok 2l",
+      "sku": "Sok2l",
+      "stockQuantity": 1000,
+      "reservedQuantity": 3,
+      "reorderPoint": 10
+    },
+    {
+      "productId": "2d346abf-0a68-4511-bddd-d27c41006682",
+      "productName": "Shampun 1litr",
+      "sku": "Sham1l",
+      "stockQuantity": 1000,
+      "reservedQuantity": 4,
+      "reorderPoint": 10
+    }
+  ],
+  "metadata": {
+    "exportedAt": "2026-02-04T04:55:02.976Z",
+    "tenantId": "a38eb1d9-17f9-42d8-b912-c04bd4a7b76a",
+    "options": {
+      "format": "json",
+      "includeProducts": true,
+      "includeCustomers": true,
+      "includeOrders": true,
+      "includePayments": true,
+      "includeInventory": true
+    }
+  }
+}

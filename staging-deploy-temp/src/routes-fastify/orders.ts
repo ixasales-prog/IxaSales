@@ -4,6 +4,7 @@ import { db, schema } from '../db';
 import { buildSalesCustomerAssignmentCondition, buildSalesCustomerScope } from '../lib/sales-scope';
 import { getTenantDayRange } from '../lib/tenant-time';
 import { VisitsService } from '../services/visits.service';
+import { ordersService } from '../services/orders.service';
 import { eq, and, sql, desc, inArray, gte, lt } from 'drizzle-orm';
 
 // Schemas
@@ -166,8 +167,8 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
 
         const todaySalesValue = Number(todaySales?.total || 0);
         const lastWeekSalesValue = Number(lastWeekSales?.total || 0);
-        const weekOverWeekChange = lastWeekSalesValue > 0 
-            ? ((todaySalesValue - lastWeekSalesValue) / lastWeekSalesValue) * 100 
+        const weekOverWeekChange = lastWeekSalesValue > 0
+            ? ((todaySalesValue - lastWeekSalesValue) / lastWeekSalesValue) * 100
             : 0;
 
         return {
@@ -1114,7 +1115,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
 
         const optimizedRoute: Array<typeof visitsWithCoords[0] & { sequence: number }> = [];
         const unvisited = [...visitsWithCoords];
-        
+
         if (unvisited.length > 0) {
             let current = unvisited.shift()!;
             optimizedRoute.push({ ...current, sequence: 1 });
@@ -1196,12 +1197,12 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         let currentStreak = 0;
         const today = new Date().toISOString().split('T')[0];
         const salesDates = new Set(dailySales.map(d => d.date));
-        
+
         for (let i = 0; i < 365; i++) {
             const checkDate = new Date();
             checkDate.setDate(checkDate.getDate() - i);
             const checkDateStr = checkDate.toISOString().split('T')[0];
-            
+
             if (salesDates.has(checkDateStr)) {
                 currentStreak++;
             } else {
@@ -1265,7 +1266,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         const [tenant] = await db
-            .select({ 
+            .select({
                 timezone: schema.tenants.timezone,
                 city: schema.tenants.city,
                 country: schema.tenants.country,
@@ -1307,7 +1308,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
 
         const conditions = ['Clear', 'Clouds', 'Rain', 'Sunny'];
         const randomCondition = conditions[Math.floor(Math.random() * conditions.length)];
-        
+
         return {
             success: true,
             data: {
@@ -1526,70 +1527,8 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                 }
             }
 
-            // Generate Order Number
-            const [tenant] = await tx
-                .select({
-                    orderNumberPrefix: schema.tenants.orderNumberPrefix,
-                    timezone: schema.tenants.timezone,
-                })
-                .from(schema.tenants)
-                .where(eq(schema.tenants.id, user.tenantId))
-                .limit(1);
-
-            const prefix = tenant?.orderNumberPrefix || '';
-            const timezone = tenant?.timezone || 'Asia/Tashkent';
-            const now = new Date();
-
-            let timeStr: string;
-            try {
-                const formatter = new Intl.DateTimeFormat('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                    timeZone: timezone,
-                });
-                const parts = formatter.formatToParts(now);
-                const hour = parts.find(p => p.type === 'hour')?.value || '00';
-                const minute = parts.find(p => p.type === 'minute')?.value || '00';
-                timeStr = `${hour}${minute}`;
-            } catch (e) {
-                timeStr = now.toISOString().slice(11, 16).replace(':', '');
-            }
-
-            let startOfDay: Date;
-            try {
-                const dayFormatter = new Intl.DateTimeFormat('en-CA', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    timeZone: timezone,
-                });
-                const localDateStr = dayFormatter.format(now);
-                startOfDay = new Date(`${localDateStr}T00:00:00`);
-                const offsetFormatter = new Intl.DateTimeFormat('en-US', {
-                    timeZone: timezone,
-                    timeZoneName: 'shortOffset',
-                });
-                const offsetMatch = offsetFormatter.format(now).match(/GMT([+-]\d+)/);
-                if (offsetMatch) {
-                    const offsetHours = parseInt(offsetMatch[1]);
-                    startOfDay = new Date(startOfDay.getTime() - offsetHours * 60 * 60 * 1000);
-                }
-            } catch (e) {
-                startOfDay = new Date(now);
-                startOfDay.setHours(0, 0, 0, 0);
-            }
-
-            const [{ count }] = await tx
-                .select({ count: sql<number>`count(*)` })
-                .from(schema.orders)
-                .where(and(
-                    eq(schema.orders.tenantId, user.tenantId),
-                    sql`${schema.orders.createdAt} >= ${startOfDay.toISOString()}`
-                ));
-
-            const sequence = (Number(count) + 1).toString().padStart(2, '0');
-            const orderNumber = `${prefix}${sequence}${timeStr}`;
+            // Generate Order Number using shared service
+            const orderNumber = await ordersService.generateOrderNumber(tx, user.tenantId);
 
             const [order] = await tx
                 .insert(schema.orders)
@@ -1610,6 +1549,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                 })
                 .returning();
 
+            // Insert order items
             if (items && items.length > 0) {
                 await tx.insert(schema.orderItems).values(
                     items.map((item) => ({
@@ -1623,31 +1563,21 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                     }))
                 );
 
-                for (const item of items) {
-                    await tx
-                        .update(schema.products)
-                        .set({
-                            reservedQuantity: sql`${schema.products.reservedQuantity} + ${item.qtyOrdered}`,
-                        })
-                        .where(eq(schema.products.id, item.productId));
-                }
+                // Reserve stock using shared service
+                await ordersService.reserveStock(tx, items.map(item => ({
+                    productId: item.productId,
+                    productName: '',
+                    unitPrice: item.unitPrice,
+                    quantity: item.qtyOrdered,
+                    lineTotal: item.lineTotal,
+                })));
             }
 
-            const currentDebt = Number(customer.debtBalance || 0);
-            await tx
-                .update(schema.customers)
-                .set({
-                    debtBalance: (currentDebt + orderData.totalAmount).toString(),
-                    updatedAt: new Date(),
-                })
-                .where(eq(schema.customers.id, orderData.customerId));
+            // Update customer debt using shared service
+            await ordersService.updateCustomerDebt(tx, orderData.customerId, orderData.totalAmount);
 
-            await tx.insert(schema.orderStatusHistory).values({
-                orderId: order.id,
-                toStatus: 'pending',
-                changedBy: user.id,
-                notes: 'Order created',
-            });
+            // Log status change using shared service
+            await ordersService.logStatusChange(tx, order.id, 'pending', user.id, 'Order created');
 
             return order;
         });

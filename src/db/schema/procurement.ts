@@ -51,6 +51,8 @@ export const purchaseOrderItems = pgTable('purchase_order_items', {
     unitPrice: decimal('unit_price', { precision: 15, scale: 2 }).notNull(),
     taxAmount: decimal('tax_amount', { precision: 15, scale: 2 }).default('0'),
     lineTotal: decimal('line_total', { precision: 15, scale: 2 }).notNull(),
+    lastScannedAt: timestamp('last_scanned_at'),
+    scannedByUserId: uuid('scanned_by_user_id').references(() => users.id),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });

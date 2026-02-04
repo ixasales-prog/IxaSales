@@ -16,7 +16,12 @@ import {
 // Load environment variables
 config();
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:HelpMe11@localhost:5432/ixasales';
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('❌ DATABASE_URL environment variable is required');
+    console.error('💡 Example: DATABASE_URL=postgresql://user:password@localhost:5432/database');
+    process.exit(1);
+}
 const client = postgres(connectionString);
 const db = drizzle(client);
 

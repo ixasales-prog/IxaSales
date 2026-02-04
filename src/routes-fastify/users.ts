@@ -29,10 +29,10 @@ const UserIdParamsSchema = Type.Object({ id: Type.String() });
 const UpdateUserBodySchema = Type.Object({
     name: Type.Optional(Type.String({ minLength: 2 })),
     email: Type.Optional(Type.String({ format: 'email' })),
-    phone: Type.Optional(Type.String()),
+    phone: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     role: Type.Optional(Type.String()),
     isActive: Type.Optional(Type.Boolean()),
-    supervisorId: Type.Optional(Type.String()),
+    supervisorId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 const AssignTerritoriesBodySchema = Type.Object({ territoryIds: Type.Array(Type.String()) });
@@ -178,20 +178,20 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
                 .from(schema.users)
                 .where(eq(schema.users.id, body.supervisorId))
                 .limit(1);
-            
+
             if (!supervisor) {
                 return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Supervisor not found' } });
             }
-            
+
             if (supervisor.role !== 'supervisor') {
                 return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Assigned user is not a supervisor' } });
             }
-            
+
             // Ensure supervisor belongs to the same tenant
             if (user.role !== 'super_admin' && supervisor.tenantId !== targetTenantId) {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Supervisor does not belong to this tenant' } });
             }
-            
+
             // Prevent circular reference: a supervisor cannot be assigned to themselves
             if (body.supervisorId === user.id && user.role === 'supervisor') {
                 return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'A supervisor cannot assign themselves as their own supervisor' } });
@@ -248,7 +248,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
 
         const [targetUser] = await db.select({
             id: schema.users.id, name: schema.users.name, email: schema.users.email, role: schema.users.role,
-            phone: schema.users.phone, telegramChatId: schema.users.telegramChatId, isActive: schema.users.isActive,
+            phone: schema.users.phone, isActive: schema.users.isActive,
             lastLoginAt: schema.users.lastLoginAt, createdAt: schema.users.createdAt,
         }).from(schema.users).where(condition).limit(1);
 
@@ -269,42 +269,59 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
         }
 
-        // Validate supervisorId if provided
-        if (body.supervisorId) {
-            const [supervisor] = await db.select({ id: schema.users.id, role: schema.users.role, tenantId: schema.users.tenantId })
-                .from(schema.users)
-                .where(eq(schema.users.id, body.supervisorId))
-                .limit(1);
-            
-            if (!supervisor) {
-                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Supervisor not found' } });
+        try {
+            // Validate supervisorId if provided
+            if (body.supervisorId) {
+                const [supervisor] = await db.select({ id: schema.users.id, role: schema.users.role, tenantId: schema.users.tenantId })
+                    .from(schema.users)
+                    .where(eq(schema.users.id, body.supervisorId))
+                    .limit(1);
+
+                if (!supervisor) {
+                    return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Supervisor not found' } });
+                }
+
+                if (supervisor.role !== 'supervisor') {
+                    return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Assigned user is not a supervisor' } });
+                }
+
+                // Ensure supervisor belongs to the same tenant
+                const targetTenantId = user.role === 'super_admin' ? (await db.select({ tenantId: schema.users.tenantId }).from(schema.users).where(eq(schema.users.id, id)).limit(1))[0]?.tenantId : user.tenantId;
+                if (supervisor.tenantId !== targetTenantId) {
+                    return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Supervisor does not belong to this tenant' } });
+                }
+
+                // Prevent self-assignment as supervisor
+                if (body.supervisorId === id) {
+                    return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'A user cannot be their own supervisor' } });
+                }
             }
-            
-            if (supervisor.role !== 'supervisor') {
-                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Assigned user is not a supervisor' } });
+
+            const condition = user.role !== 'super_admin' && user.tenantId
+                ? and(eq(schema.users.id, id), eq(schema.users.tenantId, user.tenantId))
+                : eq(schema.users.id, id);
+            // Filter out undefined values and password field from the update body
+            const updateData: Record<string, any> = { updatedAt: new Date() };
+            if (body.name !== undefined) updateData.name = body.name;
+            if (body.email !== undefined) updateData.email = body.email;
+            if (body.phone !== undefined) updateData.phone = body.phone || null;
+            if (body.role !== undefined) updateData.role = body.role;
+            if (body.isActive !== undefined) updateData.isActive = body.isActive;
+            // Convert empty string to null for supervisorId (UUID field)
+            if (body.supervisorId !== undefined) updateData.supervisorId = body.supervisorId?.trim() || null;
+
+            const [updated] = await db.update(schema.users).set(updateData as any)
+                .where(condition).returning({ id: schema.users.id, name: schema.users.name, email: schema.users.email, role: schema.users.role, isActive: schema.users.isActive });
+
+            if (!updated) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return { success: true, data: updated };
+        } catch (error: any) {
+            console.error('Error updating user:', error);
+            if (error.code === '23505') {
+                return reply.code(409).send({ success: false, error: { code: 'CONFLICT', message: 'Email already exists' } });
             }
-            
-            // Ensure supervisor belongs to the same tenant
-            const targetTenantId = user.role === 'super_admin' ? (await db.select({ tenantId: schema.users.tenantId }).from(schema.users).where(eq(schema.users.id, id)).limit(1))[0]?.tenantId : user.tenantId;
-            if (supervisor.tenantId !== targetTenantId) {
-                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Supervisor does not belong to this tenant' } });
-            }
-            
-            // Prevent self-assignment as supervisor
-            if (body.supervisorId === id) {
-                return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'A user cannot be their own supervisor' } });
-            }
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error.message || 'Failed to update user' } });
         }
-
-        const condition = user.role !== 'super_admin' && user.tenantId
-            ? and(eq(schema.users.id, id), eq(schema.users.tenantId, user.tenantId))
-            : eq(schema.users.id, id);
-
-        const [updated] = await db.update(schema.users).set({ ...body, updatedAt: new Date() } as any)
-            .where(condition).returning({ id: schema.users.id, name: schema.users.name, email: schema.users.email, role: schema.users.role, isActive: schema.users.isActive });
-
-        if (!updated) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
-        return { success: true, data: updated };
     });
 
     // Get assigned territories for a user

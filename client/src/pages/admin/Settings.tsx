@@ -2,7 +2,7 @@ import { type Component, createResource, Show, For } from 'solid-js';
 import { A } from '@solidjs/router';
 import {
     Settings, Bell, MessageCircle, Users, Building2,
-    ChevronRight, Shield, Globe, CreditCard, DollarSign, Lock, MapPin
+    ChevronRight, Shield, Globe, CreditCard, DollarSign, Lock, MapPin, Database
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 
@@ -66,6 +66,13 @@ const AdminSettings: Component = () => {
                     href: '/admin/telegram',
                     color: 'purple',
                 },
+                {
+                    icon: MessageCircle,
+                    title: 'Link Your Telegram',
+                    description: 'Connect your personal Telegram to receive notifications',
+                    href: '/admin/telegram-link',
+                    color: 'blue',
+                },
             ]
         },
         {
@@ -107,6 +114,18 @@ const AdminSettings: Component = () => {
                 },
             ]
         },
+        {
+            title: 'Data',
+            items: [
+                {
+                    icon: Database,
+                    title: 'Data Export & Backup',
+                    description: 'Download your data or schedule automatic backups',
+                    href: '/admin/data-export',
+                    color: 'cyan',
+                },
+            ]
+        },
     ];
 
     const colorClasses: Record<string, { bg: string; text: string }> = {
@@ -118,6 +137,7 @@ const AdminSettings: Component = () => {
         red: { bg: 'bg-red-500/10', text: 'text-red-400' },
         pink: { bg: 'bg-pink-500/10', text: 'text-pink-400' },
         green: { bg: 'bg-green-500/10', text: 'text-green-400' },
+        cyan: { bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
     };
 
     return (

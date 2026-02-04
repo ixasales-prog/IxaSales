@@ -47,6 +47,8 @@ import WarehouseReceiving from './pages/warehouse/Receiving';
 import WarehouseTaskDetail from './pages/warehouse/TaskDetail';
 import WarehouseInventoryDetail from './pages/warehouse/InventoryDetail';
 import WarehouseReceivingDetail from './pages/warehouse/ReceivingDetail';
+import WarehouseBatchPicking from './pages/warehouse/BatchPicking';
+import WarehouseCreatePO from './pages/warehouse/CreatePurchaseOrder';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/Dashboard';
@@ -62,6 +64,7 @@ import AdminDeliveries from './pages/admin/Deliveries';
 import AdminNotificationSettings from './pages/admin/NotificationSettings';
 import AdminSettings from './pages/admin/Settings';
 import AdminTelegram from './pages/admin/Telegram';
+import AdminTelegramLink from './pages/admin/TelegramLink';
 import AdminCompanyProfile from './pages/admin/CompanyProfile';
 import AdminBusinessSettings from './pages/admin/BusinessSettings';
 import AdminPaymentSettings from './pages/admin/PaymentSettings';
@@ -75,6 +78,7 @@ import AdminReturns from './pages/admin/Returns';
 import AdminInventory from './pages/admin/Inventory';
 import AdminVehicles from './pages/admin/Vehicles';
 import AdminReports from './pages/admin/Reports';
+import AdminDataExport from './pages/admin/DataExport';
 import SuperAdminDashboard from './pages/super/Dashboard';
 import SuperAdminTenants from './pages/super/Tenants';
 import SuperAdminSettings from './pages/super/Settings';
@@ -280,10 +284,12 @@ const App: Component = () => {
           <Route path="/warehouse" component={WarehouseLayoutWrapper}>
             <Route path="/" component={WarehouseDashboard} />
             <Route path="/tasks" component={WarehouseTasks} />
+            <Route path="/tasks/batch" component={WarehouseBatchPicking} />
             <Route path="/tasks/:id" component={WarehouseTaskDetail} />
             <Route path="/inventory" component={WarehouseInventory} />
             <Route path="/inventory/:id" component={WarehouseInventoryDetail} />
             <Route path="/receiving" component={WarehouseReceiving} />
+            <Route path="/receiving/create" component={WarehouseCreatePO} />
             <Route path="/receiving/:id" component={WarehouseReceivingDetail} />
           </Route>
 
@@ -326,6 +332,7 @@ const App: Component = () => {
             <Route path="/territories" component={AdminTerritories} />
             <Route path="/settings" component={AdminSettings} />
             <Route path="/telegram" component={AdminTelegram} />
+            <Route path="/telegram-link" component={AdminTelegramLink} />
             <Route path="/notification-settings" component={AdminNotificationSettings} />
             <Route path="/company-profile" component={AdminCompanyProfile} />
             <Route path="/business-settings" component={AdminBusinessSettings} />
@@ -334,6 +341,7 @@ const App: Component = () => {
             <Route path="/gps-tracking" component={GPSTrackingSettings} />
             <Route path="/gps-tracking/map" component={UserLocationMapPage} />
             <Route path="/gps-tracking/history" component={UserLocationHistory} />
+            <Route path="/data-export" component={AdminDataExport} />
           </Route>
 
           <Route path="/" component={Login} />

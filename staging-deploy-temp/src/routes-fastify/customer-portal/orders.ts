@@ -9,236 +9,12 @@ import { FastifyPluginAsync } from 'fastify';
 import { Type } from '@sinclair/typebox';
 import { db } from '../../db';
 import * as schema from '../../db/schema';
-import { eq, and, desc, sql, or, gte, lte, isNull } from 'drizzle-orm';
+import { eq, and, desc, sql, or } from 'drizzle-orm';
 import { customerPortalLogger as logger } from '../../lib/logger';
 import { MAX_PENDING_ORDERS, type OrderItemInput } from './types';
 import { createErrorResponse, createSuccessResponse } from '../../lib/error-codes';
 import { requireCustomerAuth } from './middleware';
-
-// ============================================================================
-// AUTO-DISCOUNT CALCULATION HELPER
-// ============================================================================
-
-interface ApplicableDiscount {
-    id: string;
-    name: string;
-    type: string;
-    value: number;
-    amount: number;
-}
-
-async function findBestAutoDiscount(
-    tenantId: string,
-    customerId: string,
-    cartTotal: number,
-    itemsCount: number
-): Promise<ApplicableDiscount | null> {
-    const now = new Date();
-
-    // Get all active discounts for the tenant
-    const discounts = await db
-        .select()
-        .from(schema.discounts)
-        .where(and(
-            eq(schema.discounts.tenantId, tenantId),
-            eq(schema.discounts.isActive, true),
-            or(
-                isNull(schema.discounts.startsAt),
-                lte(schema.discounts.startsAt, now)
-            ),
-            or(
-                isNull(schema.discounts.endsAt),
-                gte(schema.discounts.endsAt, now)
-            )
-        ));
-
-    logger.info('Auto-discount search', {
-        tenantId,
-        customerId,
-        cartTotal,
-        itemsCount,
-        discountsFound: discounts.length,
-        discountNames: discounts.map(d => d.name)
-    });
-
-    if (discounts.length === 0) return null;
-
-    let bestDiscount: ApplicableDiscount | null = null;
-    let bestAmount = 0;
-
-    for (const discount of discounts) {
-        const minOrderAmount = discount.minOrderAmount ? Number(discount.minOrderAmount) : 0;
-
-        // Check if cart total meets minimum requirement
-        if (minOrderAmount > 0 && cartTotal < minOrderAmount) {
-            continue;
-        }
-
-        // Check if discount has customer scope restrictions
-        const scopes = await db
-            .select()
-            .from(schema.discountScopes)
-            .where(eq(schema.discountScopes.discountId, discount.id));
-
-        // If there are customer scopes, check if this customer is included
-        if (scopes.length > 0) {
-            const customerScopes = scopes.filter(s => s.scopeType === 'customer');
-            if (customerScopes.length > 0) {
-                const isCustomerIncluded = customerScopes.some(s => s.scopeId === customerId);
-                if (!isCustomerIncluded) {
-                    continue;
-                }
-            }
-        }
-
-        // Calculate discount amount
-        let discountAmount = 0;
-        const discountValue = Number(discount.value || 0);
-
-        switch (discount.type) {
-            case 'percentage':
-                discountAmount = (cartTotal * discountValue) / 100;
-                if (discount.maxDiscountAmount) {
-                    const maxDiscount = Number(discount.maxDiscountAmount);
-                    discountAmount = Math.min(discountAmount, maxDiscount);
-                }
-                break;
-
-            case 'fixed':
-                discountAmount = discountValue;
-                break;
-
-            case 'buy_x_get_y':
-                if (discount.minQty && discount.freeQty) {
-                    const sets = Math.floor(itemsCount / (discount.minQty + discount.freeQty));
-                    if (sets > 0) {
-                        const avgPrice = cartTotal / itemsCount;
-                        discountAmount = sets * discount.freeQty * avgPrice;
-                    }
-                }
-                break;
-
-            case 'volume':
-                const tiers = await db
-                    .select()
-                    .from(schema.volumeTiers)
-                    .where(eq(schema.volumeTiers.discountId, discount.id))
-                    .orderBy(schema.volumeTiers.minQty);
-
-                if (tiers.length > 0) {
-                    let applicableTier = null;
-                    for (const tier of tiers) {
-                        if (itemsCount >= (tier.minQty || 0)) {
-                            applicableTier = tier;
-                        }
-                    }
-                    if (applicableTier && applicableTier.discountPercent) {
-                        discountAmount = (cartTotal * Number(applicableTier.discountPercent)) / 100;
-                    }
-                }
-                break;
-        }
-
-        // Ensure discount doesn't exceed cart total
-        discountAmount = Math.min(discountAmount, cartTotal);
-        discountAmount = Math.round(discountAmount * 100) / 100;
-
-        // Track the best discount (highest amount)
-        if (discountAmount > bestAmount) {
-            bestAmount = discountAmount;
-            bestDiscount = {
-                id: discount.id,
-                name: discount.name,
-                type: discount.type,
-                value: discountValue,
-                amount: discountAmount
-            };
-        }
-    }
-
-    logger.info('Auto-discount result', {
-        found: !!bestDiscount,
-        discountName: bestDiscount?.name,
-        discountAmount: bestDiscount?.amount
-    });
-
-    return bestDiscount;
-}
-
-// ============================================================================
-// ORDER NUMBER GENERATION
-// ============================================================================
-
-async function generateOrderNumber(
-    tx: any,
-    tenantId: string
-): Promise<string> {
-    const [tenant] = await tx
-        .select({
-            orderNumberPrefix: schema.tenants.orderNumberPrefix,
-            timezone: schema.tenants.timezone,
-        })
-        .from(schema.tenants)
-        .where(eq(schema.tenants.id, tenantId))
-        .limit(1);
-
-    const prefix = tenant?.orderNumberPrefix || '';
-    const timezone = tenant?.timezone || 'Asia/Tashkent';
-    const now = new Date();
-
-    // Format time
-    let timeStr: string;
-    try {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: timezone,
-        });
-        const parts = formatter.formatToParts(now);
-        const hour = parts.find(p => p.type === 'hour')?.value || '00';
-        const minute = parts.find(p => p.type === 'minute')?.value || '00';
-        timeStr = `${hour}${minute}`;
-    } catch {
-        timeStr = now.toISOString().slice(11, 16).replace(':', '');
-    }
-
-    // Get start of day
-    let startOfDay: Date;
-    try {
-        const dayFormatter = new Intl.DateTimeFormat('en-CA', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            timeZone: timezone,
-        });
-        const localDateStr = dayFormatter.format(now);
-        startOfDay = new Date(`${localDateStr}T00:00:00`);
-        const offsetFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: timezone,
-            timeZoneName: 'shortOffset',
-        });
-        const offsetMatch = offsetFormatter.format(now).match(/GMT([+-]\d+)/);
-        if (offsetMatch) {
-            const offsetHours = parseInt(offsetMatch[1]);
-            startOfDay = new Date(startOfDay.getTime() - offsetHours * 60 * 60 * 1000);
-        }
-    } catch {
-        startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-    }
-
-    const [{ count: orderCount }] = await tx
-        .select({ count: sql<number>`count(*)` })
-        .from(schema.orders)
-        .where(and(
-            eq(schema.orders.tenantId, tenantId),
-            sql`${schema.orders.createdAt} >= ${startOfDay.toISOString()}`
-        ));
-
-    const sequence = (Number(orderCount) + 1).toString().padStart(2, '0');
-    return `${prefix}${sequence}${timeStr}`;
-}
+import { ordersService } from '../../services/orders.service';
 
 // ============================================================================
 // SCHEMAS
@@ -648,9 +424,9 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                 };
             }
 
-            // Find and apply the best available discount
+            // Find and apply the best available discount using shared service
             const totalQty = orderItems.reduce((sum, item) => sum + item.qty, 0);
-            const autoDiscount = await findBestAutoDiscount(
+            const autoDiscount = await ordersService.findBestAutoDiscount(
                 customerAuth.tenantId,
                 customerAuth.customerId,
                 totalAmount,
@@ -660,7 +436,8 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             const discountAmount = autoDiscount?.amount || 0;
             const finalTotal = totalAmount - discountAmount;
 
-            const orderNumber = await generateOrderNumber(tx, customerAuth.tenantId);
+            // Generate order number using shared service
+            const orderNumber = await ordersService.generateOrderNumber(tx, customerAuth.tenantId);
 
             const [newOrder] = await tx
                 .insert(schema.orders)
@@ -683,6 +460,7 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                 })
                 .returning();
 
+            // Insert order items
             for (const item of orderItems) {
                 await tx.insert(schema.orderItems).values({
                     orderId: newOrder.id,
@@ -692,38 +470,22 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                     unitPrice: String(item.unitPrice),
                     lineTotal: String(item.lineTotal),
                 });
-
-                await tx
-                    .update(schema.products)
-                    .set({
-                        reservedQuantity: sql`COALESCE(${schema.products.reservedQuantity}, 0) + ${item.qty}`,
-                    })
-                    .where(eq(schema.products.id, item.productId));
             }
 
-            const [customer] = await tx
-                .select({ debtBalance: schema.customers.debtBalance })
-                .from(schema.customers)
-                .where(eq(schema.customers.id, customerAuth.customerId))
-                .limit(1);
+            // Reserve stock using shared service
+            await ordersService.reserveStock(tx, orderItems.map(item => ({
+                productId: item.productId,
+                productName: item.productName,
+                unitPrice: item.unitPrice,
+                quantity: item.qty,
+                lineTotal: item.lineTotal,
+            })));
 
-            if (customer) {
-                const currentDebt = Number(customer.debtBalance || 0);
-                // Charge only the final discounted total
-                await tx
-                    .update(schema.customers)
-                    .set({
-                        debtBalance: String(currentDebt + finalTotal),
-                        updatedAt: new Date()
-                    })
-                    .where(eq(schema.customers.id, customerAuth.customerId));
-            }
+            // Update customer debt using shared service
+            await ordersService.updateCustomerDebt(tx, customerAuth.customerId, finalTotal);
 
-            await tx.insert(schema.orderStatusHistory).values({
-                orderId: newOrder.id,
-                toStatus: 'pending',
-                notes: 'Order created via customer portal',
-            });
+            // Log status change using shared service
+            await ordersService.logStatusChange(tx, newOrder.id, 'pending', undefined, 'Order created via customer portal');
 
             logger.info('Order created via customer portal', {
                 orderId: newOrder.id,
@@ -840,32 +602,15 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                 .from(schema.orderItems)
                 .where(eq(schema.orderItems.orderId, order.id));
 
-            for (const item of items) {
-                await tx
-                    .update(schema.products)
-                    .set({
-                        reservedQuantity: sql`GREATEST(0, COALESCE(${schema.products.reservedQuantity}, 0) - ${item.qtyOrdered})`,
-                    })
-                    .where(eq(schema.products.id, item.productId));
-            }
+            // Release stock using shared service
+            await ordersService.releaseStock(tx, items.map(item => ({
+                productId: item.productId,
+                quantity: item.qtyOrdered,
+            })));
 
-            const [customer] = await tx
-                .select({ debtBalance: schema.customers.debtBalance })
-                .from(schema.customers)
-                .where(eq(schema.customers.id, customerAuth.customerId))
-                .limit(1);
-
-            if (customer) {
-                const currentDebt = Number(customer.debtBalance || 0);
-                const orderTotal = Number(order.totalAmount || 0);
-                await tx
-                    .update(schema.customers)
-                    .set({
-                        debtBalance: String(Math.max(0, currentDebt - orderTotal)),
-                        updatedAt: new Date()
-                    })
-                    .where(eq(schema.customers.id, customerAuth.customerId));
-            }
+            // Reduce customer debt using shared service (negative amount)
+            const orderTotal = Number(order.totalAmount || 0);
+            await ordersService.updateCustomerDebt(tx, customerAuth.customerId, -orderTotal);
 
             await tx
                 .update(schema.orders)

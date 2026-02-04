@@ -282,6 +282,7 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         await api.register(inventoryRoutes, { prefix: '/inventory' });
         await api.register(paymentRoutes, { prefix: '/payments' });
         await api.register(userRoutes, { prefix: '/users' });
+        await api.register((await import('./routes-fastify/user-telegram-link')).userTelegramLinkRoutes, { prefix: '/users' });
         await api.register(deliveryRoutes, { prefix: '/delivery' });
         await api.register(discountRoutes, { prefix: '/discounts' });
         await api.register(returnRoutes, { prefix: '/returns' });
@@ -357,6 +358,10 @@ const start = async () => {
         // Initialize backup service
         const { initBackupService } = await import('./lib/backup');
         initBackupService();
+
+        // Initialize tenant export service
+        const { initExportService } = await import('./lib/tenant-export');
+        initExportService();
 
         // Initialize scheduler
         const { initializeScheduler } = await import('./lib/scheduler');

@@ -190,7 +190,15 @@ export class OrdersService {
             ))
             .for('update');
 
-        const productMap = new Map(products.map((p: any) => [p.id, p]));
+        type ProductInfo = {
+            id: string;
+            name: string;
+            price: string;
+            stockQuantity: number | null;
+            reservedQuantity: number | null;
+            isActive: boolean | null;
+        };
+        const productMap = new Map<string, ProductInfo>(products.map((p: ProductInfo) => [p.id, p]));
         const validatedItems: ValidatedOrderItem[] = [];
         const errors: string[] = [];
 

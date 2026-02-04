@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { config } from 'dotenv';
+import { eq } from 'drizzle-orm'; // Import the eq function
 import { 
   tenants,
   users,
@@ -17,7 +18,12 @@ import {
 // Load environment variables
 config();
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:HelpMe11@localhost:5432/ixasales';
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('❌ DATABASE_URL environment variable is required');
+    console.error('💡 Example: DATABASE_URL=postgresql://user:password@localhost:5432/database');
+    process.exit(1);
+}
 const client = postgres(connectionString);
 const db = drizzle(client);
 
@@ -36,7 +42,7 @@ async function addSampleData() {
     console.log(`Using tenant: ${tenantsData[0].name}\n`);
 
     // Check if users already exist
-    const existingUsers = await db.select().from(users).where(users.tenantId.eq(tenantId)).limit(1);
+    const existingUsers = await db.select().from(users).where(eq(users.tenantId, tenantId)).limit(1);
     if (existingUsers.length > 0) {
       console.log('✅ Users already exist. Skipping user creation.');
     } else {
@@ -76,7 +82,7 @@ async function addSampleData() {
     }
 
     // Check if categories already exist
-    const existingCategories = await db.select().from(categories).where(categories.tenantId.eq(tenantId)).limit(1);
+    const existingCategories = await db.select().from(categories).where(eq(categories.tenantId, tenantId)).limit(1);
     if (existingCategories.length > 0) {
       console.log('✅ Categories already exist. Skipping category creation.');
     } else {
@@ -107,10 +113,10 @@ async function addSampleData() {
     }
 
     // Get categories for subcategories
-    const categoriesData = await db.select().from(categories).where(categories.tenantId.eq(tenantId));
+    const categoriesData = await db.select().from(categories).where(eq(categories.tenantId, tenantId));
     
     // Check if subcategories already exist
-    const existingSubcategories = await db.select().from(subcategories).where(subcategories.tenantId.eq(tenantId)).limit(1);
+    const existingSubcategories = await db.select().from(subcategories).where(eq(subcategories.tenantId, tenantId)).limit(1);
     if (existingSubcategories.length > 0) {
       console.log('✅ Subcategories already exist. Skipping subcategory creation.');
     } else {
@@ -151,7 +157,7 @@ async function addSampleData() {
     }
 
     // Check if brands already exist
-    const existingBrands = await db.select().from(brands).where(brands.tenantId.eq(tenantId)).limit(1);
+    const existingBrands = await db.select().from(brands).where(eq(brands.tenantId, tenantId)).limit(1);
     if (existingBrands.length > 0) {
       console.log('✅ Brands already exist. Skipping brand creation.');
     } else {
@@ -188,7 +194,7 @@ async function addSampleData() {
     }
 
     // Check if suppliers already exist
-    const existingSuppliers = await db.select().from(suppliers).where(suppliers.tenantId.eq(tenantId)).limit(1);
+    const existingSuppliers = await db.select().from(suppliers).where(eq(suppliers.tenantId, tenantId)).limit(1);
     if (existingSuppliers.length > 0) {
       console.log('✅ Suppliers already exist. Skipping supplier creation.');
     } else {
@@ -224,11 +230,11 @@ async function addSampleData() {
     console.log('\n📊 Current database state:');
     
     // Show current counts
-    const userData = await db.select().from(users).where(users.tenantId.eq(tenantId));
-    const categoryData = await db.select().from(categories).where(categories.tenantId.eq(tenantId));
-    const subcategoryData = await db.select().from(subcategories).where(subcategories.tenantId.eq(tenantId));
-    const brandData = await db.select().from(brands).where(brands.tenantId.eq(tenantId));
-    const supplierData = await db.select().from(suppliers).where(suppliers.tenantId.eq(tenantId));
+    const userData = await db.select().from(users).where(eq(users.tenantId, tenantId));
+    const categoryData = await db.select().from(categories).where(eq(categories.tenantId, tenantId));
+    const subcategoryData = await db.select().from(subcategories).where(eq(subcategories.tenantId, tenantId));
+    const brandData = await db.select().from(brands).where(eq(brands.tenantId, tenantId));
+    const supplierData = await db.select().from(suppliers).where(eq(suppliers.tenantId, tenantId));
     
     console.log(`👥 Users: ${userData.length}`);
     console.log(`📚 Categories: ${categoryData.length}`);

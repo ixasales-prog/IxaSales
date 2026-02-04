@@ -285,4 +285,171 @@ export const tenantSelfRoutes: FastifyPluginAsync = async (fastify) => {
         const [updated] = await db.update(schema.tenants).set(updates).where(eq(schema.tenants.id, user.tenantId)).returning();
         return { success: true, data: updated };
     });
+
+    // ========== DATA EXPORT/IMPORT ==========
+
+    // Create a new export
+    fastify.post<{
+        Body: {
+            format?: 'json' | 'csv';
+            includeProducts?: boolean;
+            includeCustomers?: boolean;
+            includeOrders?: boolean;
+            includePayments?: boolean;
+            includeInventory?: boolean;
+            dateFrom?: string;
+            dateTo?: string;
+        }
+    }>('/export', {
+        preHandler: [fastify.authenticate, requireTenantAdmin],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const body = request.body || {};
+
+        const { createTenantExport } = await import('../lib/tenant-export');
+        const result = await createTenantExport(user.tenantId, user.id, {
+            format: body.format || 'json',
+            includeProducts: body.includeProducts ?? true,
+            includeCustomers: body.includeCustomers ?? true,
+            includeOrders: body.includeOrders ?? true,
+            includePayments: body.includePayments ?? true,
+            includeInventory: body.includeInventory ?? true,
+            dateFrom: body.dateFrom ? new Date(body.dateFrom) : undefined,
+            dateTo: body.dateTo ? new Date(body.dateTo) : undefined,
+        });
+
+        if (!result.success) {
+            return reply.code(500).send({ success: false, error: { message: result.error } });
+        }
+
+        return { success: true, data: { exportId: result.exportId } };
+    });
+
+    // List exports
+    fastify.get('/exports', {
+        preHandler: [fastify.authenticate, requireTenantAdmin],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { listTenantExports } = await import('../lib/tenant-export');
+        const exports = await listTenantExports(user.tenantId);
+        return { success: true, data: exports };
+    });
+
+    // Download export file
+    fastify.get<{ Params: { id: string } }>('/exports/:id/download', {
+        preHandler: [fastify.authenticate, requireTenantAdmin],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { id } = request.params;
+
+        // Find the export
+        const [exportRecord] = await db.select()
+            .from(schema.tenantExports)
+            .where(and(
+                eq(schema.tenantExports.id, id),
+                eq(schema.tenantExports.tenantId, user.tenantId)
+            ))
+            .limit(1);
+
+        if (!exportRecord) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+        }
+
+        if (exportRecord.status !== 'completed' || !exportRecord.filename) {
+            return reply.code(400).send({ success: false, error: { code: 'EXPORT_NOT_READY', message: 'Export is not ready for download' } });
+        }
+
+        const { getExportPath, markExportDownloaded } = await import('../lib/tenant-export');
+        const { createReadStream } = await import('fs');
+        const { stat } = await import('fs/promises');
+
+        const filePath = getExportPath(exportRecord.filename);
+
+        try {
+            const stats = await stat(filePath);
+            const stream = createReadStream(filePath);
+
+            // Mark as downloaded
+            await markExportDownloaded(id, user.tenantId);
+
+            const contentType = exportRecord.format === 'csv'
+                ? 'text/csv'
+                : 'application/json';
+
+            return reply
+                .header('Content-Type', contentType)
+                .header('Content-Length', stats.size.toString())
+                .header('Content-Disposition', `attachment; filename="${encodeURIComponent(exportRecord.filename)}"`)
+                .send(stream);
+        } catch {
+            return reply.code(404).send({ success: false, error: { code: 'FILE_NOT_FOUND' } });
+        }
+    });
+
+    // Get export settings
+    fastify.get('/export-settings', {
+        preHandler: [fastify.authenticate, requireTenantAdmin],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { getExportSettings } = await import('../lib/tenant-export');
+        const settings = await getExportSettings(user.tenantId);
+        return { success: true, data: settings };
+    });
+
+    // Update export settings (schedule)
+    fastify.put<{
+        Body: {
+            frequency?: 'never' | 'daily' | 'weekly' | 'monthly';
+            format?: 'json' | 'csv';
+            includeProducts?: boolean;
+            includeCustomers?: boolean;
+            includeOrders?: boolean;
+            includePayments?: boolean;
+            includeInventory?: boolean;
+            retentionDays?: number;
+        }
+    }>('/export-settings', {
+        preHandler: [fastify.authenticate, requireTenantAdmin],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const body = request.body || {};
+
+        const { updateExportSettings } = await import('../lib/tenant-export');
+        const settings = await updateExportSettings(user.tenantId, body);
+        return { success: true, data: settings };
+    });
+
+    // Import data from file
+    fastify.post<{
+        Body: {
+            data: string; // JSON string of exported data
+            importProducts?: boolean;
+            importCustomers?: boolean;
+            skipExisting?: boolean;
+        }
+    }>('/import', {
+        preHandler: [fastify.authenticate, requireTenantAdmin],
+    }, async (request, reply) => {
+        const user = request.user!;
+        const body = request.body;
+
+        if (!body?.data) {
+            return reply.code(400).send({ success: false, error: { code: 'MISSING_DATA' } });
+        }
+
+        const { importTenantData } = await import('../lib/tenant-export');
+        const result = await importTenantData(user.tenantId, body.data, {
+            importProducts: body.importProducts ?? true,
+            importCustomers: body.importCustomers ?? true,
+            skipExisting: body.skipExisting ?? true,
+        });
+
+        return {
+            success: result.success,
+            data: {
+                imported: result.imported,
+                errors: result.errors.length > 0 ? result.errors : undefined,
+            },
+        };
+    });
 };

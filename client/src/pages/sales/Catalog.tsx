@@ -9,13 +9,15 @@ import {
     ShoppingCart,
     Package,
     ChevronDown,
-    Loader2
+    Loader2,
+    ScanLine
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { cartItems, addToCart, cartCount, updateCartQuantity } from '../../stores/cart';
 import { formatCurrency } from '../../stores/settings';
 import { useI18n } from '../../i18n';
 import ProductDetailModal from './ProductDetailModal';
+import BarcodeScanner from '../../components/BarcodeScanner';
 
 interface Product {
     id: string;
@@ -28,6 +30,7 @@ interface Product {
     categoryName: string | null;
     subcategoryName: string | null;
     imageUrl: string | null;
+    barcode?: string;
 }
 
 interface Category {
@@ -48,6 +51,7 @@ const Catalog: Component = () => {
     const [selectedCategory, setSelectedCategory] = createSignal<string>('');
     const [selectedBrand, setSelectedBrand] = createSignal<string>('');
     const [showFilters, setShowFilters] = createSignal(false);
+    const [showScanner, setShowScanner] = createSignal(false);
     const [page, setPage] = createSignal(1);
     const [selectedProductId, setSelectedProductId] = createSignal<string | null>(null);
 
@@ -124,6 +128,19 @@ const Catalog: Component = () => {
         updateCartQuantity(productId, currentQty + delta);
     };
 
+    // Barcode scanning
+    const handleBarcodeScanned = (barcode: string) => {
+        setSearchQuery(barcode);
+        // Try to find and auto-add to cart
+        const allProducts = products();
+        const match = allProducts.find((p: Product) =>
+            p.barcode === barcode || p.sku === barcode
+        );
+        if (match && match.stockQuantity > 0) {
+            handleAddToCart(match);
+        }
+    };
+
     // Filter counts
     const activeFilters = () => {
         let count = 0;
@@ -163,6 +180,14 @@ const Catalog: Component = () => {
                                 </button>
                             </Show>
                         </div>
+
+                        <button
+                            onClick={() => setShowScanner(true)}
+                            class="p-2.5 rounded-xl border transition-all bg-emerald-600/20 border-emerald-500/30 hover:bg-emerald-600/30"
+                            title="Scan Barcode"
+                        >
+                            <ScanLine class="w-5 h-5 text-emerald-400" />
+                        </button>
 
                         <button
                             onClick={() => setShowFilters(!showFilters())}
@@ -240,6 +265,15 @@ const Catalog: Component = () => {
                     </Show>
                 </div>
             </div>
+
+            {/* Barcode Scanner Modal */}
+            <Show when={showScanner()}>
+                <BarcodeScanner
+                    title={t('salesApp.catalog.scanBarcode')}
+                    onScan={handleBarcodeScanned}
+                    onClose={() => setShowScanner(false)}
+                />
+            </Show>
 
             {/* Content with top padding for fixed header + category pills */}
             <div class="px-4" style={{ "padding-top": showFilters() ? "210px" : "110px" }}>

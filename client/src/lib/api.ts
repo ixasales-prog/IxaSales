@@ -11,6 +11,9 @@ const resolveBaseUrl = () => {
 
 const BASE_URL = resolveBaseUrl();
 
+// Export for components that need direct file downloads
+export const API_BASE_URL = BASE_URL;
+
 interface RequestOptions extends RequestInit {
     params?: Record<string, string>;
     skipAuth?: boolean;
