@@ -8,13 +8,16 @@ const { Client } = require('pg');
 async function emergencyFix() {
     console.log('🔧 Starting emergency database fix...');
     
-    // Use the credentials from .env file directly
+    // Use DATABASE_URL from environment variables
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+        console.error('❌ DATABASE_URL environment variable is required');
+        console.error('💡 Example: DATABASE_URL=postgresql://user:password@localhost:5432/database');
+        process.exit(1);
+    }
+
     const client = new Client({
-        user: 'postgres',
-        host: 'localhost',
-        database: 'ixasales',
-        password: 'HelpMe11',
-        port: 5432,
+        connectionString: databaseUrl,
     });
     
     try {

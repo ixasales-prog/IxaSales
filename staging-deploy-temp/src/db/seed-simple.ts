@@ -17,7 +17,12 @@ import {
 // Load environment variables
 config();
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:HelpMe11@localhost:5432/ixasales';
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('❌ DATABASE_URL environment variable is required');
+    console.error('💡 Example: DATABASE_URL=postgresql://user:password@localhost:5432/database');
+    process.exit(1);
+}
 const client = postgres(connectionString);
 const db = drizzle(client);
 
@@ -209,7 +214,7 @@ async function seedDatabase() {
         creditBalance: '0.00',
         debtBalance: '0.00',
         notes: 'Long-term premium customer',
-        lastOrderDate: new Date(),
+        lastOrderDate: new Date().toISOString().split('T')[0],
         telegramChatId: '123456789',
         isActive: true
       },
@@ -229,7 +234,7 @@ async function seedDatabase() {
         creditBalance: '0.00',
         debtBalance: '0.00',
         notes: 'Regular fashion customer',
-        lastOrderDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        lastOrderDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         isActive: true
       }
     ]).returning();
@@ -284,7 +289,7 @@ async function seedDatabase() {
         sku: 'NIKE-AIR-MAX',
         name: 'Nike Air Max 270',
         description: 'Men\'s running shoes with Air cushioning technology',
-        unit: 'pair',
+        unit: 'piece',
         price: '1299000.00',
         costPrice: '850000.00',
         stockQuantity: 100,
@@ -300,26 +305,26 @@ async function seedDatabase() {
 
     // 9. Create Orders
     console.log('🛒 Creating orders...');
-    const orderResults = await db.insert(orders).values([
-      {
+    const orderData = {
         tenantId,
         orderNumber: 'ORD-001',
         customerId: customerResults[0].id,
         salesRepId: salesUser.id,
         createdByUserId: adminUser.id,
-        status: 'delivered',
-        paymentStatus: 'paid',
+        status: 'delivered' as const,
+        paymentStatus: 'paid' as const,
         subtotalAmount: '17998000.00',
         discountAmount: '2699700.00',
         taxAmount: '2294745.00',
         totalAmount: '17593045.00',
         paidAmount: '17593045.00',
         notes: 'Urgent delivery requested',
-        requestedDeliveryDate: new Date(),
-        deliveredAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
-        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
-      }
-    ]).returning();
+        requestedDeliveryDate: new Date().toISOString().split('T')[0],
+        deliveredAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+    };
+    
+    const orderResults = await db.insert(orders).values([orderData] as any).returning();
     console.log(`✅ ${orderResults.length} orders created\n`);
 
     // 10. Create Order Items

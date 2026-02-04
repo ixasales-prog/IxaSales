@@ -82,7 +82,7 @@ const VisitDetailPage: Component = () => {
     );
 
     return (
-        <div class="min-h-screen pb-24">
+        <div class="min-h-screen pb-safe">
             <div class="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="flex items-center gap-3 px-4 py-3">
                     <A href="/sales/visits" class="p-2 -ml-2 text-slate-400 hover:text-white">

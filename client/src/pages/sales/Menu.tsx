@@ -36,7 +36,7 @@ const Menu: Component = () => {
     };
 
     return (
-        <div class="min-h-screen bg-slate-950 pb-24">
+        <div class="min-h-screen bg-slate-950 pb-safe">
             {/* Header */}
             <div class="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/50 pt-safe-top">
                 <div class="px-4 h-16 flex items-center justify-between">

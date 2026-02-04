@@ -10,7 +10,7 @@ import { authLogger } from '../lib/logger';
 // Schemas
 const LoginBodySchema = Type.Object({
     email: Type.String({ format: 'email' }),
-    password: Type.String({ minLength: 6 }),
+    password: Type.String({ minLength: 8 }),
 });
 
 const ChangePasswordSchema = Type.Object({
@@ -28,7 +28,7 @@ const ForgotPasswordSchema = Type.Object({
 
 const ResetPasswordSchema = Type.Object({
     token: Type.String(),
-    password: Type.String({ minLength: 6 }),
+    password: Type.String({ minLength: 8 }),
 });
 
 type LoginBody = Static<typeof LoginBodySchema>;

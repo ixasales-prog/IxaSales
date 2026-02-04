@@ -11,8 +11,19 @@ import { jwtVerify, SignJWT } from 'jose';
 // ============================================================================
 
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 32) {
-    console.error('[CustomerPortal] CRITICAL: JWT_SECRET must be set and at least 32 characters long');
+
+// Enforce JWT_SECRET in production environment
+if (!JWT_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+        console.error('[CustomerPortal] ❌ CRITICAL: JWT_SECRET is required in production environment');
+        console.error('[CustomerPortal] 💡 Set JWT_SECRET environment variable with a strong secret (32+ characters)');
+        process.exit(1);
+    } else {
+        console.warn('[CustomerPortal] ⚠️  WARNING: Using default JWT secret - this is insecure for production');
+        console.warn('[CustomerPortal] 💡 Set JWT_SECRET environment variable for better security');
+    }
+} else if (JWT_SECRET.length < 32) {
+    console.warn('[CustomerPortal] ⚠️  WARNING: JWT_SECRET should be at least 32 characters for production security');
 }
 
 const JWT_SECRET_KEY = new TextEncoder().encode(JWT_SECRET || 'development-only-secret-key-32ch');

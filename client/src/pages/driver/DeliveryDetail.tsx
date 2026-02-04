@@ -28,7 +28,7 @@ const DeliveryDetailPage: Component = () => {
     });
 
     return (
-        <div class="min-h-screen bg-slate-950 pb-24">
+        <div class="min-h-screen bg-slate-950 pb-safe">
             <div class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/50 px-4 py-4">
                 <button class="flex items-center gap-2 text-slate-300 text-sm" onClick={() => navigate(-1)}>
                     <ArrowLeft class="w-4 h-4" /> Back

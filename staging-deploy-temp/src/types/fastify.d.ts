@@ -12,7 +12,7 @@ export interface AuthUser {
 
 declare module 'fastify' {
     interface FastifyRequest {
-        user: AuthUser | null;
+        user: AuthUser | null | undefined;
         isAuthenticated: boolean;
     }
 }

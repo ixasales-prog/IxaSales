@@ -115,7 +115,7 @@ const ImageLightbox: Component<ImageLightboxProps> = (props) => {
     return (
         <Show when={props.isOpen}>
             <div
-                class="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+                class="fixed inset-0 z-50 bg-black/95 flex items-center justify-center pb-safe"
                 onClick={(e) => {
                     if (e.target === e.currentTarget) props.onClose();
                 }}
@@ -176,7 +176,7 @@ const ImageLightbox: Component<ImageLightboxProps> = (props) => {
 
                 {/* Main Image */}
                 <div
-                    class="max-w-[90vw] max-h-[85vh] overflow-hidden select-none"
+                    class="max-w-[90vw] max-h-[calc(85vh-2rem)] overflow-hidden select-none"
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -187,7 +187,7 @@ const ImageLightbox: Component<ImageLightboxProps> = (props) => {
                     <img
                         src={currentImage()?.url}
                         alt={currentImage()?.altText || 'Image'}
-                        class="max-w-full max-h-[85vh] object-contain transition-transform duration-200"
+                        class="max-w-full max-h-[calc(85vh-2rem)] object-contain transition-transform duration-200"
                         style={{
                             transform: `scale(${scale()}) translate(${position().x / scale()}px, ${position().y / scale()}px)`
                         }}

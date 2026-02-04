@@ -57,7 +57,7 @@ const WarehouseInventory: Component = () => {
     };
 
     return (
-        <div class="min-h-screen bg-slate-950 pb-24">
+        <div class="min-h-screen bg-slate-950 pb-safe">
             <div class="sticky top-0 z-30 bg-slate-950/90 backdrop-blur-md border-b border-slate-800/50 px-4 py-4">
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex-1">

@@ -319,7 +319,7 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
     };
 
     return (
-        <div class="fixed inset-0 z-50 bg-slate-950/98 backdrop-blur-sm overflow-y-auto pb-24">
+        <div class="fixed inset-0 z-50 bg-slate-950/98 backdrop-blur-sm overflow-y-auto pb-safe">
             {/* Header */}
             <div class="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="flex items-center justify-between px-4 py-3">

@@ -413,6 +413,86 @@ export async function notifyUser(
     });
 }
 
+/**
+ * Send a document/file via Telegram Bot
+ * Used for sending export files to admins
+ * 
+ * @param chatId - Target chat ID
+ * @param filePath - Absolute path to the file
+ * @param filename - Display name for the file
+ * @param caption - Optional caption for the document
+ */
+export async function sendTelegramDocument(
+    chatId: string,
+    filePath: string,
+    filename: string,
+    caption?: string
+): Promise<boolean> {
+    const settings = getTelegramSettings();
+
+    if (!settings.enabled || !settings.botToken) {
+        console.log('[Telegram] Not enabled or no bot token configured');
+        return false;
+    }
+
+    if (!chatId) {
+        console.log('[Telegram] No chat ID provided for document');
+        return false;
+    }
+
+    try {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+            console.error(`[Telegram] File not found: ${filePath}`);
+            return false;
+        }
+
+        // Check file size (Telegram limit is 50MB for bots)
+        const stats = fs.statSync(filePath);
+        const fileSizeMB = stats.size / (1024 * 1024);
+        if (fileSizeMB > 50) {
+            console.error(`[Telegram] File too large: ${fileSizeMB.toFixed(2)}MB (max 50MB)`);
+            return false;
+        }
+
+        const url = `https://api.telegram.org/bot${settings.botToken}/sendDocument`;
+
+        // Create form data
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
+        form.append('chat_id', chatId);
+        form.append('document', fs.createReadStream(filePath), {
+            filename: filename,
+        });
+        if (caption) {
+            form.append('caption', caption);
+            form.append('parse_mode', 'HTML');
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            body: form as any,
+            headers: form.getHeaders(),
+        });
+
+        const result = await response.json();
+
+        if (!result.ok) {
+            console.error('[Telegram] Error sending document:', result.description);
+            return false;
+        }
+
+        console.log(`[Telegram] Document sent successfully: ${filename}`);
+        return true;
+    } catch (error) {
+        console.error('[Telegram] Error sending document:', error);
+        return false;
+    }
+}
+
 // ============================================================================
 // FOLLOW-UP REMINDERS - ENHANCED VERSION
 // ============================================================================

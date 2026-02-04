@@ -135,7 +135,7 @@ const AddDiscountModal: Component<AddDiscountModalProps> = (props) => {
 
     return (
         <Portal>
-            <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-[100] overflow-y-auto flex items-end sm:items-center justify-center p-4">
+            <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-[100] overflow-y-auto flex items-end sm:items-center justify-center p-4 pb-safe">
                 <div class="w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                     <div class="flex items-center justify-between mb-6">
                         <div>

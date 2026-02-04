@@ -86,7 +86,7 @@ export const BroadcastModal: Component<BroadcastModalProps> = (props) => {
 
     return (
         <Show when={props.open}>
-            <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" ref={handleOpen}>
+            <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm pb-safe" ref={handleOpen}>
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl relative">
                     <div class="p-6">
                         <div class="flex items-center justify-between mb-6">

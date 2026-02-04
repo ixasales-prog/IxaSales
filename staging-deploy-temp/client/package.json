@@ -22,6 +22,7 @@
     "@solidjs/router": "^0.15.4",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/leaflet": "^1.9.21",
+    "html5-qrcode": "^2.3.8",
     "leaflet": "^1.9.4",
     "lucide-solid": "^0.562.0",
     "solid-js": "^1.9.10"

@@ -66,7 +66,7 @@ const BarcodeScanner: Component<BarcodeScannerProps> = (props) => {
     });
 
     return (
-        <div class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col">
+        <div class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col pb-safe">
             {/* Header */}
             <div class="sticky top-0 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/50 px-4 py-4">
                 <div class="flex items-center justify-between">

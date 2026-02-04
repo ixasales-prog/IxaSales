@@ -248,7 +248,7 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
 
     return (
         <Portal>
-            <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-[100] overflow-y-auto flex items-end sm:items-center justify-center sm:p-4">
+            <div class="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-[100] overflow-y-auto flex items-end sm:items-center justify-center sm:p-4 pb-safe">
                 <div class="w-full sm:max-w-lg bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-200 max-h-[90vh] overflow-y-auto">
                     {/* Header */}
                     <div class="flex items-center justify-between mb-6">

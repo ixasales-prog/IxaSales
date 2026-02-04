@@ -472,8 +472,39 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
             return { ok: true };
         }
 
-        // Handle /unlink command
+        // Handle /unlink command - supports both users and customers
         if (text === '/unlink') {
+            // First check if this is a linked user
+            const [linkedUser] = await db
+                .select({
+                    id: schema.users.id,
+                    name: schema.users.name,
+                })
+                .from(schema.users)
+                .where(and(
+                    eq(schema.users.tenantId, tenantId),
+                    eq(schema.users.telegramChatId, chatId)
+                ))
+                .limit(1);
+
+            if (linkedUser) {
+                await db.update(schema.users).set({
+                    telegramChatId: null,
+                    updatedAt: new Date(),
+                }).where(eq(schema.users.id, linkedUser.id));
+
+                await sendBotMessage(tenant.telegramBotToken, chatId,
+                    `✅ <b>Staff Account Unlinked</b>\n\n` +
+                    `Your account <b>${escapeHtml(linkedUser.name)}</b> has been unlinked.\n\n` +
+                    `You will no longer receive notifications here.\n` +
+                    `To re-link, generate a new code from your dashboard.`
+                );
+
+                console.log(`[Telegram] User ${linkedUser.id} unlinked from chat ${chatId}`);
+                return { ok: true };
+            }
+
+            // Check if customer
             const [customer] = await db
                 .select({
                     id: schema.customers.id,
@@ -503,7 +534,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                 .where(eq(schema.customers.id, customer.id));
 
             await sendBotMessage(tenant.telegramBotToken, chatId,
-                `✅ <b>Account Unlinked</b>\n\n` +
+                `✅ <b>Customer Account Unlinked</b>\n\n` +
                 `Your account <b>${escapeHtml(customer.name)}</b> has been unlinked.\n\n` +
                 `You will no longer receive notifications here.\n` +
                 `To re-link, use /start and send your phone number.`
@@ -513,8 +544,34 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
             return { ok: true };
         }
 
-        // Handle /status command
+        // Handle /status command - check both users and customers
         if (text === '/status') {
+            // Check if this is a linked user (admin, sales rep, etc.)
+            const [linkedUser] = await db
+                .select({
+                    name: schema.users.name,
+                    role: schema.users.role,
+                })
+                .from(schema.users)
+                .where(and(
+                    eq(schema.users.tenantId, tenantId),
+                    eq(schema.users.telegramChatId, chatId)
+                ))
+                .limit(1);
+
+            if (linkedUser) {
+                const roleDisplay = linkedUser.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                await sendBotMessage(tenant.telegramBotToken, chatId,
+                    `✅ <b>Staff Account Linked</b>\n\n` +
+                    `Name: ${escapeHtml(linkedUser.name)}\n` +
+                    `Role: ${roleDisplay}\n` +
+                    `Status: Active\n\n` +
+                    `You will receive notifications about orders and important alerts.`
+                );
+                return { ok: true };
+            }
+
+            // Check if this is a linked customer
             const [customer] = await db
                 .select({
                     name: schema.customers.name,
@@ -529,18 +586,112 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
             if (customer) {
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `✅ <b>Account Linked</b>\n\n` +
-                    `Name: ${customer.name}\n` +
+                    `✅ <b>Customer Account Linked</b>\n\n` +
+                    `Name: ${escapeHtml(customer.name)}\n` +
                     `Status: Active\n\n` +
                     `You will receive notifications about your orders.`
                 );
             } else {
                 await sendBotMessage(tenant.telegramBotToken, chatId,
                     `❌ <b>Account Not Linked</b>\n\n` +
-                    `Send your phone number to link your account.`
+                    `<b>For customers:</b> Send your phone number to link.\n` +
+                    `<b>For staff:</b> Get a link code from your dashboard.`
                 );
             }
             return { ok: true };
+        }
+
+        // ================================================================
+        // Handle user link codes (6-character alphanumeric codes)
+        // Users (admins, sales reps, etc.) can link their Telegram by sending a code
+        // ================================================================
+        if (text && /^[A-Z0-9]{6}$/.test(text.toUpperCase())) {
+            const linkCode = text.toUpperCase();
+            console.log('[Telegram Webhook] Checking for user link code:', linkCode);
+
+            // Check if this is a valid user link code
+            const [linkData] = await db
+                .select({
+                    id: schema.userTelegramLinkCodes.id,
+                    userId: schema.userTelegramLinkCodes.userId,
+                    expiresAt: schema.userTelegramLinkCodes.expiresAt,
+                })
+                .from(schema.userTelegramLinkCodes)
+                .where(and(
+                    eq(schema.userTelegramLinkCodes.tenantId, tenantId),
+                    eq(schema.userTelegramLinkCodes.code, linkCode)
+                ))
+                .limit(1);
+
+            if (linkData) {
+                // Check if expired
+                if (new Date(linkData.expiresAt) < new Date()) {
+                    await db.delete(schema.userTelegramLinkCodes)
+                        .where(eq(schema.userTelegramLinkCodes.id, linkData.id));
+
+                    await sendBotMessage(tenant.telegramBotToken, chatId,
+                        `❌ <b>Link Code Expired</b>\n\n` +
+                        `This code has expired. Please generate a new code from your dashboard.`
+                    );
+                    return { ok: true };
+                }
+
+                // Get the user info
+                const [userInfo] = await db
+                    .select({
+                        name: schema.users.name,
+                        telegramChatId: schema.users.telegramChatId,
+                    })
+                    .from(schema.users)
+                    .where(eq(schema.users.id, linkData.userId))
+                    .limit(1);
+
+                if (!userInfo) {
+                    await db.delete(schema.userTelegramLinkCodes)
+                        .where(eq(schema.userTelegramLinkCodes.id, linkData.id));
+
+                    await sendBotMessage(tenant.telegramBotToken, chatId,
+                        `❌ <b>Invalid Code</b>\n\n` +
+                        `User not found. Please generate a new code.`
+                    );
+                    return { ok: true };
+                }
+
+                // Check if user already linked to another chat
+                if (userInfo.telegramChatId && userInfo.telegramChatId !== chatId) {
+                    await sendBotMessage(tenant.telegramBotToken, chatId,
+                        `⚠️ <b>Already Linked</b>\n\n` +
+                        `This account is already linked to another Telegram chat.\n` +
+                        `Please unlink it first from your dashboard.`
+                    );
+                    return { ok: true };
+                }
+
+                // Link the user's Telegram
+                await db.update(schema.users).set({
+                    telegramChatId: chatId,
+                    updatedAt: new Date(),
+                }).where(eq(schema.users.id, linkData.userId));
+
+                // Delete the used code
+                await db.delete(schema.userTelegramLinkCodes)
+                    .where(eq(schema.userTelegramLinkCodes.id, linkData.id));
+
+                await sendBotMessage(tenant.telegramBotToken, chatId,
+                    `✅ <b>Account Linked Successfully!</b>\n\n` +
+                    `Welcome, <b>${escapeHtml(userInfo.name)}</b>!\n\n` +
+                    `You will now receive notifications here:\n` +
+                    `• New orders\n` +
+                    `• Order status updates\n` +
+                    `• Payment notifications\n` +
+                    `• Important alerts\n\n` +
+                    `Use /status to check your link status.\n` +
+                    `Use /unlink to disconnect this account.`
+                );
+
+                console.log(`[Telegram] User ${linkData.userId} linked to chat ${chatId}`);
+                return { ok: true };
+            }
         }
 
         // Extract phone number from text or contact

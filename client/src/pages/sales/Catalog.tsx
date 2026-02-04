@@ -156,7 +156,7 @@ const Catalog: Component = () => {
     };
 
     return (
-        <div class="min-h-screen pb-20">
+        <div class="min-h-screen pb-safe">
             {/* Header */}
             <div class="fixed top-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="px-4 py-3">

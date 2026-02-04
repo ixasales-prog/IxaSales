@@ -17,9 +17,21 @@ import { createErrorResponse, createSuccessResponse } from '../../lib/error-code
 
 // JWT Configuration
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 32) {
-    console.error('[CustomerPortal] CRITICAL: JWT_SECRET must be set and at least 32 characters long');
+
+// Enforce JWT_SECRET in production environment
+if (!JWT_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+        console.error('[CustomerPortal/Auth] ❌ CRITICAL: JWT_SECRET is required in production environment');
+        console.error('[CustomerPortal/Auth] 💡 Set JWT_SECRET environment variable with a strong secret (32+ characters)');
+        process.exit(1);
+    } else {
+        console.warn('[CustomerPortal/Auth] ⚠️  WARNING: Using default JWT secret - this is insecure for production');
+        console.warn('[CustomerPortal/Auth] 💡 Set JWT_SECRET environment variable for better security');
+    }
+} else if (JWT_SECRET.length < 32) {
+    console.warn('[CustomerPortal/Auth] ⚠️  WARNING: JWT_SECRET should be at least 32 characters for production security');
 }
+
 const JWT_SECRET_KEY = new TextEncoder().encode(JWT_SECRET || 'development-only-secret-key-32ch');
 
 // ============================================================================
@@ -52,9 +64,27 @@ async function sendOTPViaTelegram(
 
         // Multi-language OTP message templates
         const otpMessages = {
-            uz: `🔐 <b>Tasdiqlash kodi</b>\n\nSizning kodingiz: <code>${otp}</code>\n\nKod ${OTP_EXPIRY_MINUTES} daqiqa ichida amal qiladi.\n\n⚠️ Bu kodni hech kimga bermang!`,
-            ru: `🔐 <b>Код подтверждения</b>\n\nВаш код: <code>${otp}</code>\n\nКод действителен ${OTP_EXPIRY_MINUTES} минут.\n\n⚠️ Никому не сообщайте этот код!`,
-            en: `🔐 <b>Verification Code</b>\n\nYour code: <code>${otp}</code>\n\nCode valid for ${OTP_EXPIRY_MINUTES} minutes.\n\n⚠️ Do not share this code!`
+            uz: `🔐 <b>Tasdiqlash kodi</b>
+
+Sizning kodingiz: <code>${otp}</code>
+
+Kod ${OTP_EXPIRY_MINUTES} daqiqa ichida amal qiladi.
+
+⚠️ Bu kodni hech kimga bermang!`,
+            ru: `🔐 <b>Код подтверждения</b>
+
+Ваш код: <code>${otp}</code>
+
+Код действителен ${OTP_EXPIRY_MINUTES} минут.
+
+⚠️ Никому не сообщайте этот код!`,
+            en: `🔐 <b>Verification Code</b>
+
+Your code: <code>${otp}</code>
+
+Code valid for ${OTP_EXPIRY_MINUTES} minutes.
+
+⚠️ Do not share this code!`
         };
 
         // Use Uzbek as default
