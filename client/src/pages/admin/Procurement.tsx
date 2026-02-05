@@ -17,6 +17,7 @@ import { toast } from '../../components/Toast';
 import AddSupplierModal from './AddSupplierModal';
 import CreatePurchaseOrderModal from './CreatePurchaseOrderModal';
 import ViewPurchaseOrderModal from './ViewPurchaseOrderModal';
+import { OrderStatusBadge } from '../../components/shared/order';
 
 const Procurement: Component = () => {
     const [activeTab, setActiveTab] = createSignal<'orders' | 'suppliers'>('orders');
@@ -59,15 +60,7 @@ const Procurement: Component = () => {
         }
     );
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'received': return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
-            case 'ordered': return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
-            case 'draft': return 'text-slate-400 bg-slate-400/10 border-slate-400/20';
-            case 'cancelled': return 'text-red-400 bg-red-400/10 border-red-400/20';
-            default: return 'text-slate-400 bg-slate-400/10 border-slate-400/20';
-        }
-    };
+    // getStatusColor function REMOVED - using shared OrderStatusBadge component
 
     const handleEditSupplier = (supplier: any) => {
         setEditingSupplier(supplier);
@@ -195,10 +188,12 @@ const Procurement: Component = () => {
                                                 <div class="text-slate-300">{order.supplierName}</div>
                                             </td>
                                             <td class="p-4">
-                                                <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(order.status)}`}>
-                                                    <span class="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-                                                    {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                                                </span>
+                                                <OrderStatusBadge 
+                                                    status={order.status} 
+                                                    variant="badge"
+                                                    size="sm"
+                                                    className="border"
+                                                />
                                             </td>
                                             <td class="p-4">
                                                 <div class="font-mono text-slate-300">${Number(order.totalAmount || 0).toFixed(2)}</div>
