@@ -306,7 +306,7 @@ const DataExport: Component = () => {
     );
 
     return (
-        <div class="p-6 lg:p-8 max-w-6xl mx-auto">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 max-w-6xl mx-auto">
             {/* Header */}
             <A href="/admin/settings" class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-4 transition-colors">
                 <ArrowLeft class="w-4 h-4" /> Back to Settings
@@ -830,3 +830,4 @@ const DataExport: Component = () => {
 };
 
 export default DataExport;
+

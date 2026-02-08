@@ -95,7 +95,8 @@ const Customers: Component = () => {
     // Fetch Territories
     const [territories] = createResource(async () => {
         const result = await api<any[]>('/customers/territories');
-        return result || [];
+        // Sort territories in descending order by name
+        return (result || []).sort((a, b) => b.name.localeCompare(a.name));
     });
 
     // Fetch Sales Reps
@@ -195,7 +196,7 @@ const Customers: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
@@ -600,3 +601,4 @@ const Customers: Component = () => {
 };
 
 export default Customers;
+

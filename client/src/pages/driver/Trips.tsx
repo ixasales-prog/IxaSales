@@ -1,17 +1,16 @@
 import { type Component, For, Show, createSignal, createResource } from 'solid-js';
 import { A } from '@solidjs/router';
+import * as LucideIcons from 'lucide-solid';
 import {
     Truck,
     Package,
-    Clock,
-    CheckCircle2,
-    Play,
     Calendar,
     Loader2,
     ChevronRight
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatDate } from '../../stores/settings';
+import { getTripStatusConfig } from '../../components/shared/order';
 
 interface Trip {
     id: string;
@@ -39,20 +38,7 @@ const Trips: Component = () => {
 
     const tripList = () => (trips() as any)?.data || trips() || [];
 
-    const getStatusConfig = (status: string) => {
-        switch (status) {
-            case 'planned':
-                return { color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', icon: Calendar, label: 'Planned' };
-            case 'loading':
-                return { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', icon: Package, label: 'Loading' };
-            case 'in_progress':
-                return { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: Play, label: 'In Progress' };
-            case 'completed':
-                return { color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20', icon: CheckCircle2, label: 'Completed' };
-            default:
-                return { color: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/20', icon: Clock, label: status };
-        }
-    };
+    // Status config now comes from shared/order/constants.ts
 
     // Using shared formatDate from settings store
 
@@ -116,8 +102,8 @@ const Trips: Component = () => {
                     <div class="space-y-3">
                         <For each={tripList()}>
                             {(trip) => {
-                                const config = getStatusConfig(trip.status);
-                                const StatusIcon = config.icon;
+                                const config = getTripStatusConfig(trip.status);
+                                const StatusIcon = LucideIcons[config.icon as keyof typeof LucideIcons] as any;
 
                                 return (
                                     <A
@@ -132,7 +118,7 @@ const Trips: Component = () => {
                                                     {formatDate(trip.plannedDate)}
                                                 </div>
                                             </div>
-                                            <span class={`flex items-center gap-1 px-2 py-1 rounded-full flex-shrink-0 ${config.bg} ${config.color} text-[10px] font-bold border ${config.border}`}>
+                                            <span class={`flex items-center gap-1 px-2 py-1 rounded-full flex-shrink-0 ${config.bg} ${config.text} text-[10px] font-bold border ${config.border}`}>
                                                 <StatusIcon class="w-3 h-3" />
                                                 {config.label}
                                             </span>

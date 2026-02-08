@@ -1,12 +1,10 @@
 import { type Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
+import * as LucideIcons from 'lucide-solid';
 import {
     Search,
     Filter,
     Eye,
     Truck,
-    CheckCircle2,
-    Clock,
-    XCircle,
     Package,
     Loader2,
     ChevronLeft,
@@ -15,6 +13,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatDateTime } from '../../stores/settings';
+import { getOrderStatusConfig } from '../../components/shared/order';
 
 interface Trip {
     id: string;
@@ -64,20 +63,12 @@ const Deliveries: Component = () => {
         { value: 'cancelled', label: 'Cancelled' },
     ];
 
-    const getStatusConfig = (status: string) => {
-        const configs: Record<string, { bg: string; text: string; icon: any }> = {
-            pending: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', icon: Clock },
-            in_progress: { bg: 'bg-blue-500/10', text: 'text-blue-400', icon: Truck },
-            completed: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', icon: CheckCircle2 },
-            cancelled: { bg: 'bg-red-500/10', text: 'text-red-400', icon: XCircle },
-        };
-        return configs[status] || configs.pending;
-    };
+    // Status config now comes from shared/order/constants.ts
 
     // Using shared formatDateTime from settings store
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
                 <div>
@@ -139,8 +130,8 @@ const Deliveries: Component = () => {
                             <tbody class="divide-y divide-slate-800/50">
                                 <For each={tripList()}>
                                     {(trip) => {
-                                        const statusConfig = getStatusConfig(trip.status);
-                                        const StatusIcon = statusConfig.icon;
+                                        const statusConfig = getOrderStatusConfig(trip.status);
+                                        const StatusIcon = LucideIcons[statusConfig.icon as keyof typeof LucideIcons] as any;
                                         return (
                                             <tr class="hover:bg-slate-800/30 transition-colors">
                                                 <td class="px-6 py-4">
@@ -199,8 +190,8 @@ const Deliveries: Component = () => {
                     <div class="lg:hidden divide-y divide-slate-800/50">
                         <For each={tripList()}>
                             {(trip) => {
-                                const statusConfig = getStatusConfig(trip.status);
-                                const StatusIcon = statusConfig.icon;
+                                const statusConfig = getOrderStatusConfig(trip.status);
+                                const StatusIcon = LucideIcons[statusConfig.icon as keyof typeof LucideIcons] as any;
                                 return (
                                     <div class="p-4 hover:bg-slate-800/30 transition-colors">
                                         <div class="flex items-center justify-between mb-3">
@@ -278,18 +269,19 @@ const Deliveries: Component = () => {
                         </div>
                     </div>
                 </div>
-            </Show>
+            </Show >
 
             {/* Empty State */}
-            <Show when={!trips.loading && tripList().length === 0}>
+            < Show when={!trips.loading && tripList().length === 0}>
                 <div class="text-center py-20">
                     <Truck class="w-16 h-16 text-slate-600 mx-auto mb-4" />
                     <h3 class="text-xl font-semibold text-white mb-2">No delivery trips found</h3>
                     <p class="text-slate-400">Delivery trips will appear here once created</p>
                 </div>
-            </Show>
-        </div>
+            </Show >
+        </div >
     );
 };
 
 export default Deliveries;
+

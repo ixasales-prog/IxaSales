@@ -7,7 +7,7 @@ import { PgColumn } from 'drizzle-orm/pg-core';
 // Simple sanitization utility for backend
 const sanitizeInput = (input: string | null | undefined): string | null => {
   if (input === null || input === undefined) return null;
-  
+
   // Basic sanitization: remove control characters and normalize whitespace
   return input
     .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
@@ -70,14 +70,14 @@ export interface UnifiedCreateVisitInput {
   plannedDate?: string;
   plannedTime?: string;
   notes?: string;
-  
+
   // Mode determines the workflow
   mode: 'scheduled' | 'quick';
-  
+
   // Scheduled mode specific
   salesRepId?: string;
   visitType?: string;
-  
+
   // Quick mode specific
   outcome?: string;
   photo?: string;
@@ -473,7 +473,7 @@ export class VisitsService {
 
     const now = new Date();
     const { todayStr } = await getTenantDayRange(tenantId, now);
-    
+
     // Validate planned date if provided (tenant-local)
     if (input.plannedDate) {
       await this.validatePlannedDate(input.plannedDate, tenantId);
@@ -675,7 +675,7 @@ export class VisitsService {
       this.validateOutcome(input.outcome);
 
       // Sanitize inputs
-      const sanitizedOutcomeNotes = input.outcomeNotes ? sanitizeInput(input.outcomeNotes) : undefined;
+      const sanitizedOutcomeNotes = input.outcomeNotes ? sanitizeInput(input.outcomeNotes) || undefined : undefined;
       const sanitizedPhotos = input.photos ? sanitizeArray(input.photos) : undefined;
       const sanitizedNoOrderReason = input.noOrderReason ? sanitizeInput(input.noOrderReason) || undefined : undefined;
       const sanitizedFollowUpReason = input.followUpReason ? sanitizeInput(input.followUpReason) || undefined : undefined;
@@ -832,7 +832,7 @@ export class VisitsService {
         notes?: string;
         visitType?: VisitType;
       } = { updatedAt: new Date() };
-      
+
       if (input.plannedDate) updateData.plannedDate = input.plannedDate;
       if (input.plannedTime !== undefined) updateData.plannedTime = input.plannedTime;
       if (input.notes !== undefined) updateData.notes = sanitizedNotes || undefined;

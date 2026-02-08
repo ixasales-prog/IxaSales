@@ -7,6 +7,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency, formatDate } from '../../stores/settings';
+import { OrderStatusBadge, getPaymentStatusConfig } from '../../components/shared/order';
 
 interface Order {
     id: string;
@@ -48,25 +49,8 @@ const Orders: Component = () => {
     );
 
 
-    const getPaymentBadge = (status: string) => {
-        switch (status) {
-            case 'paid': return 'bg-emerald-500/20 text-emerald-400';
-            case 'partial': return 'bg-amber-500/20 text-amber-400';
-            case 'unpaid': return 'bg-red-500/20 text-red-400';
-            default: return 'bg-slate-500/20 text-slate-400';
-        }
-    };
 
-    const getStatusStripColor = (status: string) => {
-        switch (status) {
-            case 'pending': return 'bg-amber-500';
-            case 'delivered':
-            case 'completed': return 'bg-emerald-500';
-            case 'returned': return 'bg-red-600'; // Darker red for returned
-            case 'paid': return 'bg-emerald-600'; // Should not happen as order status but for completeness
-            default: return 'bg-slate-500';
-        }
-    };
+
 
     const formatOrderDate = (date: string) => {
         return formatDate(date, { month: 'short', day: 'numeric' });
@@ -145,8 +129,11 @@ const Orders: Component = () => {
                                 href={`/sales/orders/${order.id}`}
                                 class="block w-full relative overflow-hidden bg-slate-900/60 border border-slate-800/50 rounded-xl hover:bg-slate-800/60 active:scale-[0.99] transition-all text-left group"
                             >
-                                {/* Status Strip */}
-                                <div class={`absolute left-0 top-0 bottom-0 w-1.5 ${getStatusStripColor(order.status)} transition-all group-hover:w-2`} />
+                                <OrderStatusBadge
+                                    status={order.status}
+                                    variant="strip"
+                                    className="absolute left-0 top-0 bottom-0 w-1.5 transition-all group-hover:w-2"
+                                />
 
                                 <div class="p-4 pl-5 space-y-2">
                                     {/* Top Row: Customer Name & Amount */}
@@ -168,7 +155,7 @@ const Orders: Component = () => {
                                         </div>
 
                                         <div class="flex items-center gap-2 shrink-0">
-                                            <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${getPaymentBadge(order.paymentStatus)}`}>
+                                            <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${getPaymentStatusConfig(order.paymentStatus).bg} ${getPaymentStatusConfig(order.paymentStatus).text}`}>
                                                 {order.paymentStatus}
                                             </span>
                                             <span class="text-slate-500 font-medium">

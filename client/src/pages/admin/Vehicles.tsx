@@ -30,7 +30,7 @@ const Vehicles: Component = () => {
     };
 
     return (
-        <div class="p-4 sm:p-8 space-y-8">
+        <div class="p-4 pt-6 sm:p-8 sm:pt-8 space-y-8">
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold text-white tracking-tight">Vehicles</h1>
@@ -126,3 +126,4 @@ const Vehicles: Component = () => {
 };
 
 export default Vehicles;
+

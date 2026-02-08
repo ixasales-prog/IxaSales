@@ -55,6 +55,7 @@ import AdminDashboard from './pages/admin/Dashboard';
 import AdminProducts from './pages/admin/Products';
 import AdminCustomers from './pages/admin/Customers';
 import AdminOrders from './pages/admin/Orders';
+import AdminOrderDetail from './pages/admin/OrderDetail';
 import AdminCategories from './pages/admin/Categories';
 import AdminBrands from './pages/admin/Brands';
 import AdminDiscounts from './pages/admin/Discounts';
@@ -316,6 +317,7 @@ const App: Component = () => {
           <Route path="/admin" component={AdminLayoutWrapper}>
             <Route path="/" component={AdminDashboard} />
             <Route path="/orders" component={AdminOrders} />
+            <Route path="/orders/:id" component={AdminOrderDetail} />
             <Route path="/products" component={AdminProducts} />
             <Route path="/categories" component={AdminCategories} />
             <Route path="/brands" component={AdminBrands} />

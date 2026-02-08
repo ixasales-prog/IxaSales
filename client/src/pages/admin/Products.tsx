@@ -267,7 +267,7 @@ const Products: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
@@ -711,3 +711,4 @@ const Products: Component = () => {
 };
 
 export default Products;
+

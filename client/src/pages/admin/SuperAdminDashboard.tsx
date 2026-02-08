@@ -59,7 +59,7 @@ const SuperAdminDashboard: Component = () => {
     const loading = () => salesData.loading || tenants.loading;
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             <div class="mb-8">
                 <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">Platform Overview</h1>
                 <p class="text-slate-400">System-wide performance metrics.</p>
@@ -120,3 +120,4 @@ const SuperAdminDashboard: Component = () => {
 };
 
 export default SuperAdminDashboard;
+

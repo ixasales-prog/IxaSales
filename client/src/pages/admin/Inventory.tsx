@@ -1,7 +1,7 @@
 import { type Component, createResource, createSignal, Show, For } from 'solid-js';
 import { Plus, Loader2, RefreshCw, Warehouse, ArrowUpCircle, ArrowDownCircle, Package } from 'lucide-solid';
 import { api } from '../../lib/api';
-import AddAdjustmentModal from './AddAdjustmentModal';
+import BatchAdjustmentModal from './BatchAdjustmentModal';
 
 interface StockMovement {
     id: string;
@@ -49,7 +49,7 @@ const Inventory: Component = () => {
     };
 
     return (
-        <div class="p-4 sm:p-8 space-y-8">
+        <div class="p-4 pt-6 sm:p-8 sm:pt-8 space-y-8">
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                     <h1 class="text-3xl font-bold text-white tracking-tight">Inventory</h1>
@@ -179,7 +179,7 @@ const Inventory: Component = () => {
             </div>
 
             <Show when={showAdjustmentModal()}>
-                <AddAdjustmentModal
+                <BatchAdjustmentModal
                     onClose={() => setShowAdjustmentModal(false)}
                     onSuccess={() => refetch()}
                 />
@@ -189,3 +189,4 @@ const Inventory: Component = () => {
 };
 
 export default Inventory;
+

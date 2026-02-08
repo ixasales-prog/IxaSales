@@ -95,7 +95,7 @@ const AdminTelegram: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8 max-w-2xl mx-auto">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 max-w-2xl mx-auto">
             <A
                 href="/admin/settings"
                 class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-6 transition-colors"
@@ -307,3 +307,4 @@ const AdminTelegram: Component = () => {
 };
 
 export default AdminTelegram;
+

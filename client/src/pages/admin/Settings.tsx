@@ -141,7 +141,7 @@ const AdminSettings: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8 max-w-4xl mx-auto">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 max-w-4xl mx-auto">
             {/* Header */}
             <div class="mb-8">
                 <h1 class="text-2xl font-bold text-white flex items-center gap-3">
@@ -295,3 +295,4 @@ const AdminSettings: Component = () => {
 };
 
 export default AdminSettings;
+

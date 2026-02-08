@@ -18,8 +18,21 @@ const CreateAdjustmentBodySchema = Type.Object({
     reason: Type.String({ minLength: 3 }),
 });
 
+// Batch adjustment schema - adjusts multiple products at once
+const BatchAdjustmentItemSchema = Type.Object({
+    productId: Type.String(),
+    quantity: Type.Number({ minimum: 0 }),
+});
+
+const CreateBatchAdjustmentBodySchema = Type.Object({
+    type: Type.String(),
+    reason: Type.String({ minLength: 3 }),
+    items: Type.Array(BatchAdjustmentItemSchema, { minItems: 1 }),
+});
+
 type ListMovementsQuery = Static<typeof ListMovementsQuerySchema>;
 type CreateAdjustmentBody = Static<typeof CreateAdjustmentBodySchema>;
+type CreateBatchAdjustmentBody = Static<typeof CreateBatchAdjustmentBodySchema>;
 
 export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
     // List movements
@@ -120,6 +133,116 @@ export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
                 return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
             }
             return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR' } });
+        }
+    });
+
+    // Batch adjustment - adjust multiple products at once
+    fastify.post<{ Body: CreateBatchAdjustmentBody }>('/adjustments/batch', {
+        preHandler: [fastify.authenticate],
+        schema: { body: CreateBatchAdjustmentBodySchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        const body = request.body;
+
+        if (!['tenant_admin', 'super_admin', 'supervisor', 'warehouse'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const batchNumber = `BATCH-${Date.now()}`;
+
+        try {
+            const results = await db.transaction(async (tx) => {
+                const adjustments: any[] = [];
+                const errors: string[] = [];
+
+                for (const item of body.items) {
+                    const [product] = await tx.select({
+                        stockQuantity: schema.products.stockQuantity,
+                        name: schema.products.name
+                    })
+                        .from(schema.products)
+                        .where(and(eq(schema.products.id, item.productId), eq(schema.products.tenantId, user.tenantId)))
+                        .limit(1);
+
+                    if (!product) {
+                        errors.push(`Product ${item.productId} not found`);
+                        continue;
+                    }
+
+                    const qtyBefore = product.stockQuantity || 0;
+                    let qtyAfter = qtyBefore;
+                    let change = 0;
+
+                    // Calculate new quantity based on adjustment type
+                    if (body.type === 'count') {
+                        qtyAfter = item.quantity;
+                        change = qtyAfter - qtyBefore;
+                    } else if (body.type === 'found') {
+                        change = item.quantity;
+                        qtyAfter = qtyBefore + change;
+                    } else {
+                        change = -item.quantity;
+                        qtyAfter = qtyBefore + change;
+                    }
+
+                    // Skip if no change
+                    if (change === 0) continue;
+
+                    // Update product stock
+                    await tx.update(schema.products)
+                        .set({ stockQuantity: qtyAfter })
+                        .where(eq(schema.products.id, item.productId));
+
+                    // Create adjustment record
+                    const adjustmentNumber = `ADJ-${Date.now()}-${adjustments.length}`;
+                    const [adjustment] = await tx.insert(schema.stockAdjustments).values({
+                        tenantId: user.tenantId,
+                        adjustmentNumber,
+                        productId: item.productId,
+                        adjustmentType: body.type as any,
+                        qtyBefore,
+                        qtyAfter,
+                        reason: `[${batchNumber}] ${body.reason}`,
+                        createdBy: user.id,
+                        approvedBy: user.id,
+                    }).returning();
+
+                    // Create stock movement
+                    await tx.insert(schema.stockMovements).values({
+                        tenantId: user.tenantId,
+                        productId: item.productId,
+                        movementType: body.type === 'found' ? 'in' : (change < 0 ? 'out' : 'adjust'),
+                        quantity: Math.abs(change),
+                        quantityBefore: qtyBefore,
+                        quantityAfter: qtyAfter,
+                        referenceType: 'adjustment',
+                        referenceId: adjustment.id,
+                        createdBy: user.id,
+                        notes: `Batch Adjustment: ${body.reason}`,
+                    });
+
+                    adjustments.push({
+                        ...adjustment,
+                        productName: product.name,
+                        change,
+                    });
+                }
+
+                return { adjustments, errors, batchNumber };
+            });
+
+            return {
+                success: true,
+                data: {
+                    batchNumber: results.batchNumber,
+                    adjustmentsCount: results.adjustments.length,
+                    adjustments: results.adjustments,
+                    errors: results.errors,
+                }
+            };
+        } catch (error: any) {
+            console.error('[Batch Adjustment Error]', error);
+            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error.message } });
         }
     });
 };

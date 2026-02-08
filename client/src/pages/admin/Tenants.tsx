@@ -87,7 +87,7 @@ const Tenants: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
                 <div>
                     <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">Tenants</h1>
@@ -305,3 +305,4 @@ const Tenants: Component = () => {
 };
 
 export default Tenants;
+

@@ -191,7 +191,7 @@ const Dashboard: Component = () => {
     const loading = () => salesByRep.loading || customerDebts.loading || inventory.loading || recentOrders.loading || lowStockItems.loading || visitDurationByRep.loading || visitDurationTrends.loading;
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="mb-8">
                 <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">Dashboard</h1>
@@ -519,3 +519,4 @@ const Dashboard: Component = () => {
 };
 
 export default Dashboard;
+

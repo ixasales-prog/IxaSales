@@ -48,7 +48,8 @@ const AddCustomerModal: Component<AddCustomerModalProps> = (props) => {
     const [territories] = createResource(async () => {
         try {
             const data = await api<Territory[]>('/customers/territories');
-            return data || [];
+            // Sort territories in descending order by name
+            return (data || []).sort((a, b) => b.name.localeCompare(a.name));
         } catch {
             return [];
         }

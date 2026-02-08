@@ -121,7 +121,7 @@ const Reports: Component = () => {
     const loading = () => visitDurationByRep.loading || visitDurationTrends.loading || longVisits.loading || visitOutcomes.loading;
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="mb-8">
                 <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">Visit Reports</h1>
@@ -410,3 +410,4 @@ const Reports: Component = () => {
 };
 
 export default Reports;
+

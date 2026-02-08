@@ -334,7 +334,7 @@ const NotificationSettings: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8 max-w-4xl">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 max-w-4xl">
             <A href="/admin/settings" class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-4 transition-colors">
                 <ArrowLeft class="w-4 h-4" /> Back to Settings
             </A>
@@ -458,3 +458,4 @@ const NotificationSettings: Component = () => {
 };
 
 export default NotificationSettings;
+

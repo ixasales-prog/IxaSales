@@ -70,7 +70,7 @@ const Users: Component = () => {
         name: '',
         email: '',
         password: '',
-        role: 'sales_rep',
+        role: '',
         phone: '',
         tenantId: '', // For super admins
         supervisorId: '', // For sales reps
@@ -240,6 +240,12 @@ const Users: Component = () => {
         setError(null);
 
         try {
+            if (!formData.role) {
+                setError('Please select a role for the user.');
+                setSubmitting(false);
+                return;
+            }
+            
             if (formData.role === 'sales_rep' && (!formData.territoryIds || formData.territoryIds.length === 0)) {
                 setError('Please assign at least one territory to the sales rep.');
                 setSubmitting(false);
@@ -275,7 +281,7 @@ const Users: Component = () => {
                 name: '',
                 email: '',
                 password: '',
-                role: 'sales_rep',
+                role: '',
                 phone: '',
                 tenantId: '',
                 supervisorId: '',
@@ -319,7 +325,7 @@ const Users: Component = () => {
     };
 
     return (
-        <div class="p-6 lg:p-8">
+        <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
                 <div>
@@ -333,7 +339,7 @@ const Users: Component = () => {
                             name: '',
                             email: '',
                             password: '',
-                            role: 'sales_rep',
+                            role: '',
                             phone: '',
                             tenantId: '',
                             supervisorId: ''
@@ -783,6 +789,7 @@ const Users: Component = () => {
                                 <div class="space-y-1.5">
                                     <label class="text-sm font-medium text-slate-300">Role</label>
                                     <select
+                                        required
                                         value={formData.role}
                                         onInput={(e) => {
                                             const newRole = e.currentTarget.value;
@@ -795,6 +802,7 @@ const Users: Component = () => {
                                         }}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
+                                        <option value="">Select a Role...</option>
                                         <For each={creationRoles()}>
                                             {(role) => <option value={role.value}>{role.label}</option>}
                                         </For>
@@ -906,3 +914,4 @@ const Users: Component = () => {
 };
 
 export default Users;
+
