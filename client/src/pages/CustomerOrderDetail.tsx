@@ -10,7 +10,7 @@ import { useParams, useNavigate } from '@solidjs/router';
 import { ArrowLeft, Package, Loader2, CreditCard, CheckCircle, Clock, Truck, XCircle, AlertCircle, Box, Check, RefreshCw } from 'lucide-solid';
 import { customerApi } from '../services/customer-api';
 import type { OrderDetail, TimelineStep } from '../types/customer-portal';
-import { formatMoney } from '../utils/formatters';
+import { formatMoney, getImageUrl } from '../utils/formatters';
 import { formatDateTime } from '../stores/settings';
 import { toast } from '../components/Toast';
 import { useI18n } from '../i18n';
@@ -201,7 +201,7 @@ const CustomerOrderDetailContent: Component = () => {
                                         <Show when={item.imageUrl} fallback={
                                             <div class="item-image-placeholder"><Box size={24} /></div>
                                         }>
-                                            <img src={item.imageUrl} alt={item.productName} class="item-image" />
+                                            <img src={getImageUrl(item.imageUrl)} alt={item.productName} class="item-image" />
                                         </Show>
                                         <div class="item-info">
                                             <div class="item-name">{item.productName}</div>

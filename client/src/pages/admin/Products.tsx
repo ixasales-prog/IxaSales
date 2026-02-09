@@ -16,6 +16,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../stores/settings';
+import { getImageUrl } from '../../utils/formatters';
 import ImportMasterModal from '../../components/products/ImportMasterModal';
 import ImageUploader from '../../components/ImageUploader';
 import ImageLightbox from '../../components/ImageLightbox';
@@ -372,7 +373,7 @@ const Products: Component = () => {
                                                     >
                                                         <Show when={product.imageUrl} fallback={<Package class="w-5 h-5 text-slate-500" />}>
                                                             <img
-                                                                src={product.imageUrl!}
+                                                                src={getImageUrl(product.imageUrl!)}
                                                                 alt={product.name}
                                                                 class="w-full h-full object-cover"
                                                                 loading="lazy"
@@ -434,7 +435,7 @@ const Products: Component = () => {
                                         >
                                             <Show when={product.imageUrl} fallback={<Package class="w-6 h-6 text-slate-500" />}>
                                                 <img
-                                                    src={product.imageUrl!}
+                                                    src={getImageUrl(product.imageUrl!)}
                                                     alt={product.name}
                                                     class="w-full h-full object-cover"
                                                     loading="lazy"

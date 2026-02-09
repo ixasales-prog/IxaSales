@@ -15,6 +15,7 @@ import {
 import { api } from '../../lib/api';
 import { cartItems, addToCart, cartCount, updateCartQuantity } from '../../stores/cart';
 import { formatCurrency } from '../../stores/settings';
+import { getImageUrl } from '../../utils/formatters';
 import { useI18n } from '../../i18n';
 import ProductDetailModal from './ProductDetailModal';
 import BarcodeScanner from '../../components/BarcodeScanner';
@@ -317,7 +318,7 @@ const Catalog: Component = () => {
                                                 <Package class="w-12 h-12 text-slate-700" />
                                             }>
                                                 <img
-                                                    src={product.imageUrl!}
+                                                    src={getImageUrl(product.imageUrl!)}
                                                     alt={product.name}
                                                     class="w-full h-full object-cover"
                                                     loading="lazy"

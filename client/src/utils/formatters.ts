@@ -9,7 +9,7 @@
 
 // Re-export tenant-aware formatters for convenience
 // These should be preferred over the local implementations below
-export { 
+export {
     formatCurrency as formatTenantCurrency,
     formatCurrencyShort,
     formatDate as formatTenantDate,
@@ -126,8 +126,11 @@ export function capitalize(str: string): string {
 // IMAGE HELPERS
 // ============================================================================
 
+import { API_BASE_URL } from '../lib/api';
+
 /**
  * Get optimized image URL with width parameter
+ * Handles cross-domain image loading when frontend and API are on different domains
  */
 export function getOptimizedImage(url?: string | null, width = 400): string {
     if (!url) return '';
@@ -135,10 +138,31 @@ export function getOptimizedImage(url?: string | null, width = 400): string {
     if (url.startsWith('http://') || url.startsWith('https://')) {
         return url;
     }
-    // Transform /uploads/ paths to /api/images/ with optimization
+    // Transform /uploads/ paths to API images endpoint with optimization
     if (url.startsWith('/uploads/')) {
         const filename = url.replace(/^\/uploads\//, '');
-        return `/api/images/${filename}?w=${width}`;
+        // Use full API URL to ensure images work when frontend and API are on different domains
+        const baseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+        return `${baseUrl}/api/images/${filename}?w=${width}`;
+    }
+    // Return as-is for other paths
+    return url;
+}
+
+/**
+ * Get the full image URL for direct display (no optimization)
+ * Use this when you need to display an image directly without going through the optimization endpoint
+ */
+export function getImageUrl(url?: string | null): string {
+    if (!url) return '';
+    // If it's already a full URL, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        return url;
+    }
+    // Prepend API base URL for /uploads/ paths
+    if (url.startsWith('/uploads/')) {
+        const baseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+        return `${baseUrl}${url}`;
     }
     // Return as-is for other paths
     return url;
