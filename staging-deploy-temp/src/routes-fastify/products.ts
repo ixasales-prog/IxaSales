@@ -724,20 +724,25 @@ export const productRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!product) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
 
+        console.log('[ProductImages] Saving images for product:', request.params.id, 'body:', JSON.stringify(request.body).substring(0, 200));
+
         if (request.body.images && Array.isArray(request.body.images)) {
+            console.log('[ProductImages] Deleting existing images for product:', request.params.id);
             await db.delete(schema.productImages).where(eq(schema.productImages.productId, request.params.id));
+
             if (request.body.images.length > 0) {
-                await db.insert(schema.productImages).values(
-                    request.body.images.map(img => ({
-                        productId: request.params.id,
-                        url: img.url,
-                        thumbnailUrl: img.thumbnailUrl,
-                        mediumUrl: img.mediumUrl,
-                        altText: img.altText,
-                        isPrimary: img.isPrimary || false,
-                        sortOrder: img.sortOrder || 0
-                    }))
-                );
+                const insertData = request.body.images.map(img => ({
+                    productId: request.params.id,
+                    url: img.url,
+                    thumbnailUrl: img.thumbnailUrl,
+                    mediumUrl: img.mediumUrl,
+                    altText: img.altText,
+                    isPrimary: img.isPrimary || false,
+                    sortOrder: img.sortOrder || 0
+                }));
+                console.log('[ProductImages] Inserting images:', insertData.length);
+                await db.insert(schema.productImages).values(insertData);
+                console.log('[ProductImages] Insert complete');
             }
         } else if (request.body.url) {
             await db.insert(schema.productImages).values({
@@ -755,6 +760,7 @@ export const productRoutes: FastifyPluginAsync = async (fastify) => {
             .where(eq(schema.productImages.productId, request.params.id))
             .orderBy(schema.productImages.sortOrder);
 
+        console.log('[ProductImages] Returning images:', images.length);
         return { success: true, data: images };
     });
 };

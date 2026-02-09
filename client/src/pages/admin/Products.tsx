@@ -146,19 +146,44 @@ const Products: Component = () => {
         setLightboxOpen(true);
     };
 
-    const handleEdit = (product: Product) => {
+    const handleEdit = async (product: Product) => {
         setEditingId(product.id);
 
-        // Load product images (if product has imageUrl, create initial image)
-        if (product.imageUrl) {
-            setProductImages([{
-                url: product.imageUrl,
-                mediumUrl: product.imageUrl,
-                isPrimary: true,
-                sortOrder: 0
-            }]);
-        } else {
-            setProductImages([]);
+        // Fetch product images from the productImages table
+        try {
+            const images: any[] = await api(`/products/${product.id}/images`);
+            if (images && images.length > 0) {
+                setProductImages(images.map((img: any) => ({
+                    url: img.url,
+                    thumbnailUrl: img.thumbnailUrl,
+                    mediumUrl: img.mediumUrl,
+                    isPrimary: img.isPrimary,
+                    sortOrder: img.sortOrder
+                })));
+            } else if (product.imageUrl) {
+                // Fallback to single imageUrl if no images in productImages table
+                setProductImages([{
+                    url: product.imageUrl,
+                    mediumUrl: product.imageUrl,
+                    isPrimary: true,
+                    sortOrder: 0
+                }]);
+            } else {
+                setProductImages([]);
+            }
+        } catch (err) {
+            console.error('Failed to load product images:', err);
+            // Fallback to single imageUrl
+            if (product.imageUrl) {
+                setProductImages([{
+                    url: product.imageUrl,
+                    mediumUrl: product.imageUrl,
+                    isPrimary: true,
+                    sortOrder: 0
+                }]);
+            } else {
+                setProductImages([]);
+            }
         }
 
         // Find category from subcategory if needed
