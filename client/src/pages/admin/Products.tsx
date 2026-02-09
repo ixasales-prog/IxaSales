@@ -227,10 +227,11 @@ const Products: Component = () => {
 
             // Save images to productImages table if we have any
             const productId = editingId() || productResult?.id;
+            console.log('[Products] Saving images - productId:', productId, 'images:', productImages().length, 'productResult:', productResult);
             if (productId && productImages().length > 0) {
                 try {
                     // Save all images to productImages table
-                    await api.post(`/products/${productId}/images`, {
+                    const imageData = {
                         images: productImages().map((img, index) => ({
                             url: img.url,
                             thumbnailUrl: img.thumbnailUrl,
@@ -238,11 +239,16 @@ const Products: Component = () => {
                             isPrimary: img.isPrimary || index === 0,
                             sortOrder: img.sortOrder || index
                         }))
-                    });
-                } catch (imgErr) {
-                    console.error('Failed to save product images:', imgErr);
+                    };
+                    console.log('[Products] Saving image data:', JSON.stringify(imageData, null, 2));
+                    const imgResult = await api.post(`/products/${productId}/images`, imageData);
+                    console.log('[Products] Image save result:', imgResult);
+                } catch (imgErr: any) {
+                    console.error('[Products] Failed to save product images:', imgErr?.message || imgErr);
                     // Don't fail the whole operation if images fail
                 }
+            } else {
+                console.log('[Products] Skipping image save - productId:', productId, 'images:', productImages().length);
             }
 
             setShowCreateModal(false);

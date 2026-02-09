@@ -33,7 +33,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: [],
+        globPatterns: ['index.html', 'icons/*.svg'],
+        navigateFallback: null,
         runtimeCaching: []
       },
       devOptions: {
