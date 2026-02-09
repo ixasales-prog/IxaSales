@@ -7,7 +7,7 @@ import { PgColumn } from 'drizzle-orm/pg-core';
 // Simple sanitization utility for backend
 const sanitizeInput = (input: string | null | undefined): string | null => {
   if (input === null || input === undefined) return null;
-  
+
   // Basic sanitization: remove control characters and normalize whitespace
   return input
     .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
@@ -70,14 +70,14 @@ export interface UnifiedCreateVisitInput {
   plannedDate?: string;
   plannedTime?: string;
   notes?: string;
-  
+
   // Mode determines the workflow
   mode: 'scheduled' | 'quick';
-  
+
   // Scheduled mode specific
   salesRepId?: string;
   visitType?: string;
-  
+
   // Quick mode specific
   outcome?: string;
   photo?: string;
@@ -102,6 +102,10 @@ export interface CompleteVisitInput {
   orderId?: string;
   latitude?: number;
   longitude?: number;
+  noOrderReason?: string;
+  followUpReason?: string;
+  followUpDate?: string;
+  followUpTime?: string;
 }
 
 export interface CancelVisitInput {
@@ -151,12 +155,11 @@ export class VisitsService {
   /**
    * Validate that a planned date is not in the past
    */
-  private validatePlannedDate(dateStr: string): void {
-    const plannedDate = new Date(dateStr);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    if (plannedDate < today) {
+  private async validatePlannedDate(dateStr: string, tenantId: string): Promise<void> {
+    const { todayStr } = await getTenantDayRange(tenantId);
+
+    // Dates are in YYYY-MM-DD format so string comparison is safe
+    if (dateStr < todayStr) {
       throw new Error('Planned date cannot be in the past');
     }
   }
@@ -186,29 +189,15 @@ export class VisitsService {
     const { page = 1, limit = 20, startDate, endDate, status, customerId } = filters;
     const offset = (page - 1) * limit;
 
-    const conditions: SQL<unknown>[] = [eq(schema.salesVisits.tenantId, tenantId)];
-
-    // Sales rep can only see their own visits
-    if (role === 'sales_rep') {
-      conditions.push(eq(schema.salesVisits.salesRepId, userId));
-    }
-
-    // Supervisor can only see their assigned reps' visits
-    if (role === 'supervisor') {
-      const assignedRepIds = await this.getAssignedRepIds(userId, tenantId);
-      if (assignedRepIds.length > 0) {
-        conditions.push(inArray(schema.salesVisits.salesRepId, assignedRepIds));
-      } else {
-        // No assigned reps - return empty result
-        conditions.push(sql`1=0`);
-      }
-    }
+    const extraConditions: SQL<unknown>[] = [];
 
     // Apply filters
-    if (startDate) conditions.push(gte(schema.salesVisits.plannedDate, startDate));
-    if (endDate) conditions.push(lte(schema.salesVisits.plannedDate, endDate));
-    if (status) conditions.push(eq(schema.salesVisits.status, status as any));
-    if (customerId) conditions.push(eq(schema.salesVisits.customerId, customerId));
+    if (startDate) extraConditions.push(gte(schema.salesVisits.plannedDate, startDate));
+    if (endDate) extraConditions.push(lte(schema.salesVisits.plannedDate, endDate));
+    if (status) extraConditions.push(eq(schema.salesVisits.status, status as any));
+    if (customerId) extraConditions.push(eq(schema.salesVisits.customerId, customerId));
+
+    const conditions = await this.buildVisitAccessConditions(tenantId, userId, role, extraConditions);
 
     const visits = await db
       .select({
@@ -255,25 +244,12 @@ export class VisitsService {
     const { todayStr } = await getTenantDayRange(tenantId);
     const actualDate = date || todayStr;
 
-    const conditions: SQL<unknown>[] = [
-      eq(schema.salesVisits.tenantId, tenantId),
-      eq(schema.salesVisits.plannedDate, actualDate),
-    ];
-
-    if (role === 'sales_rep') {
-      conditions.push(eq(schema.salesVisits.salesRepId, userId));
-    }
-
-    // Supervisor can only see their assigned reps' visits
-    if (role === 'supervisor') {
-      const assignedRepIds = await this.getAssignedRepIds(userId, tenantId);
-      if (assignedRepIds.length > 0) {
-        conditions.push(inArray(schema.salesVisits.salesRepId, assignedRepIds));
-      } else {
-        // No assigned reps - return empty result
-        conditions.push(sql`1=0`);
-      }
-    }
+    const conditions = await this.buildVisitAccessConditions(
+      tenantId,
+      userId,
+      role,
+      [eq(schema.salesVisits.plannedDate, actualDate)]
+    );
 
     const visits = await db
       .select({
@@ -324,27 +300,14 @@ export class VisitsService {
    * Get follow-up summary for a user
    */
   async getFollowUpSummary(tenantId: string, userId: string, role: string) {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const { todayStr } = await getTenantDayRange(tenantId);
 
-    const conditions: SQL<unknown>[] = [
-      eq(schema.salesVisits.tenantId, tenantId),
-      eq(schema.salesVisits.outcome, 'follow_up'),
-    ];
-
-    if (role === 'sales_rep') {
-      conditions.push(eq(schema.salesVisits.salesRepId, userId));
-    }
-
-    // Supervisor can only see their assigned reps' visits
-    if (role === 'supervisor') {
-      const assignedRepIds = await this.getAssignedRepIds(userId, tenantId);
-      if (assignedRepIds.length > 0) {
-        conditions.push(inArray(schema.salesVisits.salesRepId, assignedRepIds));
-      } else {
-        // No assigned reps - return empty result
-        conditions.push(sql`1=0`);
-      }
-    }
+    const conditions = await this.buildVisitAccessConditions(
+      tenantId,
+      userId,
+      role,
+      [eq(schema.salesVisits.outcome, 'follow_up')]
+    );
 
     const [summary] = await db
       .select({
@@ -468,8 +431,8 @@ export class VisitsService {
       throw new Error('Planned date is required for scheduled visits');
     }
 
-    // Validate planned date is not in the past
-    this.validatePlannedDate(input.plannedDate);
+    // Validate planned date is not in the past (tenant-local)
+    await this.validatePlannedDate(input.plannedDate, tenantId);
 
     // Validate visit type if provided
     if (input.visitType) {
@@ -509,11 +472,19 @@ export class VisitsService {
     this.validateOutcome(input.outcome);
 
     const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    
-    // Validate planned date if provided
+    const { todayStr } = await getTenantDayRange(tenantId, now);
+
+    // Validate planned date if provided (tenant-local)
     if (input.plannedDate) {
-      this.validatePlannedDate(input.plannedDate);
+      await this.validatePlannedDate(input.plannedDate, tenantId);
+    }
+
+    // Follow-up specific validation
+    if (input.outcome === 'follow_up') {
+      if (!input.followUpDate) {
+        throw new Error('followUpDate is required when outcome is follow_up');
+      }
+      await this.validatePlannedDate(input.followUpDate, tenantId);
     }
 
     // Build insert values with proper typing
@@ -545,7 +516,7 @@ export class VisitsService {
       visitType: 'ad_hoc',
       status: 'completed',
       outcome: input.outcome as Outcome,
-      plannedDate: input.plannedDate || today,
+      plannedDate: input.plannedDate || todayStr,
       plannedTime: input.plannedTime || now.toTimeString().slice(0, 5),
       startedAt: now,
       completedAt: now,
@@ -704,21 +675,67 @@ export class VisitsService {
       this.validateOutcome(input.outcome);
 
       // Sanitize inputs
-      const sanitizedOutcomeNotes = input.outcomeNotes ? sanitizeInput(input.outcomeNotes) : undefined;
+      const sanitizedOutcomeNotes = input.outcomeNotes ? sanitizeInput(input.outcomeNotes) || undefined : undefined;
       const sanitizedPhotos = input.photos ? sanitizeArray(input.photos) : undefined;
+      const sanitizedNoOrderReason = input.noOrderReason ? sanitizeInput(input.noOrderReason) || undefined : undefined;
+      const sanitizedFollowUpReason = input.followUpReason ? sanitizeInput(input.followUpReason) || undefined : undefined;
+
+      const updateData: {
+        status: 'completed';
+        completedAt: Date;
+        outcome: Outcome;
+        outcomeNotes?: string;
+        photos?: string[] | null;
+        endLatitude?: string;
+        endLongitude?: string;
+        updatedAt: Date;
+        orderId?: string;
+        noOrderReason?: string;
+        followUpReason?: string;
+        followUpDate?: string;
+        followUpTime?: string;
+      } = {
+        status: 'completed',
+        completedAt: new Date(),
+        outcome: input.outcome as Outcome,
+        outcomeNotes: sanitizedOutcomeNotes,
+        photos: sanitizedPhotos,
+        endLatitude: input.latitude?.toString(),
+        endLongitude: input.longitude?.toString(),
+        updatedAt: new Date(),
+      };
+
+      // Outcome-specific invariants
+      if (input.outcome === 'order_placed') {
+        if (!input.orderId) {
+          throw new Error('orderId is required when outcome is order_placed');
+        }
+        updateData.orderId = input.orderId;
+      }
+
+      if (input.outcome === 'no_order') {
+        if (sanitizedNoOrderReason) {
+          updateData.noOrderReason = sanitizedNoOrderReason;
+        }
+      }
+
+      if (input.outcome === 'follow_up') {
+        if (!input.followUpDate) {
+          throw new Error('followUpDate is required when outcome is follow_up');
+        }
+        await this.validatePlannedDate(input.followUpDate, tenantId);
+        updateData.followUpDate = input.followUpDate;
+        if (input.followUpTime) {
+          updateData.followUpTime = input.followUpTime;
+        }
+        if (sanitizedFollowUpReason) {
+          updateData.followUpReason = sanitizedFollowUpReason;
+        }
+      }
 
       const result = await tx
         .update(schema.salesVisits)
-        .set({
-          status: 'completed',
-          completedAt: new Date(),
-          outcome: input.outcome as Outcome,
-          outcomeNotes: sanitizedOutcomeNotes,
-          photos: sanitizedPhotos,
-          endLatitude: input.latitude?.toString(),
-          endLongitude: input.longitude?.toString(),
-          updatedAt: new Date(),
-        })
+        .set(updateData)
         .where(eq(schema.salesVisits.id, visitId))
         .returning();
 
@@ -795,9 +812,9 @@ export class VisitsService {
         throw new InvalidStatusTransitionError('Can only reschedule planned visits');
       }
 
-      // Validate planned date if provided
+      // Validate planned date if provided (tenant-local)
       if (input.plannedDate) {
-        this.validatePlannedDate(input.plannedDate);
+        await this.validatePlannedDate(input.plannedDate, tenantId);
       }
 
       // Validate visit type if provided
@@ -815,7 +832,7 @@ export class VisitsService {
         notes?: string;
         visitType?: VisitType;
       } = { updatedAt: new Date() };
-      
+
       if (input.plannedDate) updateData.plannedDate = input.plannedDate;
       if (input.plannedTime !== undefined) updateData.plannedTime = input.plannedTime;
       if (input.notes !== undefined) updateData.notes = sanitizedNotes || undefined;
@@ -835,9 +852,15 @@ export class VisitsService {
    * Mark missed visits
    */
   async markMissedVisits(tenantId: string) {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const { timezone, startOfDay } = await getTenantDayRange(tenantId);
+    const yesterdayStart = new Date(startOfDay);
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    const yesterdayStr = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: timezone,
+    }).format(yesterdayStart);
 
     // Mark all planned visits from yesterday as missed
     const result = await db
@@ -854,5 +877,35 @@ export class VisitsService {
       .returning({ id: schema.salesVisits.id });
 
     return { markedAsMissed: result.length };
+  }
+
+  /**
+   * Build common visibility conditions for visits based on role
+   */
+  private async buildVisitAccessConditions(
+    tenantId: string,
+    userId: string,
+    role: string,
+    extraConditions: SQL<unknown>[] = [],
+  ): Promise<SQL<unknown>[]> {
+    const conditions: SQL<unknown>[] = [eq(schema.salesVisits.tenantId, tenantId), ...extraConditions];
+
+    // Sales rep can only see their own visits
+    if (role === 'sales_rep') {
+      conditions.push(eq(schema.salesVisits.salesRepId, userId));
+    }
+
+    // Supervisor can only see their assigned reps' visits
+    if (role === 'supervisor') {
+      const assignedRepIds = await this.getAssignedRepIds(userId, tenantId);
+      if (assignedRepIds.length > 0) {
+        conditions.push(inArray(schema.salesVisits.salesRepId, assignedRepIds));
+      } else {
+        // No assigned reps - return empty result
+        conditions.push(sql`1=0`);
+      }
+    }
+
+    return conditions;
   }
 }

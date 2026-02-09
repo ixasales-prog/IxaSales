@@ -111,9 +111,33 @@ export const uploadRoutes: FastifyPluginAsync = async (fastify) => {
                     metadata: { width: metadata.width, height: metadata.height, format: 'webp' }
                 }
             };
-        } catch (error) {
-            console.error('Upload error:', error);
-            return reply.code(500).send({ success: false, error: 'Failed to process image' });
+        } catch (error: any) {
+            // Detailed error logging for debugging
+            const errorDetails = {
+                message: error?.message || 'Unknown error',
+                code: error?.code,
+                name: error?.name,
+                tenantId,
+                fileName: data.filename,
+                mimeType,
+                bufferSize: buffer.length,
+                stack: error?.stack?.split('\n').slice(0, 3).join('\n'),
+            };
+            console.error('[Upload Error]', JSON.stringify(errorDetails, null, 2));
+
+            // Provide more specific error messages based on error type
+            let errorMessage = 'Failed to process image';
+            if (error?.message?.includes('Input buffer')) {
+                errorMessage = 'Invalid or corrupted image file';
+            } else if (error?.code === 'ENOENT') {
+                errorMessage = 'File system error - directory not found';
+            } else if (error?.code === 'EACCES') {
+                errorMessage = 'File system error - permission denied';
+            } else if (error?.message?.includes('libvips')) {
+                errorMessage = 'Image processing library error';
+            }
+
+            return reply.code(500).send({ success: false, error: errorMessage });
         }
     });
 

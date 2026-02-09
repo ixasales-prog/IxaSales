@@ -17,6 +17,8 @@ const ListOrdersQuerySchema = Type.Object({
     status: Type.Optional(Type.String()),
     paymentStatus: Type.Optional(Type.String()),
     customerId: Type.Optional(Type.String()),
+    salesRepId: Type.Optional(Type.String()),
+    territoryId: Type.Optional(Type.String()),
     startDate: Type.Optional(Type.String()),
     endDate: Type.Optional(Type.String()),
 });
@@ -1335,7 +1337,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         }
     }, async (request, reply) => {
         const user = request.user!;
-        const { page: pageStr = '1', limit: limitStr = '20', search, status, paymentStatus, customerId, startDate, endDate } = request.query;
+        const { page: pageStr = '1', limit: limitStr = '20', search, status, paymentStatus, customerId, salesRepId, territoryId, startDate, endDate } = request.query;
 
         const page = parseInt(pageStr);
         const limit = parseInt(limitStr);
@@ -1355,6 +1357,15 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (paymentStatus) conditions.push(eq(schema.orders.paymentStatus, paymentStatus as any));
         if (customerId) conditions.push(eq(schema.orders.customerId, customerId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        // Territory filter - filter by customers in the territory
+        if (territoryId) {
+            conditions.push(sql`${schema.orders.customerId} IN (
+                SELECT ${schema.customers.id} FROM ${schema.customers} 
+                WHERE ${schema.customers.territoryId} = ${territoryId}
+            )`);
+        }
 
         if (startDate) conditions.push(sql`${schema.orders.createdAt} >= ${new Date(startDate).toISOString()}`);
         if (endDate) conditions.push(sql`${schema.orders.createdAt} <= ${new Date(endDate).toISOString()}`);
@@ -1372,6 +1383,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                 customerName: schema.customers.name,
                 customerCode: schema.customers.code,
                 salesRepName: schema.users.name,
+                driverId: schema.orders.driverId,
                 totalAmount: schema.orders.totalAmount,
                 paidAmount: schema.orders.paidAmount,
                 status: schema.orders.status,
@@ -1387,11 +1399,22 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(limit)
             .offset(offset);
 
+        // Fetch driver names for orders that have drivers assigned
+        const driverIds = [...new Set(ordersRaw.filter(o => o.driverId).map(o => o.driverId!))];
+        let driverMap: Record<string, string> = {};
+        if (driverIds.length > 0) {
+            const drivers = await db.select({ id: schema.users.id, name: schema.users.name })
+                .from(schema.users)
+                .where(sql`${schema.users.id} IN ${driverIds}`);
+            driverMap = Object.fromEntries(drivers.map(d => [d.id, d.name]));
+        }
+
         const orders = ordersRaw.map(o => ({
             id: o.id,
             orderNumber: o.orderNumber,
             customer: o.customerName ? { name: o.customerName, code: o.customerCode || '' } : null,
             salesRep: o.salesRepName ? { name: o.salesRepName } : null,
+            driver: o.driverId ? { name: driverMap[o.driverId] || 'Unknown' } : null,
             totalAmount: o.totalAmount,
             paidAmount: o.paidAmount || '0',
             status: o.status,
@@ -1681,6 +1704,323 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         return { success: true, data: result };
+    });
+
+    // ----------------------------------------------------------------
+    // GET ORDER DETAIL (FULL)
+    // Includes items, customer info, sales rep, driver, status history
+    // ----------------------------------------------------------------
+    fastify.get<{ Params: Static<typeof GetOrderParamsSchema> }>('/:id/detail', {
+        preHandler: [fastify.authenticate],
+        schema: {
+            params: GetOrderParamsSchema
+        }
+    }, async (request, reply) => {
+        try {
+            const user = request.user!;
+            const { id } = request.params;
+
+            // Fetch order - only select columns that exist in schema
+            const [order] = await db
+                .select({
+                    id: schema.orders.id,
+                    orderNumber: schema.orders.orderNumber,
+                    status: schema.orders.status,
+                    paymentStatus: schema.orders.paymentStatus,
+                    totalAmount: schema.orders.totalAmount,
+                    subtotalAmount: schema.orders.subtotalAmount,
+                    discountAmount: schema.orders.discountAmount,
+                    paidAmount: schema.orders.paidAmount,
+                    notes: schema.orders.notes,
+                    requestedDeliveryDate: schema.orders.requestedDeliveryDate,
+                    createdAt: schema.orders.createdAt,
+                    deliveredAt: schema.orders.deliveredAt,
+                    cancelledAt: schema.orders.cancelledAt,
+                    customerId: schema.orders.customerId,
+                    salesRepId: schema.orders.salesRepId,
+                    driverId: schema.orders.driverId,
+                })
+                .from(schema.orders)
+                .where(and(eq(schema.orders.id, id), eq(schema.orders.tenantId, user.tenantId)))
+                .limit(1);
+
+            if (!order) {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
+            }
+
+            // Role-based access control
+            if (user.role === 'sales_rep') {
+                const [cust] = await db
+                    .select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
+                    .from(schema.customers)
+                    .where(eq(schema.customers.id, order.customerId))
+                    .limit(1);
+                if (!cust || cust.assignedSalesRepId !== user.id) {
+                    return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+                }
+            }
+
+            if (user.role === 'driver' && order.driverId !== user.id) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+            }
+
+            // Fetch customer info
+            let customer = null;
+            if (order.customerId) {
+                const [c] = await db
+                    .select({
+                        id: schema.customers.id,
+                        name: schema.customers.name,
+                        code: schema.customers.code,
+                        phone: schema.customers.phone,
+                        address: schema.customers.address,
+                    })
+                    .from(schema.customers)
+                    .where(eq(schema.customers.id, order.customerId))
+                    .limit(1);
+                customer = c || null;
+            }
+
+            // Fetch sales rep
+            let salesRep = null;
+            if (order.salesRepId) {
+                const [sr] = await db
+                    .select({ id: schema.users.id, name: schema.users.name })
+                    .from(schema.users)
+                    .where(eq(schema.users.id, order.salesRepId))
+                    .limit(1);
+                salesRep = sr || null;
+            }
+
+            // Fetch driver
+            let driver = null;
+            if (order.driverId) {
+                const [d] = await db
+                    .select({ id: schema.users.id, name: schema.users.name })
+                    .from(schema.users)
+                    .where(eq(schema.users.id, order.driverId))
+                    .limit(1);
+                driver = d || null;
+            }
+
+            // Fetch order items with product info
+            const items = await db
+                .select({
+                    id: schema.orderItems.id,
+                    productId: schema.orderItems.productId,
+                    productName: schema.products.name,
+                    sku: schema.products.sku,
+                    unitPrice: schema.orderItems.unitPrice,
+                    qtyOrdered: schema.orderItems.qtyOrdered,
+                    qtyDelivered: schema.orderItems.qtyDelivered,
+                    lineTotal: schema.orderItems.lineTotal,
+                })
+                .from(schema.orderItems)
+                .leftJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
+                .where(eq(schema.orderItems.orderId, id));
+
+            // Fetch status history
+            const statusHistory = await db
+                .select({
+                    id: schema.orderStatusHistory.id,
+                    toStatus: schema.orderStatusHistory.toStatus,
+                    fromStatus: schema.orderStatusHistory.fromStatus,
+                    notes: schema.orderStatusHistory.notes,
+                    createdAt: schema.orderStatusHistory.createdAt,
+                })
+                .from(schema.orderStatusHistory)
+                .where(eq(schema.orderStatusHistory.orderId, id))
+                .orderBy(desc(schema.orderStatusHistory.createdAt));
+
+            return {
+                success: true,
+                data: {
+                    id: order.id,
+                    orderNumber: order.orderNumber,
+                    status: order.status,
+                    paymentStatus: order.paymentStatus,
+                    totalAmount: order.totalAmount,
+                    subtotalAmount: order.subtotalAmount,
+                    discountAmount: order.discountAmount,
+                    paidAmount: order.paidAmount || '0',
+                    notes: order.notes,
+                    requestedDeliveryDate: order.requestedDeliveryDate,
+                    createdAt: order.createdAt,
+                    deliveredAt: order.deliveredAt,
+                    cancelledAt: order.cancelledAt,
+                    customer,
+                    salesRep,
+                    driver,
+                    items: items.map(item => ({
+                        id: item.id,
+                        productId: item.productId,
+                        productName: item.productName || 'Unknown Product',
+                        sku: item.sku || '',
+                        unitPrice: item.unitPrice,
+                        qtyOrdered: item.qtyOrdered,
+                        qtyDelivered: item.qtyDelivered || 0,
+                        lineTotal: item.lineTotal,
+                    })),
+                    statusHistory: statusHistory.map(h => ({
+                        id: h.id,
+                        status: h.toStatus,
+                        fromStatus: h.fromStatus,
+                        notes: h.notes,
+                        createdAt: h.createdAt,
+                    })),
+                }
+            };
+        } catch (error) {
+            console.error('[OrderDetail] Error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch order details' } });
+        }
+    });
+
+    // ----------------------------------------------------------------
+    // EDIT ORDER (notes, delivery date, item quantities, remove items)
+    // Only for pending/confirmed/approved orders
+    // ----------------------------------------------------------------
+    const EditOrderBodySchema = Type.Object({
+        notes: Type.Optional(Type.String()),
+        requestedDeliveryDate: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+        items: Type.Optional(Type.Array(Type.Object({
+            id: Type.String(),
+            qtyOrdered: Type.Number({ minimum: 0 }),  // 0 = remove item
+        }))),
+    });
+
+    fastify.patch<{ Params: Static<typeof GetOrderParamsSchema>; Body: Static<typeof EditOrderBodySchema> }>('/:id/edit', {
+        preHandler: [fastify.authenticate],
+        schema: {
+            params: GetOrderParamsSchema,
+            body: EditOrderBodySchema,
+        }
+    }, async (request, reply) => {
+        try {
+            const user = request.user!;
+            const { id } = request.params;
+            const { notes, requestedDeliveryDate, items } = request.body;
+
+            // Only admin can edit orders
+            if (!['admin', 'tenant_admin'].includes(user.role)) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only admins can edit orders' } });
+            }
+
+            // Fetch order
+            const [order] = await db
+                .select({
+                    id: schema.orders.id,
+                    status: schema.orders.status,
+                    tenantId: schema.orders.tenantId,
+                })
+                .from(schema.orders)
+                .where(and(eq(schema.orders.id, id), eq(schema.orders.tenantId, user.tenantId)))
+                .limit(1);
+
+            if (!order) {
+                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
+            }
+
+            // Only allow editing for pending/confirmed/approved orders
+            const editableStatuses = ['pending', 'confirmed', 'approved'];
+            if (!editableStatuses.includes(order.status || '')) {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'NOT_EDITABLE',
+                        message: `Cannot edit order in '${order.status}' status. Only pending, confirmed, or approved orders can be edited.`
+                    }
+                });
+            }
+
+            // Start transaction
+            await db.transaction(async (tx) => {
+                // Update order notes and delivery date
+                const orderUpdates: any = {
+                    updatedAt: new Date(),
+                };
+                if (notes !== undefined) {
+                    orderUpdates.notes = notes;
+                }
+                if (requestedDeliveryDate !== undefined) {
+                    orderUpdates.requestedDeliveryDate = requestedDeliveryDate || null;
+                }
+
+                await tx.update(schema.orders)
+                    .set(orderUpdates)
+                    .where(eq(schema.orders.id, id));
+
+                // Update item quantities
+                if (items && items.length > 0) {
+                    let newSubtotal = 0;
+                    let newTotal = 0;
+
+                    // Get all current items
+                    const currentItems = await tx
+                        .select({
+                            id: schema.orderItems.id,
+                            unitPrice: schema.orderItems.unitPrice,
+                            qtyOrdered: schema.orderItems.qtyOrdered,
+                            lineTotal: schema.orderItems.lineTotal,
+                        })
+                        .from(schema.orderItems)
+                        .where(eq(schema.orderItems.orderId, id));
+
+                    // Create a map of updates
+                    const updateMap = new Map(items.map(i => [i.id, i.qtyOrdered]));
+
+                    for (const currentItem of currentItems) {
+                        const newQty = updateMap.get(currentItem.id);
+
+                        if (newQty === 0) {
+                            // Remove item
+                            await tx.delete(schema.orderItems)
+                                .where(eq(schema.orderItems.id, currentItem.id));
+                        } else if (newQty !== undefined && newQty !== currentItem.qtyOrdered) {
+                            // Update quantity
+                            const unitPrice = parseFloat(currentItem.unitPrice);
+                            const newLineTotal = unitPrice * newQty;
+
+                            await tx.update(schema.orderItems)
+                                .set({
+                                    qtyOrdered: newQty,
+                                    lineTotal: newLineTotal.toFixed(2),
+                                    updatedAt: new Date(),
+                                })
+                                .where(eq(schema.orderItems.id, currentItem.id));
+
+                            newSubtotal += newLineTotal;
+                        } else {
+                            // Keep as is
+                            newSubtotal += parseFloat(currentItem.lineTotal);
+                        }
+                    }
+
+                    // Recalculate order totals
+                    const [orderForDiscount] = await tx
+                        .select({ discountAmount: schema.orders.discountAmount })
+                        .from(schema.orders)
+                        .where(eq(schema.orders.id, id))
+                        .limit(1);
+
+                    const discountAmount = parseFloat(orderForDiscount?.discountAmount || '0');
+                    newTotal = newSubtotal - discountAmount;
+
+                    await tx.update(schema.orders)
+                        .set({
+                            subtotalAmount: newSubtotal.toFixed(2),
+                            totalAmount: newTotal.toFixed(2),
+                            updatedAt: new Date(),
+                        })
+                        .where(eq(schema.orders.id, id));
+                }
+            });
+
+            return { success: true, message: 'Order updated successfully' };
+        } catch (error) {
+            console.error('[OrderEdit] Error:', error);
+            return reply.code(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update order' } });
+        }
     });
 
     // ----------------------------------------------------------------

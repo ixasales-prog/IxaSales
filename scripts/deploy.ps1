@@ -33,24 +33,16 @@ if ($Environment -eq "staging") {
 }
 
 # -----------------------------------------------------------------------------
-# 1. Create Remote Backup
+# 1. Build Backend Locally
 # -----------------------------------------------------------------------------
-Write-Host "`n[1/10] Creating remote backup..." -ForegroundColor Green
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$backupCmd = "cd '$TARGET_DIR' && mkdir -p backups && tar -czf 'backups/deployment_backup_$timestamp.tar.gz' --exclude='node_modules' --exclude='uploads' --exclude='client/node_modules' . 2>/dev/null || echo 'No existing files to backup'"
-ssh "${SERVER_USER}@${SERVER_IP}" $backupCmd
-
-# -----------------------------------------------------------------------------
-# 2. Build Backend Locally
-# -----------------------------------------------------------------------------
-Write-Host "`n[2/10] Building backend..." -ForegroundColor Green
+Write-Host "`n[1/9] Building backend..." -ForegroundColor Green
 npm install
 npm run build
 
 # -----------------------------------------------------------------------------
-# 3. Build Frontend Locally
+# 2. Build Frontend Locally
 # -----------------------------------------------------------------------------
-Write-Host "`n[3/10] Building frontend..." -ForegroundColor Green
+Write-Host "`n[2/9] Building frontend..." -ForegroundColor Green
 Push-Location client
 try {
     # Set environment variable for the current process
@@ -64,9 +56,9 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 4. Sync Files to Server using SCP (rsync alternative for Windows)
+# 3. Sync Files to Server using SCP (rsync alternative for Windows)
 # -----------------------------------------------------------------------------
-Write-Host "`n[4/10] Syncing files to server..." -ForegroundColor Green
+Write-Host "`n[3/9] Syncing files to server..." -ForegroundColor Green
 
 # Create a list of items to upload (excluding unwanted folders)
 $excludeDirs = @("node_modules", ".git", "backups")
@@ -129,15 +121,15 @@ try {
 Remove-Item -Recurse -Force $tempDir
 
 # -----------------------------------------------------------------------------
-# 5. Install Dependencies on Server (Production only)
+# 4. Install Dependencies on Server (Production only)
 # -----------------------------------------------------------------------------
-Write-Host "`n[5/10] Installing dependencies on server..." -ForegroundColor Green
+Write-Host "`n[4/9] Installing dependencies on server..." -ForegroundColor Green
 ssh "${SERVER_USER}@${SERVER_IP}" "cd $TARGET_DIR && npm install --omit=dev --include=optional --force"
 
 # -----------------------------------------------------------------------------
-# 6. Configure CORS (Auto-fix CORS_ORIGIN in .env)
+# 5. Configure CORS (Auto-fix CORS_ORIGIN in .env)
 # -----------------------------------------------------------------------------
-Write-Host "`n[6/10] Configuring CORS..." -ForegroundColor Green
+Write-Host "`n[5/9] Configuring CORS..." -ForegroundColor Green
 $CORS_ORIGIN = if ($Environment -eq "staging") { "https://dev.ixasales.uz" } else { "https://ixasales.uz" }
 
 # Execute CORS configuration via SSH with simpler, safer approach
@@ -149,22 +141,22 @@ if ($Environment -eq "staging") {
 ssh "$SERVER_USER@$SERVER_IP" $corsCommand
 
 # -----------------------------------------------------------------------------
-# 7. Run Database Migrations
+# 6. Run Database Migrations
 # -----------------------------------------------------------------------------
-Write-Host "`n[7/10] Running GPS tracking migration..." -ForegroundColor Green
+Write-Host "`n[6/9] Running GPS tracking migration..." -ForegroundColor Green
 # Use npx with --yes to auto-install if needed, and handle permission issues gracefully
 ssh "$SERVER_USER@$SERVER_IP" "cd $TARGET_DIR && (npx --yes tsx src/db/migrations/add_gps_tracking.ts 2>/dev/null || node --loader ts-node/esm src/db/migrations/add_gps_tracking.ts 2>/dev/null || echo 'Migration skipped - run manually if needed')"
 
 # -----------------------------------------------------------------------------
-# 8. Verify Installation
+# 7. Verify Installation
 # -----------------------------------------------------------------------------
-Write-Host "`n[8/10] Verifying installation..." -ForegroundColor Green
+Write-Host "`n[7/9] Verifying installation..." -ForegroundColor Green
 ssh "$SERVER_USER@$SERVER_IP" "cd $TARGET_DIR && test -f dist/index-fastify.js && echo 'Backend build found' || echo 'WARNING: Backend build not found'"
 
 # -----------------------------------------------------------------------------
-# 9. Fix Permissions & Restart Service (without sudo password prompt)
+# 8. Fix Permissions & Restart Service (without sudo password prompt)
 # -----------------------------------------------------------------------------
-Write-Host "`n[9/10] Fixing permissions & restarting service..." -ForegroundColor Green
+Write-Host "`n[8/9] Fixing permissions & restarting service..." -ForegroundColor Green
 # Kill any process using the port before restarting to prevent EADDRINUSE errors
 $port = if ($Environment -eq "staging") { "3001" } else { "3000" }
 ssh "$SERVER_USER@$SERVER_IP" "sudo lsof -ti :$port 2>/dev/null | xargs -r sudo kill -9 2>/dev/null; echo 'Port $port cleared'"
@@ -190,9 +182,9 @@ ssh "$SERVER_USER@$SERVER_IP" "echo '$password' | sudo -S sh -c 'lsof -ti :$port
 ssh "$SERVER_USER@$SERVER_IP" "echo '$password' | sudo -S systemctl restart $SERVICE_NAME 2>/dev/null || echo 'WARNING: Could not restart service - may need manual restart with password'"
 
 # -----------------------------------------------------------------------------
-# 10. Verify Service is Running
+# 9. Verify Service & Health Check
 # -----------------------------------------------------------------------------
-Write-Host "`n[10/10] Verifying service status..." -ForegroundColor Green
+Write-Host "`n[9/9] Verifying service status..." -ForegroundColor Green
 $serviceStatus = ssh "$SERVER_USER@$SERVER_IP" "sudo -n systemctl is-active $SERVICE_NAME 2>/dev/null || echo 'unknown'"
 if ($serviceStatus.Trim() -ne "active") {
     Write-Host "WARNING: Service $SERVICE_NAME status is: $($serviceStatus.Trim())" -ForegroundColor Yellow
@@ -203,10 +195,7 @@ if ($serviceStatus.Trim() -ne "active") {
     Write-Host "Service $SERVICE_NAME is active" -ForegroundColor Green
 }
 
-# -----------------------------------------------------------------------------
-# 11. Perform Health Check
-# -----------------------------------------------------------------------------
-Write-Host "`n[11/11] Performing health check..." -ForegroundColor Green
+# Perform health check
 $healthCheckUrl = if ($Environment -eq "staging") { "https://dev-api.ixasales.uz/health" } else { "https://api.ixasales.uz/health" }
 
 # Wait a moment for the service to be ready

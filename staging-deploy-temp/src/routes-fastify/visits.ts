@@ -64,6 +64,10 @@ const CompleteVisitBodySchema = Type.Object({
     orderId: Type.Optional(Type.String()),
     latitude: Type.Optional(Type.Number()),
     longitude: Type.Optional(Type.Number()),
+    noOrderReason: Type.Optional(Type.String()),
+    followUpReason: Type.Optional(Type.String()),
+    followUpDate: Type.Optional(Type.String()),
+    followUpTime: Type.Optional(Type.String()),
 });
 
 const CancelVisitBodySchema = Type.Object({
@@ -420,6 +424,30 @@ export const visitRoutes: FastifyPluginAsync = async (fastify) => {
                     success: false,
                     error: {
                         code: 'INVALID_OUTCOME',
+                        message: error.message
+                    }
+                });
+            } else if (error.message === 'Planned date cannot be in the past') {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'INVALID_DATE',
+                        message: error.message
+                    }
+                });
+            } else if (error.message === 'orderId is required when outcome is order_placed') {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'MISSING_REQUIRED_FIELD',
+                        message: error.message
+                    }
+                });
+            } else if (error.message === 'followUpDate is required when outcome is follow_up') {
+                return reply.code(400).send({
+                    success: false,
+                    error: {
+                        code: 'MISSING_REQUIRED_FIELD',
                         message: error.message
                     }
                 });
