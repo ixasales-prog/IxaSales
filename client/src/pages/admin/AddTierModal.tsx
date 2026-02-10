@@ -18,6 +18,7 @@ const AddTierModal: Component<AddTierModalProps> = (props) => {
     const [maxOrderAmount, setMaxOrderAmount] = createSignal('');
     const [paymentTermsDays, setPaymentTermsDays] = createSignal('0');
     const [discountPercent, setDiscountPercent] = createSignal('0');
+    const [canCreateOrders, setCanCreateOrders] = createSignal(true);
 
     const handleSubmit = async (e: Event) => {
         e.preventDefault();
@@ -33,6 +34,7 @@ const AddTierModal: Component<AddTierModalProps> = (props) => {
                 maxOrderAmount: maxOrderAmount() ? parseFloat(maxOrderAmount()) : undefined,
                 paymentTermsDays: parseInt(paymentTermsDays()) || 0,
                 discountPercent: parseFloat(discountPercent()) || 0,
+                canCreateOrders: canCreateOrders(),
             });
 
             props.onSuccess();
@@ -94,6 +96,19 @@ const AddTierModal: Component<AddTierModalProps> = (props) => {
                                 class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none font-mono"
                             />
                         </div>
+                    </div>
+
+                    <div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                        <input
+                            type="checkbox"
+                            id="canCreateOrders"
+                            checked={canCreateOrders()}
+                            onChange={(e) => setCanCreateOrders(e.currentTarget.checked)}
+                            class="w-5 h-5 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500"
+                        />
+                        <label for="canCreateOrders" class="text-sm font-medium text-slate-300">
+                            Allow Order Creation
+                        </label>
                     </div>
 
                     <div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">

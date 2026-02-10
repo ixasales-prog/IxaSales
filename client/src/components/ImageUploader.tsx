@@ -1,6 +1,7 @@
 import { type Component, For, Show, createSignal } from 'solid-js';
 import { Upload, X, GripVertical, Star, Loader2 } from 'lucide-solid';
 import { api } from '../lib/api';
+import { getImageUrl } from '../utils/formatters';
 
 interface UploadedImage {
     id?: string;
@@ -225,7 +226,7 @@ const ImageUploader: Component<ImageUploaderProps> = (props) => {
                         {(image, index) => (
                             <div class="relative group aspect-square rounded-xl overflow-hidden bg-slate-800 border border-slate-700">
                                 <img
-                                    src={image.mediumUrl || image.thumbnailUrl || image.url}
+                                    src={getImageUrl(image.mediumUrl || image.thumbnailUrl || image.url)}
                                     alt={image.altText || 'Product image'}
                                     class="w-full h-full object-cover"
                                     loading="lazy"

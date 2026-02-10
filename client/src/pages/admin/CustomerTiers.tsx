@@ -1,8 +1,9 @@
 import { type Component, createResource, createSignal, Show, For } from 'solid-js';
-import { Plus, Search, Crown, Loader2, RefreshCw, ChevronDown, ChevronRight, Settings } from 'lucide-solid';
+import { Plus, Search, Crown, Loader2, RefreshCw, Settings, Pencil } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../stores/settings';
 import AddTierModal from './AddTierModal';
+import EditTierModal from './EditTierModal';
 import TierRulesModal from './TierRulesModal';
 
 interface Tier {
@@ -21,9 +22,9 @@ interface Tier {
 
 const CustomerTiers: Component = () => {
     const [showAddModal, setShowAddModal] = createSignal(false);
+    const [editingTier, setEditingTier] = createSignal<Tier | null>(null);
     const [showRulesModal, setShowRulesModal] = createSignal<string | null>(null);
     const [search, setSearch] = createSignal('');
-    const [expandedTier, setExpandedTier] = createSignal<string | null>(null);
 
     const [tiers, { refetch }] = createResource(async () => {
         const response = await api.get<Tier[]>('/customers/tiers');
@@ -35,12 +36,6 @@ const CustomerTiers: Component = () => {
         return tiers()?.filter((t: Tier) =>
             t.name.toLowerCase().includes(query)
         ) || [];
-    };
-
-    // formatCurrency is now imported from settings store
-
-    const toggleExpand = (tierId: string) => {
-        setExpandedTier(current => current === tierId ? null : tierId);
     };
 
     return (
@@ -99,22 +94,11 @@ const CustomerTiers: Component = () => {
                             <For each={filteredTiers()}>
                                 {(tier) => (
                                     <div class="hover:bg-slate-800/30 transition-colors">
-                                        {/* Tier Row */}
-                                        <div class="px-6 py-4 flex items-center gap-4">
-                                            {/* Expand Button */}
-                                            <button
-                                                onClick={() => toggleExpand(tier.id)}
-                                                class="p-1 text-slate-500 hover:text-white transition-colors"
-                                            >
-                                                <Show when={expandedTier() === tier.id} fallback={<ChevronRight class="w-5 h-5" />}>
-                                                    <ChevronDown class="w-5 h-5" />
-                                                </Show>
-                                            </button>
-
+                                        <div class="px-6 py-4 flex flex-col md:flex-row md:items-center gap-4">
                                             {/* Tier Icon & Name */}
                                             <div class="flex items-center gap-3 flex-1">
                                                 <div
-                                                    class="w-10 h-10 rounded-lg flex items-center justify-center"
+                                                    class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                                                     style={{ background: tier.color ? `${tier.color}20` : 'rgba(59, 130, 246, 0.1)' }}
                                                 >
                                                     <Crown class="w-5 h-5" style={{ color: tier.color || '#3b82f6' }} />
@@ -122,8 +106,14 @@ const CustomerTiers: Component = () => {
                                                 <div>
                                                     <span class="font-semibold text-slate-200">{tier.name}</span>
                                                     <div class="flex items-center gap-2 mt-0.5">
+                                                        <Show when={tier.canCreateOrders} fallback={
+                                                            <span class="text-xs text-red-400">Orders Blocked</span>
+                                                        }>
+                                                            <span class="text-xs text-emerald-400">Orders Allowed</span>
+                                                        </Show>
+                                                        <span class="text-slate-600">·</span>
                                                         <Show when={tier.creditAllowed}>
-                                                            <span class="text-xs text-emerald-400">Credit Allowed</span>
+                                                            <span class="text-xs text-emerald-400">Credit</span>
                                                         </Show>
                                                         <Show when={!tier.creditAllowed}>
                                                             <span class="text-xs text-slate-500">Cash Only</span>
@@ -132,8 +122,8 @@ const CustomerTiers: Component = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Stats */}
-                                            <div class="hidden md:flex items-center gap-8 text-sm">
+                                            {/* Stats - always visible */}
+                                            <div class="grid grid-cols-2 md:flex md:items-center gap-4 md:gap-8 text-sm pl-13 md:pl-0">
                                                 <div class="text-center">
                                                     <div class="text-slate-500 text-xs">Credit Limit</div>
                                                     <div class="text-white font-medium">{formatCurrency(tier.creditLimit)}</div>
@@ -153,7 +143,14 @@ const CustomerTiers: Component = () => {
                                             </div>
 
                                             {/* Actions */}
-                                            <div class="flex items-center gap-2">
+                                            <div class="flex items-center gap-2 pl-13 md:pl-0">
+                                                <button
+                                                    onClick={() => setEditingTier(tier)}
+                                                    class="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded-lg transition-colors"
+                                                    title="Edit tier"
+                                                >
+                                                    <Pencil class="w-4 h-4" />
+                                                </button>
                                                 <button
                                                     onClick={() => setShowRulesModal(tier.id)}
                                                     class="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
@@ -163,38 +160,6 @@ const CustomerTiers: Component = () => {
                                                 </button>
                                             </div>
                                         </div>
-
-                                        {/* Expanded Details (Mobile) */}
-                                        <Show when={expandedTier() === tier.id}>
-                                            <div class="md:hidden px-6 pb-4 pl-14">
-                                                <div class="grid grid-cols-2 gap-4 text-sm bg-slate-800/50 rounded-lg p-3">
-                                                    <div>
-                                                        <div class="text-slate-500 text-xs">Credit Limit</div>
-                                                        <div class="text-white font-medium">{formatCurrency(tier.creditLimit)}</div>
-                                                    </div>
-                                                    <div>
-                                                        <div class="text-slate-500 text-xs">Max Order</div>
-                                                        <div class="text-white font-medium">{formatCurrency(tier.maxOrderAmount)}</div>
-                                                    </div>
-                                                    <div>
-                                                        <div class="text-slate-500 text-xs">Payment Terms</div>
-                                                        <div class="text-white font-medium">{tier.paymentTermsDays} days</div>
-                                                    </div>
-                                                    <div>
-                                                        <div class="text-slate-500 text-xs">Discount</div>
-                                                        <div class="text-white font-medium">{parseFloat(tier.discountPercent || '0')}%</div>
-                                                    </div>
-                                                </div>
-
-                                                <button
-                                                    onClick={() => setShowRulesModal(tier.id)}
-                                                    class="mt-3 w-full py-2 px-4 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
-                                                >
-                                                    <Settings class="w-4 h-4" />
-                                                    Manage Downgrade Rules
-                                                </button>
-                                            </div>
-                                        </Show>
                                     </div>
                                 )}
                             </For>
@@ -210,6 +175,14 @@ const CustomerTiers: Component = () => {
                 />
             </Show>
 
+            <Show when={editingTier()}>
+                <EditTierModal
+                    tier={editingTier()!}
+                    onClose={() => setEditingTier(null)}
+                    onSuccess={() => refetch()}
+                />
+            </Show>
+
             <Show when={showRulesModal()}>
                 <TierRulesModal
                     tierId={showRulesModal()!}
@@ -221,4 +194,3 @@ const CustomerTiers: Component = () => {
 };
 
 export default CustomerTiers;
-

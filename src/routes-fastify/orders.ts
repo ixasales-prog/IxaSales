@@ -1389,6 +1389,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
                 status: schema.orders.status,
                 paymentStatus: schema.orders.paymentStatus,
                 createdAt: schema.orders.createdAt,
+                createdByUserId: schema.orders.createdByUserId,
                 itemCount: sql<number>`(SELECT count(*) FROM ${schema.orderItems} WHERE ${schema.orderItems.orderId} = ${schema.orders.id})`,
             })
             .from(schema.orders)
@@ -1421,6 +1422,7 @@ export const orderRoutes: FastifyPluginAsync = async (fastify) => {
             paymentStatus: o.paymentStatus,
             createdAt: o.createdAt,
             itemCount: o.itemCount,
+            isPortalOrder: !o.createdByUserId,
         }));
 
         const [{ count }] = await db

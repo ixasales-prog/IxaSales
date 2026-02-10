@@ -99,3 +99,50 @@ export const tierDowngradeRules = pgTable('tier_downgrade_rules', {
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+// ============================================================================
+// TIER UPGRADE RULES
+// ============================================================================
+
+export const upgradeConditionTypeEnum = pgEnum('upgrade_condition_type', [
+    'orders_count',          // minimum number of orders in period
+    'total_spend',           // minimum total spend in period (in base currency)
+    'on_time_payment_pct',   // percentage of orders paid within payment terms
+]);
+
+export const tierUpgradeRules = pgTable('tier_upgrade_rules', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+    fromTierId: uuid('from_tier_id').references(() => customerTiers.id).notNull(),
+    toTierId: uuid('to_tier_id').references(() => customerTiers.id).notNull(),
+    conditionType: upgradeConditionTypeEnum('condition_type').notNull(),
+    conditionValue: integer('condition_value').notNull(), // threshold value
+    periodDays: integer('period_days').default(90).notNull(), // rolling window in days
+    cooldownDays: integer('cooldown_days').default(30).notNull(), // minimum days between upgrades
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// ============================================================================
+// TIER CHANGE LOGS
+// ============================================================================
+
+export const tierChangeTypeEnum = pgEnum('tier_change_type', [
+    'downgrade',
+    'upgrade',
+    'manual',
+]);
+
+export const tierChangeLogs = pgTable('tier_change_logs', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+    customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    fromTierId: uuid('from_tier_id').references(() => customerTiers.id).notNull(),
+    toTierId: uuid('to_tier_id').references(() => customerTiers.id).notNull(),
+    changeType: tierChangeTypeEnum('change_type').default('downgrade'),
+    ruleId: uuid('rule_id'), // references either downgrade or upgrade rule
+    reason: text('reason'),
+    executedAt: timestamp('executed_at').defaultNow(),
+});
+

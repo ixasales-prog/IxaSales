@@ -12,6 +12,8 @@ import { eq, lt, and, sql } from 'drizzle-orm';
 import { loadSettingsFromDB } from './systemSettings';
 import { runGPSTrackingCleanup } from './gps-tracking-cleanup';
 import { runFollowUpRemindersJob } from './scheduler/jobs/deepFollowUpReminders';
+import { runTierDowngradeJob } from './scheduler/jobs/tierDowngrade';
+import { runTierUpgradeJob } from './scheduler/jobs/tierUpgrade';
 import { runCleanupJob } from './cleanup';
 
 // ============================================================================
@@ -216,7 +218,8 @@ export function initializeScheduler(): void {
     setTimeout(() => {
         runOverdueDebtJob().catch(console.error);
         runSubscriptionExpirationJob().catch(console.error);
-        runFollowUpRemindersJob().catch(console.error); // Run follow-up reminders
+        runFollowUpRemindersJob().catch(console.error);
+        runTierDowngradeJob().catch(console.error);
         // GPS cleanup runs daily, not on startup
     }, 60000); // 1 minute after startup
 
@@ -225,14 +228,16 @@ export function initializeScheduler(): void {
         runOverdueDebtJob().catch(console.error);
         runSubscriptionExpirationJob().catch(console.error);
         runGPSTrackingCleanup().catch(console.error);
-        runFollowUpRemindersJob().catch(console.error); // Run follow-up reminders daily
-        runCleanupJob().catch(console.error); // Run cleanup including user activity data
+        runFollowUpRemindersJob().catch(console.error);
+        runTierDowngradeJob().catch(console.error);
+        runCleanupJob().catch(console.error);
     }, TWENTY_FOUR_HOURS);
 
     // Customer payment reminders: Weekly
     const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
     setInterval(() => {
         runCustomerPaymentReminderJob().catch(console.error);
+        runTierUpgradeJob().catch(console.error);
     }, ONE_WEEK);
 
     // Notification retry: Every 15 minutes
@@ -277,6 +282,14 @@ export async function triggerJob(jobName: string): Promise<{ success: boolean; m
         case 'cleanup':
             await runCleanupJob();
             return { success: true, message: 'Cleanup job completed' };
+
+        case 'tier-downgrade':
+            const downgradeResult = await runTierDowngradeJob();
+            return { success: true, message: `Tier downgrade job completed. Downgraded: ${downgradeResult.downgraded}, Errors: ${downgradeResult.errors}` };
+
+        case 'tier-upgrade':
+            const upgradeResult = await runTierUpgradeJob();
+            return { success: true, message: `Tier upgrade job completed. Upgraded: ${upgradeResult.upgraded}, Errors: ${upgradeResult.errors}` };
 
         default:
             return { success: false, message: `Unknown job: ${jobName}` };

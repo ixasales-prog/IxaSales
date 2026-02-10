@@ -8,7 +8,8 @@ import {
     Square,
     CheckSquare,
     MinusSquare,
-    Package
+    Package,
+    Globe
 } from 'lucide-solid';
 import { Dynamic } from 'solid-js/web';
 import * as LucideIcons from 'lucide-solid';
@@ -29,6 +30,7 @@ interface Order {
     totalAmount: string;
     paidAmount: string;
     createdAt: string;
+    isPortalOrder?: boolean;
 }
 
 interface Driver {
@@ -532,7 +534,15 @@ const Orders: Component = () => {
                                                     {order.driver?.name || '-'}
                                                 </td>
                                                 <td class="px-4 py-4 text-slate-400">
-                                                    {order.salesRep?.name || '-'}
+                                                    <div class="flex items-center gap-1.5">
+                                                        {order.salesRep?.name || '-'}
+                                                        <Show when={order.isPortalOrder}>
+                                                            <span title="Portal order" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 text-[10px] font-medium">
+                                                                <Globe class="w-3 h-3" />
+                                                                Portal
+                                                            </span>
+                                                        </Show>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -613,7 +623,14 @@ const Orders: Component = () => {
                                             </Show>
                                             <div class="text-right">
                                                 <div class="text-xs text-slate-500">Sales Rep</div>
-                                                <div class="text-slate-300 text-sm">{order.salesRep?.name || '-'}</div>
+                                                <div class="text-slate-300 text-sm flex items-center justify-end gap-1.5">
+                                                    {order.salesRep?.name || '-'}
+                                                    <Show when={order.isPortalOrder}>
+                                                        <span title="Portal order" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 text-[10px] font-medium">
+                                                            <Globe class="w-3 h-3" />
+                                                        </span>
+                                                    </Show>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
