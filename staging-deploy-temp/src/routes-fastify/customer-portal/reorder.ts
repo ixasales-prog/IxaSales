@@ -143,14 +143,41 @@ export const reorderRoutes: FastifyPluginAsync = async (fastify) => {
                 };
             }
 
+            // Validate credit/tier limits
+            const creditError = await ordersService.validateCreditLimits(tx, customerAuth.customerId, totalAmount);
+            if (creditError) {
+                return { error: creditError };
+            }
+
             // Generate order number using shared service
             const orderNumber = await ordersService.generateOrderNumber(tx, customerAuth.tenantId);
+
+            // Auto-assign sales rep from customer's assigned rep (if active)
+            let salesRepId: string | undefined;
+            const [customer] = await tx
+                .select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
+                .from(schema.customers)
+                .where(eq(schema.customers.id, customerAuth.customerId))
+                .limit(1);
+
+            if (customer?.assignedSalesRepId) {
+                const [rep] = await tx
+                    .select({ isActive: schema.users.isActive })
+                    .from(schema.users)
+                    .where(eq(schema.users.id, customer.assignedSalesRepId))
+                    .limit(1);
+
+                if (rep?.isActive) {
+                    salesRepId = customer.assignedSalesRepId;
+                }
+            }
 
             const [newOrder] = await tx
                 .insert(schema.orders)
                 .values({
                     tenantId: customerAuth.tenantId,
                     customerId: customerAuth.customerId,
+                    salesRepId,
                     orderNumber,
                     status: 'pending',
                     paymentStatus: 'unpaid',
@@ -203,7 +230,8 @@ export const reorderRoutes: FastifyPluginAsync = async (fastify) => {
         });
 
         if ('error' in result && result.error) {
-            return reply.status(result.error.status).send(createErrorResponse(result.error.code));
+            const errCode = result.error.code as any;
+            return reply.status(result.error.status).send(createErrorResponse(errCode));
         }
 
         return createSuccessResponse('REORDER_CREATED', {

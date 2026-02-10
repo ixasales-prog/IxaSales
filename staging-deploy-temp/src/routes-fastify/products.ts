@@ -490,6 +490,11 @@ export const productRoutes: FastifyPluginAsync = async (fastify) => {
                 eq(schema.productImages.isPrimary, true)
             )) : [];
 
+        console.log('[Products.list] Found primary images:', primaryImages.length, 'for products:', productIds.length);
+        if (primaryImages.length > 0) {
+            console.log('[Products.list] Primary images:', JSON.stringify(primaryImages.slice(0, 3)));
+        }
+
         const imageMap = new Map(primaryImages.map(img => [img.productId, img.thumbnailUrl || img.url]));
         const productsWithImages = products.map(p => ({
             ...p,

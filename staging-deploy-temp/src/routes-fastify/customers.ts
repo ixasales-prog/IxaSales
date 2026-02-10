@@ -13,6 +13,7 @@ const CreateTierBodySchema = Type.Object({
     maxOrderAmount: Type.Optional(Type.Number({ minimum: 0 })),
     paymentTermsDays: Type.Number({ minimum: 0 }),
     discountPercent: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+    canCreateOrders: Type.Optional(Type.Boolean()),
     sortOrder: Type.Optional(Type.Number()),
 });
 
@@ -33,6 +34,14 @@ const CreateRuleBodySchema = Type.Object({
     toTierId: Type.String(),
     conditionType: Type.String(),
     conditionValue: Type.Number({ minimum: 0 }),
+});
+
+const CreateUpgradeRuleBodySchema = Type.Object({
+    toTierId: Type.String(),
+    conditionType: Type.String(),
+    conditionValue: Type.Number({ minimum: 1 }),
+    periodDays: Type.Optional(Type.Number({ minimum: 1, default: 90 })),
+    cooldownDays: Type.Optional(Type.Number({ minimum: 1, default: 30 })),
 });
 
 const ListCustomersQuerySchema = Type.Object({
@@ -80,6 +89,7 @@ const ParamsSchema = Type.Object({ id: Type.String() });
 
 type CreateTierBody = Static<typeof CreateTierBodySchema>;
 type CreateRuleBody = Static<typeof CreateRuleBodySchema>;
+type CreateUpgradeRuleBody = Static<typeof CreateUpgradeRuleBodySchema>;
 type CreateTerritoryBody = Static<typeof CreateTerritoryBodySchema>;
 type UpdateTerritoryBody = Static<typeof UpdateTerritoryBodySchema>;
 type ListCustomersQuery = Static<typeof ListCustomersQuerySchema>;
@@ -114,7 +124,7 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
         }
 
-        const { name, color, creditAllowed, creditLimit, maxOrderAmount, paymentTermsDays, discountPercent, sortOrder } = request.body;
+        const { name, color, creditAllowed, creditLimit, maxOrderAmount, paymentTermsDays, discountPercent, canCreateOrders, sortOrder } = request.body;
 
         const [tier] = await db
             .insert(schema.customerTiers)
@@ -127,11 +137,97 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
                 maxOrderAmount: maxOrderAmount?.toString(),
                 paymentTermsDays,
                 discountPercent: discountPercent?.toString(),
+                canCreateOrders: canCreateOrders ?? true,
                 sortOrder,
             })
             .returning();
 
         return { success: true, data: tier };
+    });
+
+    // Update tier
+    fastify.patch<{ Params: Static<typeof ParamsSchema>; Body: Partial<CreateTierBody> }>('/tiers/:id', {
+        preHandler: [fastify.authenticate],
+        schema: { params: ParamsSchema }
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { id } = request.params;
+        const body = request.body;
+        const updates: Record<string, any> = { updatedAt: new Date() };
+
+        if (body.name !== undefined) updates.name = body.name;
+        if (body.color !== undefined) updates.color = body.color;
+        if (body.creditAllowed !== undefined) updates.creditAllowed = body.creditAllowed;
+        if (body.creditLimit !== undefined) updates.creditLimit = body.creditLimit.toString();
+        if (body.maxOrderAmount !== undefined) updates.maxOrderAmount = body.maxOrderAmount.toString();
+        if (body.paymentTermsDays !== undefined) updates.paymentTermsDays = body.paymentTermsDays;
+        if (body.discountPercent !== undefined) updates.discountPercent = body.discountPercent.toString();
+        if ((body as any).canCreateOrders !== undefined) updates.canCreateOrders = (body as any).canCreateOrders;
+        if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+
+        const [updated] = await db
+            .update(schema.customerTiers)
+            .set(updates)
+            .where(and(eq(schema.customerTiers.id, id), eq(schema.customerTiers.tenantId, user.tenantId)))
+            .returning();
+
+        if (!updated) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Tier not found' } });
+        }
+
+        return { success: true, data: updated };
+    });
+
+    // Delete tier
+    fastify.delete<{ Params: Static<typeof ParamsSchema> }>('/tiers/:id', {
+        preHandler: [fastify.authenticate],
+        schema: { params: ParamsSchema }
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { id } = request.params;
+
+        // Check if any customers are using this tier
+        const [{ count }] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.customers)
+            .where(and(eq(schema.customers.tierId, id), eq(schema.customers.tenantId, user.tenantId)));
+
+        if (Number(count) > 0) {
+            return reply.code(409).send({
+                success: false,
+                error: {
+                    code: 'CONFLICT',
+                    message: `Cannot delete tier with ${count} assigned customers. Reassign them first.`
+                }
+            });
+        }
+
+        // Delete downgrade rules referencing this tier first
+        await db.delete(schema.tierDowngradeRules).where(
+            and(
+                eq(schema.tierDowngradeRules.tenantId, user.tenantId),
+                sql`(${schema.tierDowngradeRules.fromTierId} = ${id} OR ${schema.tierDowngradeRules.toTierId} = ${id})`
+            )
+        );
+
+        const [deleted] = await db
+            .delete(schema.customerTiers)
+            .where(and(eq(schema.customerTiers.id, id), eq(schema.customerTiers.tenantId, user.tenantId)))
+            .returning();
+
+        if (!deleted) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Tier not found' } });
+        }
+
+        return { success: true, data: deleted };
     });
 
     // ----------------------------------------------------------------
@@ -192,6 +288,201 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
             .returning();
 
         return { success: true, data: rule };
+    });
+
+    // Delete rule
+    fastify.delete<{ Params: { id: string; ruleId: string } }>('/tiers/:id/rules/:ruleId', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { ruleId } = request.params;
+
+        const [deleted] = await db
+            .delete(schema.tierDowngradeRules)
+            .where(and(
+                eq(schema.tierDowngradeRules.id, ruleId),
+                eq(schema.tierDowngradeRules.tenantId, user.tenantId)
+            ))
+            .returning();
+
+        if (!deleted) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Rule not found' } });
+        }
+
+        return { success: true, data: deleted };
+    });
+
+    // Toggle rule active/inactive
+    fastify.patch<{ Params: { id: string; ruleId: string } }>('/tiers/:id/rules/:ruleId/toggle', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { ruleId } = request.params;
+
+        // Get current state
+        const [current] = await db
+            .select({ isActive: schema.tierDowngradeRules.isActive })
+            .from(schema.tierDowngradeRules)
+            .where(and(
+                eq(schema.tierDowngradeRules.id, ruleId),
+                eq(schema.tierDowngradeRules.tenantId, user.tenantId)
+            ))
+            .limit(1);
+
+        if (!current) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Rule not found' } });
+        }
+
+        const [updated] = await db
+            .update(schema.tierDowngradeRules)
+            .set({
+                isActive: !current.isActive,
+                updatedAt: new Date(),
+            })
+            .where(and(
+                eq(schema.tierDowngradeRules.id, ruleId),
+                eq(schema.tierDowngradeRules.tenantId, user.tenantId)
+            ))
+            .returning();
+
+        return { success: true, data: updated };
+    });
+
+    // ----------------------------------------------------------------
+    // TIER UPGRADE RULES
+    // ----------------------------------------------------------------
+
+    // List upgrade rules for a tier
+    fastify.get<{ Params: Static<typeof ParamsSchema> }>('/tiers/:id/upgrade-rules', {
+        preHandler: [fastify.authenticate],
+        schema: { params: ParamsSchema }
+    }, async (request, reply) => {
+        const user = request.user!;
+        const { id } = request.params;
+
+        const rules = await db
+            .select({
+                id: schema.tierUpgradeRules.id,
+                fromTierId: schema.tierUpgradeRules.fromTierId,
+                toTierId: schema.tierUpgradeRules.toTierId,
+                conditionType: schema.tierUpgradeRules.conditionType,
+                conditionValue: schema.tierUpgradeRules.conditionValue,
+                periodDays: schema.tierUpgradeRules.periodDays,
+                cooldownDays: schema.tierUpgradeRules.cooldownDays,
+                isActive: schema.tierUpgradeRules.isActive,
+                toTierName: schema.customerTiers.name,
+            })
+            .from(schema.tierUpgradeRules)
+            .leftJoin(schema.customerTiers, eq(schema.tierUpgradeRules.toTierId, schema.customerTiers.id))
+            .where(and(
+                eq(schema.tierUpgradeRules.tenantId, user.tenantId),
+                eq(schema.tierUpgradeRules.fromTierId, id)
+            ));
+
+        return { success: true, data: rules };
+    });
+
+    // Create upgrade rule
+    fastify.post<{ Params: Static<typeof ParamsSchema>; Body: CreateUpgradeRuleBody }>('/tiers/:id/upgrade-rules', {
+        preHandler: [fastify.authenticate],
+        schema: { params: ParamsSchema, body: CreateUpgradeRuleBodySchema }
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { id } = request.params;
+        const { toTierId, conditionType, conditionValue, periodDays, cooldownDays } = request.body;
+
+        const [rule] = await db
+            .insert(schema.tierUpgradeRules)
+            .values({
+                tenantId: user.tenantId,
+                fromTierId: id,
+                toTierId,
+                conditionType: conditionType as any,
+                conditionValue,
+                periodDays: periodDays || 90,
+                cooldownDays: cooldownDays || 30,
+                isActive: true,
+            })
+            .returning();
+
+        return { success: true, data: rule };
+    });
+
+    // Delete upgrade rule
+    fastify.delete<{ Params: { id: string; ruleId: string } }>('/tiers/:id/upgrade-rules/:ruleId', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { ruleId } = request.params;
+
+        const [deleted] = await db
+            .delete(schema.tierUpgradeRules)
+            .where(and(
+                eq(schema.tierUpgradeRules.id, ruleId),
+                eq(schema.tierUpgradeRules.tenantId, user.tenantId)
+            ))
+            .returning();
+
+        if (!deleted) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Rule not found' } });
+        }
+
+        return { success: true, data: deleted };
+    });
+
+    // Toggle upgrade rule active/inactive
+    fastify.patch<{ Params: { id: string; ruleId: string } }>('/tiers/:id/upgrade-rules/:ruleId/toggle', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { ruleId } = request.params;
+
+        const [current] = await db
+            .select({ isActive: schema.tierUpgradeRules.isActive })
+            .from(schema.tierUpgradeRules)
+            .where(and(
+                eq(schema.tierUpgradeRules.id, ruleId),
+                eq(schema.tierUpgradeRules.tenantId, user.tenantId)
+            ))
+            .limit(1);
+
+        if (!current) {
+            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Rule not found' } });
+        }
+
+        const [updated] = await db
+            .update(schema.tierUpgradeRules)
+            .set({
+                isActive: !current.isActive,
+                updatedAt: new Date(),
+            })
+            .where(and(
+                eq(schema.tierUpgradeRules.id, ruleId),
+                eq(schema.tierUpgradeRules.tenantId, user.tenantId)
+            ))
+            .returning();
+
+        return { success: true, data: updated };
     });
 
     // ----------------------------------------------------------------

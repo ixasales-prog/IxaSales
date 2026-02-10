@@ -510,6 +510,15 @@ export class OrdersService {
 
         if (!tier) return null;
 
+        // Check if this tier allows order creation
+        if (tier.canCreateOrders === false) {
+            return {
+                code: 'ORDERS_NOT_ALLOWED',
+                message: 'This customer tier does not allow order creation.',
+                status: 403,
+            };
+        }
+
         if (!tier.creditAllowed) {
             const currentCredit = Number(customer.creditBalance || 0);
             if (currentCredit < orderTotal) {
@@ -626,8 +635,8 @@ export class OrdersService {
 
         const totalAmount = input.totalAmount ?? (subtotalAmount - discountAmount);
 
-        // 5. Validate credit limits (sales_rep mode, unless skipped)
-        if (context.mode === 'sales_rep' && !context.skipCreditCheck) {
+        // 5. Validate credit/tier limits (unless explicitly skipped)
+        if (!context.skipCreditCheck) {
             const creditError = await this.validateCreditLimits(tx, customerId, totalAmount);
             if (creditError) {
                 return { error: creditError };

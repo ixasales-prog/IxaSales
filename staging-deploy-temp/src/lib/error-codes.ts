@@ -43,7 +43,12 @@ export type ErrorCode =
     | 'ADDRESS_NOT_FOUND'
     // Validation errors
     | 'INVALID_INPUT'
-    | 'PRODUCT_NOT_FOUND';
+    | 'PRODUCT_NOT_FOUND'
+    // Credit/Tier errors
+    | 'ORDERS_NOT_ALLOWED'
+    | 'CREDIT_NOT_ALLOWED'
+    | 'CREDIT_LIMIT_EXCEEDED'
+    | 'MAX_ORDER_EXCEEDED';
 
 interface ErrorTranslation {
     uz: string;
@@ -226,6 +231,27 @@ export const ERROR_MESSAGES: Record<ErrorCode, ErrorTranslation> = {
         uz: 'Mahsulot topilmadi',
         en: 'Product not found',
         ru: 'Товар не найден'
+    },
+    // Credit/Tier errors
+    ORDERS_NOT_ALLOWED: {
+        uz: 'Sizning toifangiz buyurtma berishga ruxsat bermaydi',
+        en: 'Your tier does not allow order creation',
+        ru: 'Ваш уровень не позволяет создавать заказы'
+    },
+    CREDIT_NOT_ALLOWED: {
+        uz: 'Nasiya buyurtmalarga ruxsat berilmagan. Oldindan to\'lov talab qilinadi.',
+        en: 'Credit orders not allowed. Prepayment required.',
+        ru: 'Кредитные заказы не разрешены. Требуется предоплата.'
+    },
+    CREDIT_LIMIT_EXCEEDED: {
+        uz: 'Kredit limiti oshib ketadi',
+        en: 'Order would exceed credit limit',
+        ru: 'Заказ превысит кредитный лимит'
+    },
+    MAX_ORDER_EXCEEDED: {
+        uz: 'Buyurtma summasi ruxsat etilgan maksimal miqdordan oshib ketadi',
+        en: 'Order amount exceeds maximum allowed',
+        ru: 'Сумма заказа превышает максимально допустимую'
     }
 };
 
