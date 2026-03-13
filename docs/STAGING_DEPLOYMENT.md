@@ -4,7 +4,7 @@ The staging deployment flow is designed around immutable release artifacts, a ga
 
 ## Design
 
-- CI deploys only after `Test & Deploy Pipeline` succeeds on `develop`, unless manually dispatched.
+- CI deploys only after `Test & Deploy Pipeline` succeeds on `staging`, unless manually dispatched.
 - CI builds backend and frontend once for the deploy ref.
 - CI uploads a single `staging-release-<sha>.tgz` artifact to the server.
 - The server deploy script extracts into `/var/www/ixasales/staging/releases/<timestamp>`.
@@ -53,7 +53,7 @@ This dispatches `.github/workflows/deploy-staging.yml` for the current branch.
 You can deploy a specific ref:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/deploy-staging.ps1 -Ref develop
+powershell -ExecutionPolicy Bypass -File scripts/deploy-staging.ps1 -Ref staging
 ```
 
 ## Required GitHub secrets

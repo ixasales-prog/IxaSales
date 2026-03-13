@@ -4,13 +4,13 @@ on:
   workflow_run:
     workflows: ["Test & Deploy Pipeline"]
     types: [completed]
-    branches: [develop]
+    branches: [staging]
   workflow_dispatch:
     inputs:
       ref:
         description: Git ref to deploy
         required: false
-        default: develop
+        default: staging
 
 permissions:
   contents: read
@@ -35,7 +35,7 @@ jobs:
       (
         github.event.workflow_run.conclusion == 'success' &&
         github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'develop'
+        github.event.workflow_run.head_branch == 'staging'
       )
     runs-on: ubuntu-latest
     timeout-minutes: 20
