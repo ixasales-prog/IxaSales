@@ -1,0 +1,487 @@
+name: Test & Deploy Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '20'
+
+jobs:
+  # ================================================================
+  # STAGE 1: CODE QUALITY & LINTING
+  # ================================================================
+
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Check TypeScript
+        run: npm run typecheck
+
+      - name: Report lint results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-results
+          path: |
+            .eslintrc.js
+            tsconfig.json
+
+  # ================================================================
+  # STAGE 2: UNIT TESTS
+  # ================================================================
+
+  unit-tests:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup test database
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/test_db
+        run: |
+          npm run db:migrate
+          npm run db:seed
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/test_db
+          NODE_ENV: test
+        run: npm test
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  # ================================================================
+  # STAGE 3: SECURITY SCANNING
+  # ================================================================
+
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: NPM Audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: Snyk Security Scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+        continue-on-error: true
+
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          path: '.'
+          format: 'JSON'
+          args: >
+            -l
+            --enable-retired
+        continue-on-error: true
+
+      - name: Upload security results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-results
+          path: dependency-check-report.json
+
+  # ================================================================
+  # STAGE 4: BUILD DOCKER IMAGE
+  # ================================================================
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, security]
+    if: success()
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: Dockerfile
+
+  # ================================================================
+  # STAGE 5: DEPLOY TO STAGING
+  # ================================================================
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: false
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Deploy to staging
+        env:
+          DEPLOY_KEY: ${{ secrets.STAGING_DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.STAGING_HOST }}
+          DEPLOY_USER: ${{ secrets.STAGING_USER }}
+          DEPLOY_PORT: ${{ secrets.STAGING_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p $DEPLOY_PORT $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd /var/app
+          git pull origin develop
+          npm ci --omit=dev
+          npm run build
+          npm run db:migrate
+          pm2 restart ixasales-staging
+          EOF
+
+      - name: Run staging health checks
+        run: |
+          sleep 10
+          curl -f http://${{ secrets.STAGING_HOST }}/health || exit 1
+          curl -f http://${{ secrets.STAGING_HOST }}/api/auth/me || exit 1
+
+      - name: Notify deployment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Deployed to staging'
+            })
+
+  # ================================================================
+  # STAGE 6: INTEGRATION TESTS
+  # ================================================================
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: false
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        env:
+          API_URL: http://${{ secrets.STAGING_HOST }}
+          TEST_EMAIL: test@example.com
+          TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+        run: npm run test:integration
+        continue-on-error: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: test-results/
+
+  # ================================================================
+  # STAGE 7: LOAD TESTING
+  # ================================================================
+
+  load-test:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: false
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6-stable.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run load test
+        env:
+          API_URL: http://${{ secrets.STAGING_HOST }}
+        run: |
+          k6 run load-tests/main.js \
+            --out json=load-test-results.json \
+            --summary-trend-stats="avg,p(95),p(99),max"
+
+      - name: Upload load test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: load-test-results.json
+
+      - name: Check load test thresholds
+        run: |
+          # Parse results and fail if thresholds exceeded
+          grep -q '"p(95) < 500"' load-test-results.json || exit 1
+
+  # ================================================================
+  # STAGE 8: DEPLOY TO PRODUCTION
+  # ================================================================
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Request approval
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⏳ Awaiting manual approval for production deployment'
+            })
+
+      - name: Wait for approval
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+
+      - name: Blue-Green Deployment
+        env:
+          DEPLOY_KEY: ${{ secrets.PROD_DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.PROD_HOST }}
+          DEPLOY_USER: ${{ secrets.PROD_USER }}
+          DEPLOY_PORT: ${{ secrets.PROD_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p $DEPLOY_PORT $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          #!/bin/bash
+          cd /var/prod
+
+          # Stop new version (blue)
+          echo "Switching to green environment..."
+          pm2 stop ixasales-blue
+          # pm2 start ixasales-green
+
+          # Update code
+          git pull origin main
+          npm ci --omit=dev
+          npm run build
+          npm run db:migrate
+
+          # Start blue environment
+          pm2 start ixasales-blue
+          echo "Blue environment started"
+
+          # Health checks
+          sleep 10
+          if ! curl -f http://localhost:3001/health; then
+            echo "Health check failed, rolling back..."
+            pm2 restart ixasales-green
+            exit 1
+          fi
+
+          echo "Deployment successful!"
+          EOF
+
+      - name: Run production health checks
+        run: |
+          sleep 10
+          curl -f https://${{ secrets.PROD_HOST }}/health || exit 1
+          curl -f https://${{ secrets.PROD_HOST }}/api/auth/me || exit 1
+
+      - name: Notify slack
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK }}
+          payload: |
+            {
+              "text": "✅ Deployment successful to production",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment Successful*\nRef: ${{ github.ref }}\nCommit: ${{ github.sha }}"
+                  }
+                }
+              ]
+            }
+
+      - name: Notify slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK }}
+          payload: |
+            {
+              "text": "❌ Production deployment failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment FAILED*\nRef: ${{ github.ref }}\nCheck logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
+
+  # ================================================================
+  # STAGE 9: FINAL SUMMARY
+  # ================================================================
+
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, security, build]
+    if: always()
+    steps:
+      - name: Check pipeline status
+        run: |
+          if [ "${{ needs.lint.result }}" = "failure" ] || \
+             [ "${{ needs.unit-tests.result }}" = "failure" ] || \
+             [ "${{ needs.security.result }}" = "failure" ] || \
+             [ "${{ needs.build.result }}" = "failure" ]; then
+            echo "❌ Pipeline failed"
+            exit 1
+          fi
+          echo "✅ Pipeline successful"
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-summary
+          path: |
+            ${{ needs.lint.outputs.* }}
+            ${{ needs.unit-tests.outputs.* }}

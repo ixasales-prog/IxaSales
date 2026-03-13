@@ -1,67 +1,158 @@
-name: Deploy to Staging
+name: Deploy Staging
 
 on:
-  push:
-    branches: [main, develop]
+  workflow_run:
+    workflows: ["Test & Deploy Pipeline"]
+    types: [completed]
+    branches: [staging]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: false
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: true
 
 env:
-  SERVER_IP: 176.96.241.152
+  SERVER_HOST: 176.96.241.152
   SERVER_USER: ilhom1983
-  TARGET_DIR: /var/www/ixasales/staging
+  APP_ROOT: /var/www/ixasales/staging
+  FRONTEND_URL: https://dev.ixasales.uz
+  API_HEALTH_URL: https://dev-api.ixasales.uz/health
+  BLUE_PORT: "3001"
+  GREEN_PORT: "3102"
 
 jobs:
+  build:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'staging'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      deploy_ref: ${{ steps.meta.outputs.deploy_ref }}
+
+    steps:
+      - name: Resolve deploy ref
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            DEPLOY_REF="${{ inputs.ref }}"
+          else
+            DEPLOY_REF="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          ARTIFACT_NAME="staging-release-${DEPLOY_REF//\//-}.tgz"
+          echo "deploy_ref=${DEPLOY_REF}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.deploy_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: client
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Build frontend for staging
+        working-directory: client
+        env:
+          VITE_API_URL: https://dev-api.ixasales.uz/api
+          VITE_ENABLE_PWA: "false"
+        run: npm run build
+
+      - name: Prepare release artifact
+        shell: bash
+        run: |
+          mkdir -p release/client release/drizzle release/migrations
+          cp -R dist release/dist
+          cp -R client/dist release/client/dist
+          cp -R drizzle release/drizzle
+          if [[ -d migrations ]]; then
+            cp -R migrations release/migrations
+          fi
+          cp package.json package-lock.json drizzle.config.ts release/
+          tar -czf "${{ steps.meta.outputs.artifact_name }}" -C release .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: ${{ steps.meta.outputs.artifact_name }}
+          if-no-files-found: error
+
   deploy:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 15
+    needs: build
+    environment: staging
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Download artifact
+        uses: actions/download-artifact@v4
         with:
-          bun-version: latest
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: .
 
-      - name: Install dependencies
-        run: bun install
-
-      - name: Build frontend
+      - name: Setup SSH
+        shell: bash
         run: |
-          cd client
-          export VITE_API_URL=https://dev-api.ixasales.uz
-          bun install
-          bun run build
-
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          install -d -m 700 ~/.ssh
+          printf '%s' "${{ secrets.STAGING_DEPLOY_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
+          cp scripts/ssh/known_hosts.staging ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-      - name: Deploy to server
+      - name: Upload release artifact and deploy script
+        shell: bash
         run: |
-          # Sync files
-          rsync -avz --progress \
-            --exclude 'node_modules' \
-            --exclude 'client/node_modules' \
-            --exclude '.env' \
-            --exclude 'uploads/*' \
-            --exclude '.git' \
-            --exclude 'backups' \
-            ./ ${{ env.SERVER_USER }}@${{ env.SERVER_IP }}:${{ env.TARGET_DIR }}/
+          scp "${{ needs.build.outputs.artifact_name }}" "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:/tmp/ixasales-staging-release.tgz"
+          scp scripts/staging-release-deploy.sh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:/tmp/ixasales-staging-release-deploy.sh"
 
-      - name: Install & Restart on Server
+      - name: Deploy release atomically
+        shell: bash
         run: |
-          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
-            cd ${{ env.TARGET_DIR }}
-            ~/.bun/bin/bun install --production
-            ~/.bun/bin/bun run db:push
-            sudo systemctl restart ixasales-staging
-          EOF
+          ssh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}" \
+            "sudo -n \
+            APP_ROOT='${{ env.APP_ROOT }}' \
+            ARTIFACT_PATH='/tmp/ixasales-staging-release.tgz' \
+            FRONTEND_URL='${{ env.FRONTEND_URL }}' \
+            API_HEALTH_URL='${{ env.API_HEALTH_URL }}' \
+            BLUE_PORT='${{ env.BLUE_PORT }}' \
+            GREEN_PORT='${{ env.GREEN_PORT }}' \
+            /usr/local/bin/ixasales-staging-deploy"
 
-      - name: Health Check
+      - name: Verify live staging
+        shell: bash
         run: |
-          sleep 5
-          curl -f https://dev-api.ixasales.uz/api/health || echo "Health check failed - server may still be starting"
+          curl -fsS "${{ env.API_HEALTH_URL }}"
+          curl -fsS "${{ env.FRONTEND_URL }}/" | grep -q "/assets/index-"
