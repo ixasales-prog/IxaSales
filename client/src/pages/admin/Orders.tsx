@@ -1,20 +1,29 @@
 import { type Component, For, Show, createSignal, createResource, createMemo, createEffect } from 'solid-js';
 import { useNavigate } from '@solidjs/router';
 import {
+    AlertCircle,
+    CheckCircle2,
+    Clock,
+    DollarSign,
+    File,
+    Package,
     Search,
     Loader2,
     ChevronLeft,
     ChevronRight,
+    Play,
+    ShoppingBag,
     Square,
     CheckSquare,
     MinusSquare,
-    Package,
+    Truck,
+    XCircle,
     Globe
 } from 'lucide-solid';
 import { Dynamic } from 'solid-js/web';
-import * as LucideIcons from 'lucide-solid';
-import { api } from '../../lib/api';
+import { api, apiResponse } from '../../lib/api';
 import { formatDateTime } from '../../stores/settings';
+import { useI18n } from '../../i18n';
 import BatchOrderToolbar from '../../components/admin/BatchOrderToolbar';
 import toast from '../../components/Toast';
 import { getOrderStatusConfig, getPaymentStatusConfig } from '../../components/shared/order';
@@ -31,6 +40,16 @@ interface Order {
     paidAmount: string;
     createdAt: string;
     isPortalOrder?: boolean;
+}
+
+interface OrdersEnvelope {
+    data: Order[];
+    meta?: {
+        page: string | number;
+        limit: string | number;
+        total: number;
+        totalPages: number;
+    };
 }
 
 interface Driver {
@@ -64,6 +83,7 @@ interface SalesRep {
 }
 
 const Orders: Component = () => {
+    const { t } = useI18n();
     const navigate = useNavigate();
     const [search, setSearch] = createSignal('');
     const [statusFilter, setStatusFilter] = createSignal('');
@@ -78,6 +98,18 @@ const Orders: Component = () => {
     // Selection state
     const [selectedOrderIds, setSelectedOrderIds] = createSignal<Set<string>>(new Set());
     const [isLoading, setIsLoading] = createSignal(false);
+    const statusIcons = {
+        AlertCircle,
+        CheckCircle2,
+        Clock,
+        DollarSign,
+        File,
+        Package,
+        Play,
+        ShoppingBag,
+        Truck,
+        XCircle,
+    } as const;
 
     const [orders, { refetch }] = createResource(
         () => ({
@@ -103,7 +135,7 @@ const Orders: Component = () => {
             if (params.startDate) queryParams.startDate = params.startDate;
             if (params.endDate) queryParams.endDate = params.endDate;
 
-            const result = await api<{ data: Order[]; total: number }>('/orders', { params: queryParams });
+            const result = await apiResponse<OrdersEnvelope>('/orders', { params: queryParams });
             return result;
         }
     );
@@ -145,8 +177,8 @@ const Orders: Component = () => {
         }
     });
 
-    const orderList = createMemo(() => (orders() as any)?.data || orders() || []);
-    const total = createMemo(() => (orders() as any)?.total || orderList().length);
+    const orderList = createMemo(() => (orders() as OrdersEnvelope | undefined)?.data || []);
+    const total = createMemo(() => (orders() as OrdersEnvelope | undefined)?.meta?.total || orderList().length);
     const totalPages = createMemo(() => Math.ceil(total() / limit));
 
     // Selected orders with details
@@ -169,24 +201,28 @@ const Orders: Component = () => {
     });
 
     const statusOptions = [
-        { value: '', label: 'All Status' },
-        { value: 'pending', label: 'Pending' },
-        { value: 'confirmed', label: 'Confirmed' },
-        { value: 'approved', label: 'Approved' },
-        { value: 'picking', label: 'Picking' },
-        { value: 'picked', label: 'Picked' },
-        { value: 'loaded', label: 'Loaded' },
-        { value: 'delivering', label: 'Delivering' },
-        { value: 'delivered', label: 'Delivered' },
-        { value: 'cancelled', label: 'Cancelled' },
+        { value: '', label: t('adminPages.orders.allStatus') },
+        { value: 'pending', label: t('adminPages.orders.pending') },
+        { value: 'confirmed', label: t('adminPages.orders.confirmed') },
+        { value: 'approved', label: t('adminPages.orders.approved') },
+        { value: 'picking', label: t('adminPages.orders.picking') },
+        { value: 'picked', label: t('adminPages.orders.picked') },
+        { value: 'loaded', label: t('adminPages.orders.loaded') },
+        { value: 'delivering', label: t('adminPages.orders.delivering') },
+        { value: 'delivered', label: t('adminPages.orders.delivered') },
+        { value: 'cancelled', label: t('adminPages.orders.cancelled') },
     ];
 
     const paymentOptions = [
-        { value: '', label: 'All Payment' },
-        { value: 'unpaid', label: 'Unpaid' },
-        { value: 'partial', label: 'Partial' },
-        { value: 'paid', label: 'Paid' },
+        { value: '', label: t('adminPages.orders.allPayment') },
+        { value: 'unpaid', label: t('adminPages.orders.unpaid') },
+        { value: 'partial', label: t('adminPages.orders.partial') },
+        { value: 'paid', label: t('adminPages.orders.paidStatus') },
     ];
+
+    const translateOrderStatus = (status: string) => t(`adminPages.orders.${status}`);
+    const translatePaymentStatus = (status: string) =>
+        t(`adminPages.orders.${status === 'paid' ? 'paidStatus' : status}`);
 
     // Status configs now come from shared/order/constants.ts
 
@@ -237,7 +273,7 @@ const Orders: Component = () => {
         // Check for unpaid orders and show warning
         const unpaidCount = selectedOrders().filter((o: Order) => o.paymentStatus !== 'paid').length;
         if (unpaidCount > 0 && ['loaded', 'delivering', 'delivered'].includes(status)) {
-            toast.warning(`⚠️ ${unpaidCount} of ${orderIds.length} orders are not fully paid`);
+            toast.warning(t('adminPages.orders.batchUnpaidWarning', { unpaid: unpaidCount, total: orderIds.length }));
         }
 
         setIsLoading(true);
@@ -260,11 +296,11 @@ const Orders: Component = () => {
 
             // Show toast notification
             if (data.failed > 0) {
-                toast.warning(`${data.succeeded} orders updated, ${data.failed} failed`);
+                toast.warning(t('adminPages.orders.batchUpdatedPartial', { ok: data.succeeded, fail: data.failed }));
             } else {
                 const message = driverName
-                    ? `${data.succeeded} orders set to "${status}" with driver ${driverName}`
-                    : `${data.succeeded} orders updated to "${status}"`;
+                    ? t('adminPages.orders.batchUpdatedWithDriver', { ok: data.succeeded, status, driver: driverName })
+                    : t('adminPages.orders.batchUpdatedToStatus', { ok: data.succeeded, status });
                 toast.success(message);
             }
 
@@ -273,7 +309,7 @@ const Orders: Component = () => {
             clearSelection();
         } catch (error: any) {
             console.error('Batch status change failed:', error);
-            toast.error(error.message || 'Failed to update orders');
+            toast.error(error.message || t('adminPages.orders.updateFailed'));
         } finally {
             setIsLoading(false);
         }
@@ -293,16 +329,16 @@ const Orders: Component = () => {
 
             // Show toast notification
             if (data.failed > 0) {
-                toast.warning(`${data.succeeded} orders cancelled, ${data.failed} failed`);
+                toast.warning(t('adminPages.orders.batchCancelledPartial', { ok: data.succeeded, fail: data.failed }));
             } else {
-                toast.success(`${data.succeeded} orders cancelled`);
+                toast.success(t('adminPages.orders.batchCancelledAll', { ok: data.succeeded }));
             }
 
             await refetch();
             clearSelection();
         } catch (error: any) {
             console.error('Batch cancel failed:', error);
-            toast.error(error.message || 'Failed to cancel orders');
+            toast.error(error.message || t('adminPages.orders.cancelFailed'));
         } finally {
             setIsLoading(false);
         }
@@ -313,8 +349,8 @@ const Orders: Component = () => {
             {/* Header */}
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
                 <div>
-                    <h1 class="text-2xl lg:text-3xl font-bold text-white">Orders</h1>
-                    <p class="text-slate-400">Manage customer orders</p>
+                    <h1 class="text-2xl lg:text-3xl font-bold text-white">{t('adminPages.orders.title')}</h1>
+                    <p class="text-slate-400">{t('adminPages.orders.subtitle')}</p>
                 </div>
             </div>
 
@@ -325,7 +361,7 @@ const Orders: Component = () => {
                     <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                         type="text"
-                        placeholder="Search orders..."
+                        placeholder={t('adminPages.orders.searchPlaceholder') as string}
                         value={search()}
                         onInput={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
                         class="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-sm placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
@@ -339,7 +375,7 @@ const Orders: Component = () => {
                     onInput={(e) => { setStartDate(e.currentTarget.value); setPage(1); }}
                     class="px-2.5 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                 />
-                <span class="text-slate-500 text-sm">to</span>
+                <span class="text-slate-500 text-sm">{t('adminPages.orders.dateTo')}</span>
                 <input
                     type="date"
                     value={endDate()}
@@ -353,7 +389,7 @@ const Orders: Component = () => {
                     onChange={(e) => { setTerritoryFilter(e.currentTarget.value); setPage(1); }}
                     class="px-2.5 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-sm appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                 >
-                    <option value="">All Territories</option>
+                    <option value="">{t('adminPages.orders.allTerritories')}</option>
                     <For each={territories() || []}>
                         {(territory) => <option value={territory.id}>{territory.name}</option>}
                     </For>
@@ -365,7 +401,7 @@ const Orders: Component = () => {
                     onChange={(e) => { setSalesRepFilter(e.currentTarget.value); setPage(1); }}
                     class="px-2.5 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white text-sm appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                 >
-                    <option value="">All Sales Reps</option>
+                    <option value="">{t('adminPages.orders.allSalesReps')}</option>
                     <For each={salesReps() || []}>
                         {(rep) => <option value={rep.id}>{rep.name}</option>}
                     </For>
@@ -407,7 +443,7 @@ const Orders: Component = () => {
                         }}
                         class="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm transition-colors whitespace-nowrap"
                     >
-                        Clear
+                        {t('adminPages.orders.clear')}
                     </button>
                 </Show>
             </div>
@@ -444,7 +480,7 @@ const Orders: Component = () => {
                                         <button
                                             onClick={toggleSelectAll}
                                             class="p-1 hover:bg-slate-800 rounded transition-colors"
-                                            title={selectionState() === 'all' ? 'Deselect all' : 'Select all'}
+                                            title={selectionState() === 'all' ? t('adminPages.orders.deselectAll') : t('adminPages.orders.selectAll')}
                                         >
                                             <Show when={selectionState() === 'none'}>
                                                 <Square class="w-5 h-5 text-slate-500" />
@@ -457,14 +493,14 @@ const Orders: Component = () => {
                                             </Show>
                                         </button>
                                     </th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Date</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Order</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Customer</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Status</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Payment</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Amount</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Driver</th>
-                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">Sales Rep</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.date')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.order')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.customer')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.status')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.payment')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.amount')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.driver')}</th>
+                                    <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-4 py-4">{t('adminPages.orders.salesRep')}</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-800/50">
@@ -472,6 +508,8 @@ const Orders: Component = () => {
                                     {(order: Order) => {
                                         const statusConfig = getOrderStatusConfig(order.status);
                                         const paymentConfig = getPaymentStatusConfig(order.paymentStatus);
+                                        const StatusIcon = statusIcons[statusConfig.icon as keyof typeof statusIcons] || Clock;
+                                        const PaymentIcon = statusIcons[paymentConfig.icon as keyof typeof statusIcons] || Clock;
                                         // Use inline check for reactivity - don't store in const
                                         return (
                                             <tr
@@ -508,7 +546,7 @@ const Orders: Component = () => {
                                                 </td>
                                                 <td class="px-4 py-4">
                                                     <div>
-                                                        <span class="text-white">{order.customer?.name || 'N/A'}</span>
+                                                        <span class="text-white">{order.customer?.name || t('adminPages.orders.na')}</span>
                                                         <Show when={order.customer?.code}>
                                                             <span class="text-slate-500 text-xs ml-2">{order.customer?.code}</span>
                                                         </Show>
@@ -516,19 +554,19 @@ const Orders: Component = () => {
                                                 </td>
                                                 <td class="px-4 py-4">
                                                     <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.text}`}>
-                                                        <Dynamic component={LucideIcons[statusConfig.icon as keyof typeof LucideIcons] as any} class="w-3.5 h-3.5" />
-                                                        {order.status.replace('_', ' ')}
+                                                        <Dynamic component={StatusIcon} class="w-3.5 h-3.5" />
+                                                        {translateOrderStatus(order.status)}
                                                     </span>
                                                 </td>
                                                 <td class="px-4 py-4">
                                                     <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${paymentConfig.bg} ${paymentConfig.text}`}>
-                                                        <Dynamic component={LucideIcons[paymentConfig.icon as keyof typeof LucideIcons] as any} class="w-3.5 h-3.5" />
-                                                        {paymentConfig.label}
+                                                        <Dynamic component={PaymentIcon} class="w-3.5 h-3.5" />
+                                                        {translatePaymentStatus(order.paymentStatus)}
                                                     </span>
                                                 </td>
                                                 <td class="px-4 py-4">
                                                     <div class="text-white font-medium">${parseFloat(order.totalAmount).toFixed(2)}</div>
-                                                    <div class="text-xs text-slate-500">Paid: ${parseFloat(order.paidAmount).toFixed(2)}</div>
+                                                    <div class="text-xs text-slate-500">{t('adminPages.orders.paid')}: ${parseFloat(order.paidAmount).toFixed(2)}</div>
                                                 </td>
                                                 <td class="px-4 py-4 text-slate-400">
                                                     {order.driver?.name || '-'}
@@ -537,9 +575,9 @@ const Orders: Component = () => {
                                                     <div class="flex items-center gap-1.5">
                                                         {order.salesRep?.name || '-'}
                                                         <Show when={order.isPortalOrder}>
-                                                            <span title="Portal order" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 text-[10px] font-medium">
+                                                            <span title={t('adminPages.orders.portalOrderTitle')} class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 text-[10px] font-medium">
                                                                 <Globe class="w-3 h-3" />
-                                                                Portal
+                                                                {t('adminPages.orders.portal')}
                                                             </span>
                                                         </Show>
                                                     </div>
@@ -558,6 +596,8 @@ const Orders: Component = () => {
                             {(order: Order) => {
                                 const statusConfig = getOrderStatusConfig(order.status);
                                 const paymentConfig = getPaymentStatusConfig(order.paymentStatus);
+                                const StatusIcon = statusIcons[statusConfig.icon as keyof typeof statusIcons] || Clock;
+                                const PaymentIcon = statusIcons[paymentConfig.icon as keyof typeof statusIcons] || Clock;
                                 // Use inline check for reactivity - don't store in const
                                 return (
                                     <div
@@ -593,18 +633,18 @@ const Orders: Component = () => {
                                             </div>
                                             <div class="flex flex-col gap-1 items-end">
                                                 <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.text}`}>
-                                                    <Dynamic component={LucideIcons[statusConfig.icon as keyof typeof LucideIcons] as any} class="w-3.5 h-3.5" />
-                                                    {order.status.replace('_', ' ')}
+                                                    <Dynamic component={StatusIcon} class="w-3.5 h-3.5" />
+                                                    {translateOrderStatus(order.status)}
                                                 </span>
                                                 <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${paymentConfig.bg} ${paymentConfig.text}`}>
-                                                    <Dynamic component={LucideIcons[paymentConfig.icon as keyof typeof LucideIcons] as any} class="w-3.5 h-3.5" />
-                                                    {paymentConfig.label}
+                                                    <Dynamic component={PaymentIcon} class="w-3.5 h-3.5" />
+                                                    {translatePaymentStatus(order.paymentStatus)}
                                                 </span>
                                             </div>
                                         </div>
 
                                         <div class="mb-3">
-                                            <div class="text-sm text-white mb-0.5">{order.customer?.name || 'N/A'}</div>
+                                            <div class="text-sm text-white mb-0.5">{order.customer?.name || t('adminPages.orders.na')}</div>
                                             <Show when={order.customer?.code}>
                                                 <div class="text-xs text-slate-500">{order.customer?.code}</div>
                                             </Show>
@@ -612,21 +652,21 @@ const Orders: Component = () => {
 
                                         <div class="flex items-center justify-between pt-3 border-t border-slate-800/50">
                                             <div>
-                                                <div class="text-xs text-slate-500">Total Amount</div>
+                                                <div class="text-xs text-slate-500">{t('adminPages.orders.totalAmount')}</div>
                                                 <div class="text-white font-medium">${parseFloat(order.totalAmount).toFixed(2)}</div>
                                             </div>
                                             <Show when={order.driver}>
                                                 <div class="text-center">
-                                                    <div class="text-xs text-slate-500">Driver</div>
+                                                    <div class="text-xs text-slate-500">{t('adminPages.orders.driver')}</div>
                                                     <div class="text-slate-300 text-sm">{order.driver?.name}</div>
                                                 </div>
                                             </Show>
                                             <div class="text-right">
-                                                <div class="text-xs text-slate-500">Sales Rep</div>
+                                                <div class="text-xs text-slate-500">{t('adminPages.orders.salesRep')}</div>
                                                 <div class="text-slate-300 text-sm flex items-center justify-end gap-1.5">
                                                     {order.salesRep?.name || '-'}
                                                     <Show when={order.isPortalOrder}>
-                                                        <span title="Portal order" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 text-[10px] font-medium">
+                                                        <span title={t('adminPages.orders.portalOrderTitle')} class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 text-[10px] font-medium">
                                                             <Globe class="w-3 h-3" />
                                                         </span>
                                                     </Show>
@@ -642,7 +682,11 @@ const Orders: Component = () => {
                     {/* Pagination */}
                     <div class="flex items-center justify-between px-6 py-4 border-t border-slate-800/50">
                         <span class="text-slate-400 text-sm">
-                            Showing {(page() - 1) * limit + 1} to {Math.min(page() * limit, total())} of {total()} orders
+                            {t('adminPages.orders.showingRange', {
+                                from: (page() - 1) * limit + 1,
+                                to: Math.min(page() * limit, total()),
+                                total: total(),
+                            })}
                         </span>
                         <div class="flex items-center gap-2">
                             <button
@@ -653,7 +697,7 @@ const Orders: Component = () => {
                                 <ChevronLeft class="w-5 h-5" />
                             </button>
                             <span class="text-white text-sm px-3">
-                                Page {page()} of {totalPages()}
+                                {t('adminPages.orders.pageOf', { page: page(), total: totalPages() })}
                             </span>
                             <button
                                 onClick={() => setPage(p => Math.min(totalPages(), p + 1))}
@@ -671,8 +715,8 @@ const Orders: Component = () => {
             <Show when={!orders.loading && orderList().length === 0}>
                 <div class="text-center py-20">
                     <Package class="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                    <h3 class="text-xl font-semibold text-white mb-2">No orders found</h3>
-                    <p class="text-slate-400">Orders will appear here once created</p>
+                    <h3 class="text-xl font-semibold text-white mb-2">{t('adminPages.orders.noOrdersFound')}</h3>
+                    <p class="text-slate-400">{t('adminPages.orders.ordersAppearHint')}</p>
                 </div>
             </Show>
         </div>

@@ -20,6 +20,7 @@ import { getImageUrl } from '../../utils/formatters';
 import ImportMasterModal from '../../components/products/ImportMasterModal';
 import ImageUploader from '../../components/ImageUploader';
 import ImageLightbox from '../../components/ImageLightbox';
+import { useI18n } from '../../i18n';
 
 interface Product {
     id: string;
@@ -42,6 +43,7 @@ interface Product {
 }
 
 const Products: Component = () => {
+    const { t } = useI18n();
     const [searchQuery, setSearchQuery] = createSignal('');
     const [page, setPage] = createSignal(1);
     const [debouncedSearch, setDebouncedSearch] = createSignal('');
@@ -208,12 +210,12 @@ const Products: Component = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this product?')) return;
+        if (!confirm(t('adminPages.products.deleteConfirm'))) return;
         try {
             await api(`/products/${id}`, { method: 'DELETE' });
             refetch();
         } catch (err: any) {
-            alert(err.message || 'Failed to delete product');
+            alert(err.message || t('adminPages.products.deleteFailed'));
         }
     };
 
@@ -292,7 +294,7 @@ const Products: Component = () => {
             });
             refetch();
         } catch (err: any) {
-            setError(err.message || 'Failed to save product.');
+            setError(err.message || t('adminPages.products.saveFailed'));
         } finally {
             setSubmitting(false);
         }
@@ -303,8 +305,8 @@ const Products: Component = () => {
             {/* Header */}
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
-                    <h1 class="text-2xl font-bold text-white">Products</h1>
-                    <p class="text-slate-400 text-sm">Manage your product catalog</p>
+                    <h1 class="text-2xl font-bold text-white">{t('adminPages.products.title')}</h1>
+                    <p class="text-slate-400 text-sm">{t('adminPages.products.subtitle')}</p>
                 </div>
                 <div class="flex gap-2">
                     <button
@@ -312,7 +314,7 @@ const Products: Component = () => {
                         class="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 text-slate-300 font-medium rounded-xl hover:bg-slate-700 hover:text-white active:scale-[0.98] transition-all border border-slate-700"
                     >
                         <Download class="w-5 h-5" />
-                        <span class="hidden sm:inline">Import from Master</span>
+                        <span class="hidden sm:inline">{t('adminPages.products.importFromMaster')}</span>
                     </button>
                     <button
                         onClick={() => {
@@ -334,7 +336,7 @@ const Products: Component = () => {
                         class="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 active:scale-[0.98] transition-all"
                     >
                         <Plus class="w-5 h-5" />
-                        Add Product
+                        {t('adminPages.products.addProduct')}
                     </button>
                 </div>
             </div>
@@ -348,7 +350,7 @@ const Products: Component = () => {
                             type="text"
                             value={searchQuery()}
                             onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                            placeholder="Search products..."
+                            placeholder={t('adminPages.products.searchPlaceholder') as string}
                             class="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                         <Show when={searchQuery()}>
@@ -362,7 +364,7 @@ const Products: Component = () => {
                     </div>
                     <button class="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 text-slate-300 font-medium rounded-xl hover:bg-slate-700 transition-colors">
                         <Filter class="w-4 h-4" />
-                        Filters
+                        {t('adminPages.products.filters')}
                     </button>
                 </div>
             </div>
@@ -382,14 +384,14 @@ const Products: Component = () => {
                         <table class="w-full">
                             <thead class="bg-slate-800/50 border-b border-slate-700">
                                 <tr>
-                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Product</th>
-                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">SKU</th>
-                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Brand</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Price</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Cost</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Stock</th>
-                                    <th class="text-center text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Status</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Actions</th>
+                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.product')}</th>
+                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.sku')}</th>
+                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.brand')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.price')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.cost')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.stock')}</th>
+                                    <th class="text-center text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.status')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.products.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-800">
@@ -413,7 +415,7 @@ const Products: Component = () => {
                                                     </div>
                                                     <div>
                                                         <div class="text-white font-medium">{product.name}</div>
-                                                        <div class="text-slate-500 text-xs">{product.categoryName || 'Uncategorized'}</div>
+                                                        <div class="text-slate-500 text-xs">{product.categoryName || t('adminPages.products.uncategorized')}</div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -428,7 +430,7 @@ const Products: Component = () => {
                                             </td>
                                             <td class="px-6 py-4 text-center">
                                                 <span class={`px-2 py-1 rounded-full text-[10px] font-bold ${product.isActive ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>
-                                                    {product.isActive ? 'Active' : 'Inactive'}
+                                                    {product.isActive ? t('adminPages.products.active') : t('adminPages.products.inactive')}
                                                 </span>
                                             </td>
                                             <td class="px-6 py-4 text-right">
@@ -480,15 +482,15 @@ const Products: Component = () => {
                                                     <div class="text-slate-500 text-xs">{product.sku}</div>
                                                 </div>
                                                 <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold ${product.isActive ? 'bg-green-500/10 text-green-400' : 'bg-slate-500/10 text-slate-400'}`}>
-                                                    {product.isActive ? 'Active' : 'Inactive'}
+                                                    {product.isActive ? t('adminPages.products.active') : t('adminPages.products.inactive')}
                                                 </span>
                                             </div>
                                             <div class="flex items-center justify-between">
-                                                <div class="text-slate-400 text-sm">{product.brandName || 'No brand'}</div>
+                                                <div class="text-slate-400 text-sm">{product.brandName || t('adminPages.products.noBrand')}</div>
                                                 <div class="text-white font-semibold">{formatCurrency(product.price)}</div>
                                             </div>
                                             <div class="flex items-center justify-between mt-2">
-                                                <div class="text-slate-500 text-xs">Stock: {product.stockQuantity}</div>
+                                                <div class="text-slate-500 text-xs">{t('adminPages.products.stockLabel')}: {product.stockQuantity}</div>
                                                 <button class="p-1 text-slate-400">
                                                     <MoreVertical class="w-4 h-4" />
                                                 </button>
@@ -504,8 +506,8 @@ const Products: Component = () => {
                     <Show when={products().length === 0}>
                         <div class="text-center py-16">
                             <Package class="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                            <h3 class="text-lg font-semibold text-white mb-2">No products found</h3>
-                            <p class="text-slate-400 text-sm">Try adjusting your search or add a new product</p>
+                            <h3 class="text-lg font-semibold text-white mb-2">{t('adminPages.products.noProductsFound')}</h3>
+                            <p class="text-slate-400 text-sm">{t('adminPages.products.noProductsHint')}</p>
                         </div>
                     </Show>
                 </Show>
@@ -514,7 +516,11 @@ const Products: Component = () => {
                 <Show when={meta().totalPages > 1}>
                     <div class="flex items-center justify-between px-6 py-4 border-t border-slate-800">
                         <div class="text-slate-400 text-sm">
-                            Showing {((meta().page - 1) * 15) + 1} - {Math.min(meta().page * 15, meta().total)} of {meta().total}
+                            {t('adminPages.products.showingRange', {
+                                from: ((meta().page - 1) * 15) + 1,
+                                to: Math.min(meta().page * 15, meta().total),
+                                total: meta().total,
+                            })}
                         </div>
                         <div class="flex items-center gap-2">
                             <button
@@ -542,7 +548,7 @@ const Products: Component = () => {
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
                     <div class="w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
                         <div class="p-6 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-slate-900 z-10">
-                            <h2 class="text-xl font-bold text-white">{editingId() ? 'Edit Product' : 'Add New Product'}</h2>
+                            <h2 class="text-xl font-bold text-white">{editingId() ? t('adminPages.products.editProduct') : t('adminPages.products.addNewProduct')}</h2>
                             <button onClick={() => setShowCreateModal(false)} class="text-slate-400 hover:text-white transition-colors">
                                 <X class="w-6 h-6" />
                             </button>
@@ -556,7 +562,7 @@ const Products: Component = () => {
                             </Show>
 
                             <div class="space-y-1.5">
-                                <label class="text-sm font-medium text-slate-300">Product Images</label>
+                                <label class="text-sm font-medium text-slate-300">{t('adminPages.products.productImages')}</label>
                                 <ImageUploader
                                     images={productImages()}
                                     onImagesChange={setProductImages}
@@ -567,14 +573,14 @@ const Products: Component = () => {
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Product Name *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.productName')}</label>
                                     <input
                                         type="text"
                                         required
                                         value={formData.name}
                                         onInput={(e) => setFormData('name', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="Product Name"
+                                        placeholder={t('adminPages.products.productNamePlaceholder') as string}
                                     />
                                 </div>
 
@@ -592,25 +598,25 @@ const Products: Component = () => {
                             </div>
 
                             <div class="space-y-1.5">
-                                <label class="text-sm font-medium text-slate-300">Description</label>
+                                <label class="text-sm font-medium text-slate-300">{t('adminPages.products.description')}</label>
                                 <textarea
                                     value={formData.description}
                                     onInput={(e) => setFormData('description', e.currentTarget.value)}
                                     class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none min-h-[60px]"
-                                    placeholder="Product description"
+                                    placeholder={t('adminPages.products.descriptionPlaceholder') as string}
                                 />
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Category *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.category')}</label>
                                     <select
                                         required
                                         value={formData.categoryId}
                                         onChange={handleCategoryChange}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="">Select Category</option>
+                                        <option value="">{t('adminPages.products.selectCategory')}</option>
                                         <For each={categories()}>
                                             {(cat) => <option value={cat.id}>{cat.name}</option>}
                                         </For>
@@ -618,7 +624,7 @@ const Products: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Subcategory *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.subcategory')}</label>
                                     <select
                                         required
                                         value={formData.subcategoryId}
@@ -626,7 +632,7 @@ const Products: Component = () => {
                                         disabled={!formData.categoryId}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
                                     >
-                                        <option value="">Select Subcategory</option>
+                                        <option value="">{t('adminPages.products.selectSubcategory')}</option>
                                         <For each={filteredSubcategories()}>
                                             {(sub) => <option value={sub.id}>{sub.name}</option>}
                                         </For>
@@ -634,14 +640,14 @@ const Products: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Brand *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.brand')} *</label>
                                     <select
                                         required
                                         value={formData.brandId}
                                         onInput={(e) => setFormData('brandId', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="">Select Brand</option>
+                                        <option value="">{t('adminPages.products.selectBrand')}</option>
                                         <For each={brands()}>
                                             {(brand) => <option value={brand.id}>{brand.name}</option>}
                                         </For>
@@ -651,7 +657,7 @@ const Products: Component = () => {
 
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Price *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.price')} *</label>
                                     <input
                                         type="number"
                                         required
@@ -665,7 +671,7 @@ const Products: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Cost Price</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.costPrice')}</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -678,20 +684,20 @@ const Products: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Unit *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.products.unit')}</label>
                                     <select
                                         required
                                         value={formData.unit}
                                         onInput={(e) => setFormData('unit', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="piece">Pieces (pcs)</option>
-                                        <option value="kg">Kilograms (kg)</option>
-                                        <option value="gram">Grams (g)</option>
-                                        <option value="liter">Liters (l)</option>
-                                        <option value="box">Box</option>
-                                        <option value="pack">Pack / Set</option>
-                                        <option value="case">Case</option>
+                                        <option value="piece">{t('adminPages.products.unitPiece')}</option>
+                                        <option value="kg">{t('adminPages.products.unitKg')}</option>
+                                        <option value="gram">{t('adminPages.products.unitGram')}</option>
+                                        <option value="liter">{t('adminPages.products.unitLiter')}</option>
+                                        <option value="box">{t('adminPages.products.unitBox')}</option>
+                                        <option value="pack">{t('adminPages.products.unitPack')}</option>
+                                        <option value="case">{t('adminPages.products.unitCase')}</option>
                                     </select>
                                 </div>
                             </div>
@@ -702,16 +708,16 @@ const Products: Component = () => {
                                     onClick={() => setShowCreateModal(false)}
                                     class="px-5 py-2.5 text-slate-300 font-medium hover:text-white transition-colors"
                                 >
-                                    Cancel
+                                    {t('adminPages.products.cancel')}
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={submitting()}
                                     class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
-                                    <Show when={submitting()} fallback={editingId() ? 'Update Product' : 'Create Product'}>
+                                    <Show when={submitting()} fallback={editingId() ? t('adminPages.products.updateProduct') : t('adminPages.products.createProduct')}>
                                         <Loader2 class="w-4 h-4 animate-spin" />
-                                        {editingId() ? 'Updating...' : 'Creating...'}
+                                        {editingId() ? t('adminPages.products.updating') : t('adminPages.products.creating')}
                                     </Show>
                                 </button>
                             </div>

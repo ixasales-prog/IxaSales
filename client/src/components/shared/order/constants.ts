@@ -3,7 +3,7 @@ export interface OrderStatusConfig {
   bg: string;
   text: string;
   border?: string;
-  icon: any;
+  icon: string;
   stripColor?: string;
 }
 

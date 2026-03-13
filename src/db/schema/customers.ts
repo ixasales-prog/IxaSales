@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, boolean, integer, decimal, date, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, boolean, integer, decimal, date, pgEnum, index } from 'drizzle-orm/pg-core';
 import { tenants, users } from './core';
 import { territories } from './territories';
 
@@ -57,15 +57,32 @@ export const customers = pgTable('customers', {
     notes: text('notes'),
     lastOrderDate: date('last_order_date'),
     telegramChatId: varchar('telegram_chat_id', { length: 50 }), // For customer notifications
+    telegramUserId: varchar('telegram_user_id', { length: 50 }),
+    telegramUsername: varchar('telegram_username', { length: 255 }),
+    telegramFirstName: varchar('telegram_first_name', { length: 255 }),
+    telegramLastName: varchar('telegram_last_name', { length: 255 }),
+    telegramLanguageCode: varchar('telegram_language_code', { length: 16 }),
+    telegramLinkedAt: timestamp('telegram_linked_at'),
+    registrationSource: varchar('registration_source', { length: 32 }).default('manual'),
+    consentGiven: boolean('consent_given').default(false),
+    consentAt: timestamp('consent_at'),
 
     // OTP for Customer Portal authentication
-    otpCode: varchar('otp_code', { length: 6 }),
+    otpCode: varchar('otp_code', { length: 128 }),
     otpExpiresAt: timestamp('otp_expires_at'),
 
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => ({
+    idxCustomersTenantActive: index('idx_customers_tenant_active').on(table.tenantId, table.isActive),
+    idxCustomersTerritory: index('idx_customers_territory_id').on(table.territoryId),
+    idxCustomersTier: index('idx_customers_tier_id').on(table.tierId),
+    idxCustomersCode: index('idx_customers_code').on(table.code),
+    idxCustomersEmail: index('idx_customers_email').on(table.email),
+    idxCustomersTenantTelegramUser: index('idx_customers_tenant_telegram_user').on(table.tenantId, table.telegramUserId),
+    idxCustomersTenantTelegramChat: index('idx_customers_tenant_telegram_chat').on(table.tenantId, table.telegramChatId),
+}));
 
 // ============================================================================
 // CUSTOMER USERS (B2B Portal)
@@ -82,7 +99,11 @@ export const customerUsers = pgTable('customer_users', {
     lastLoginAt: timestamp('last_login_at'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => ({
+    idxCustomerUsersTenantId: index('idx_customer_users_tenant_id').on(table.tenantId),
+    idxCustomerUsersCustomerId: index('idx_customer_users_customer_id').on(table.customerId),
+    idxCustomerUsersEmail: index('idx_customer_users_email').on(table.email),
+}));
 
 // ============================================================================
 // TIER DOWNGRADE RULES
@@ -98,7 +119,10 @@ export const tierDowngradeRules = pgTable('tier_downgrade_rules', {
     isActive: boolean('is_active').default(true),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => ({
+    idxTierDowngradeTenantId: index('idx_tier_downgrade_tenant_id').on(table.tenantId),
+    idxTierDowngradeIsActive: index('idx_tier_downgrade_is_active').on(table.isActive),
+}));
 
 // ============================================================================
 // TIER UPGRADE RULES

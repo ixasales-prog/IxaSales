@@ -1,6 +1,6 @@
 /**
  * Payment Gateway Routes (Fastify)
- * 
+ *
  * Handles:
  * - Payment link generation
  * - Payment status checking
@@ -11,14 +11,12 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import { finalizePaymentTokenPayment } from '../services/payment-finalization.service';
 
 import {
     createPaymentLink,
     getPaymentToken,
-    markTokenAsPaid,
-    isTokenValid,
-    // Click
     verifyClickPrepareSignature,
     verifyClickCompleteSignature,
     clickSuccessResponse,
@@ -26,20 +24,16 @@ import {
     CLICK_ERRORS,
     type ClickPrepareRequest,
     type ClickCompleteRequest,
-    // Payme
     verifyPaymeAuth,
     createPaymeResponse,
     paymeOrderNotFound,
     paymeOrderAlreadyPaid,
     paymeAmountIncorrect,
-    paymeTransactionNotFound,
     paymeInsufficientPrivilege,
     PAYME_ERRORS,
-    tiyinToSum,
     type PaymeRequest,
 } from '../lib/payment-providers';
 
-// Schemas
 const TokenParamsSchema = Type.Object({
     token: Type.String(),
 });
@@ -52,151 +46,76 @@ const CreateLinkBodySchema = Type.Object({
 type TokenParams = Static<typeof TokenParamsSchema>;
 type CreateLinkBody = Static<typeof CreateLinkBodySchema>;
 
-// Helper: Process payment completion
-async function processPaymentComplete(paymentToken: typeof schema.paymentTokens.$inferSelect) {
-    try {
-        const amount = Number(paymentToken.amount);
+async function processPaymentComplete(token: string, provider: 'click' | 'payme', providerTransactionId: string) {
+    const result = await finalizePaymentTokenPayment({
+        token,
+        provider,
+        providerTransactionId,
+    });
 
-        // 1. Find or create "Online" payment method for this tenant
-        let [onlineMethod] = await db
-            .select({ id: schema.paymentMethods.id })
-            .from(schema.paymentMethods)
-            .where(
-                and(
-                    eq(schema.paymentMethods.tenantId, paymentToken.tenantId),
-                    eq(schema.paymentMethods.name, 'Online')
-                )
-            )
+    const tokenInfo = await getPaymentToken(token);
+    if (!tokenInfo) {
+        throw new Error('PAYMENT_TOKEN_NOT_FOUND');
+    }
+
+    const paymentToken = tokenInfo.token;
+    const amount = Number(paymentToken.amount);
+
+    try {
+        const { notifyPaymentReceived, notifyCustomerPaymentReceived, getTenantAdminsWithTelegram } = await import('../lib/telegram');
+
+        const [customer] = await db
+            .select({
+                name: schema.customers.name,
+                telegramChatId: schema.customers.telegramChatId,
+                debtBalance: schema.customers.debtBalance,
+            })
+            .from(schema.customers)
+            .where(eq(schema.customers.id, paymentToken.customerId))
             .limit(1);
 
-        if (!onlineMethod) {
-            const [created] = await db
-                .insert(schema.paymentMethods)
-                .values({
-                    tenantId: paymentToken.tenantId,
-                    name: 'Online',
-                    isActive: true,
-                })
-                .returning({ id: schema.paymentMethods.id });
-            onlineMethod = created;
-        }
-
-        // 2. Record the payment
-        const paymentNumber = `PAY-${Date.now()}`;
-
-        await db.insert(schema.payments).values({
-            tenantId: paymentToken.tenantId,
-            paymentNumber,
-            customerId: paymentToken.customerId,
-            orderId: paymentToken.orderId,
-            paymentMethodId: onlineMethod.id,
-            amount: paymentToken.amount,
-            referenceNumber: paymentToken.providerTransactionId,
-            collectedAt: new Date(),
-            notes: `Online payment via ${paymentToken.paidVia}`,
-        });
-
-        // 3. Update order payment status
-        const [order] = await db
-            .select({
-                totalAmount: schema.orders.totalAmount,
-                paidAmount: schema.orders.paidAmount,
-            })
+        const [orderInfo] = await db
+            .select({ orderNumber: schema.orders.orderNumber })
             .from(schema.orders)
             .where(eq(schema.orders.id, paymentToken.orderId))
             .limit(1);
 
-        if (order) {
-            const newPaidAmount = Number(order.paidAmount || 0) + amount;
-            const totalAmount = Number(order.totalAmount);
+        const currency = paymentToken.currency || 'UZS';
+        const admins = await getTenantAdminsWithTelegram(paymentToken.tenantId);
 
-            let paymentStatus: 'unpaid' | 'partial' | 'paid' = 'partial';
-            if (newPaidAmount >= totalAmount) paymentStatus = 'paid';
-            else if (newPaidAmount <= 0) paymentStatus = 'unpaid';
-
-            await db
-                .update(schema.orders)
-                .set({
-                    paidAmount: newPaidAmount.toString(),
-                    paymentStatus,
-                })
-                .where(eq(schema.orders.id, paymentToken.orderId));
+        for (const admin of admins) {
+            notifyPaymentReceived(admin.telegramChatId, {
+                amount,
+                currency,
+                customerName: customer?.name || 'Unknown',
+                orderNumber: orderInfo?.orderNumber,
+            });
         }
 
-        // 4. Update customer debt
-        await db
-            .update(schema.customers)
-            .set({
-                debtBalance: sql`GREATEST(0, ${schema.customers.debtBalance} - ${amount})`,
-                updatedAt: new Date(),
-            })
-            .where(eq(schema.customers.id, paymentToken.customerId));
-
-        // 5. Send Telegram notifications
-        try {
-            const { notifyPaymentReceived, notifyCustomerPaymentReceived, getTenantAdminsWithTelegram } = await import('../lib/telegram');
-
-            const [customer] = await db
-                .select({
-                    name: schema.customers.name,
-                    telegramChatId: schema.customers.telegramChatId,
-                    debtBalance: schema.customers.debtBalance,
-                })
-                .from(schema.customers)
-                .where(eq(schema.customers.id, paymentToken.customerId))
-                .limit(1);
-
-            const [orderInfo] = await db
-                .select({ orderNumber: schema.orders.orderNumber })
-                .from(schema.orders)
-                .where(eq(schema.orders.id, paymentToken.orderId))
-                .limit(1);
-
-            const currency = paymentToken.currency || 'UZS';
-
-            // Notify admins
-            const admins = await getTenantAdminsWithTelegram(paymentToken.tenantId);
-            for (const admin of admins) {
-                notifyPaymentReceived(admin.telegramChatId, {
+        if (customer?.telegramChatId) {
+            notifyCustomerPaymentReceived(
+                paymentToken.tenantId,
+                { chatId: customer.telegramChatId, name: customer.name },
+                {
                     amount,
                     currency,
-                    customerName: customer?.name || 'Unknown',
+                    remainingBalance: result.balanceState?.debtBalance ?? Number(customer.debtBalance || 0),
                     orderNumber: orderInfo?.orderNumber,
-                });
-            }
-
-            // Notify customer
-            if (customer?.telegramChatId) {
-                notifyCustomerPaymentReceived(
-                    paymentToken.tenantId,
-                    { chatId: customer.telegramChatId, name: customer.name },
-                    {
-                        amount,
-                        currency,
-                        remainingBalance: Number(customer.debtBalance || 0),
-                        orderNumber: orderInfo?.orderNumber,
-                    }
-                );
-            }
-        } catch (e) {
-            console.error('[Payment Gateway] Telegram notification error:', e);
+                }
+            );
         }
-
-        console.log(`[Payment Gateway] Payment completed: ${paymentNumber} for ${amount} ${paymentToken.currency}`);
-    } catch (error) {
-        console.error('[Payment Gateway] Error processing payment:', error);
+    } catch (e) {
+        console.error('[Payment Gateway] Telegram notification error:', e);
     }
+
+    console.log(`[Payment Gateway] Payment completed: ${result.paymentNumber || result.paymentId} for ${amount} ${paymentToken.currency}`);
 }
 
 export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
-    // ================================================================
-    // PUBLIC: Payment Status (for portal page)
-    // ================================================================
     fastify.get<{ Params: TokenParams }>('/status/:token', {
         schema: { params: TokenParamsSchema },
     }, async (request, reply) => {
         const { token } = request.params;
-
         const result = await getPaymentToken(token);
 
         if (!result) {
@@ -259,11 +178,8 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
         };
     });
 
-    // ================================================================
-    // AUTHENTICATED: Create Payment Link
-    // ================================================================
     fastify.post<{ Body: CreateLinkBody }>('/create-link', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('payments.collect')],
         schema: { body: CreateLinkBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
@@ -273,6 +189,7 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
                 id: schema.orders.id,
                 tenantId: schema.orders.tenantId,
                 customerId: schema.orders.customerId,
+                driverId: schema.orders.driverId,
                 totalAmount: schema.orders.totalAmount,
                 paidAmount: schema.orders.paidAmount,
                 paymentStatus: schema.orders.paymentStatus,
@@ -288,6 +205,22 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!order) {
             return reply.code(404).send({ success: false, error: { code: 'ORDER_NOT_FOUND' } });
+        }
+
+        if (user.role === 'sales_rep') {
+            const [customer] = await db
+                .select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
+                .from(schema.customers)
+                .where(eq(schema.customers.id, order.customerId))
+                .limit(1);
+
+            if (!customer || customer.assignedSalesRepId !== user.id) {
+                return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            }
+        }
+
+        if (user.role === 'driver' && order.driverId !== user.id) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
         }
 
         if (order.paymentStatus === 'paid') {
@@ -329,15 +262,11 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: result };
     });
 
-    // ================================================================
-    // CLICK WEBHOOK
-    // ================================================================
-    fastify.post('/webhook/click', async (request, reply) => {
+    fastify.post('/webhook/click', async (request) => {
         const params = request.body as ClickPrepareRequest | ClickCompleteRequest;
         const token = params.merchant_trans_id;
 
         const tokenInfo = await getPaymentToken(token);
-
         if (!tokenInfo) {
             return clickErrorResponse(
                 params.click_trans_id,
@@ -362,7 +291,6 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
             );
         }
 
-        // Handle Prepare (action = 0)
         if (params.action === 0) {
             const prepareParams = params as ClickPrepareRequest;
 
@@ -406,7 +334,6 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
             return clickSuccessResponse(params.click_trans_id, token, 1);
         }
 
-        // Handle Complete (action = 1)
         if (params.action === 1) {
             const completeParams = params as ClickCompleteRequest;
 
@@ -424,16 +351,17 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
                 return clickSuccessResponse(params.click_trans_id, token, undefined, 1);
             }
 
-            const marked = await markTokenAsPaid(
-                token,
-                'click',
-                params.click_trans_id.toString()
-            );
-
-            if (marked) {
-                await processPaymentComplete(tokenInfo.token);
+            try {
+                await processPaymentComplete(token, 'click', params.click_trans_id.toString());
+            } catch (error) {
+                console.error('[Click] Payment completion failed:', error);
+                return clickErrorResponse(
+                    params.click_trans_id,
+                    token,
+                    CLICK_ERRORS.BAD_REQUEST,
+                    'Payment finalization failed'
+                );
             }
-
             return clickSuccessResponse(params.click_trans_id, token, undefined, 1);
         }
 
@@ -445,10 +373,7 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
         );
     });
 
-    // ================================================================
-    // PAYME WEBHOOK
-    // ================================================================
-    fastify.post('/webhook/payme', async (request, reply) => {
+    fastify.post('/webhook/payme', async (request) => {
         const req = request.body as PaymeRequest;
         const authHeader = request.headers['authorization'] as string | undefined;
 
@@ -460,7 +385,6 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         const tokenInfo = await getPaymentToken(token);
-
         if (!tokenInfo) {
             return paymeOrderNotFound(req.id);
         }
@@ -513,14 +437,11 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
             }
 
             case 'PerformTransaction': {
-                const marked = await markTokenAsPaid(
-                    token,
-                    'payme',
-                    req.params.id || ''
-                );
-
-                if (marked) {
-                    await processPaymentComplete(tokenInfo.token);
+                try {
+                    await processPaymentComplete(token, 'payme', req.params.id || '');
+                } catch (error) {
+                    console.error('[Payme] Payment completion failed:', error);
+                    return paymeInsufficientPrivilege(req.id);
                 }
 
                 return createPaymeResponse(req.id, {
@@ -552,8 +473,10 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
             }
 
             case 'CheckTransaction': {
-                const state = tokenInfo.token.status === 'paid' ? 2
-                    : tokenInfo.token.status === 'cancelled' ? -1
+                const state = tokenInfo.token.status === 'paid'
+                    ? 2
+                    : tokenInfo.token.status === 'cancelled'
+                        ? -1
                         : 1;
 
                 return createPaymeResponse(req.id, {
@@ -574,7 +497,7 @@ export const paymentGatewayRoutes: FastifyPluginAsync = async (fastify) => {
                     id: req.id,
                     error: {
                         code: PAYME_ERRORS.METHOD_NOT_FOUND,
-                        message: { uz: 'Metod topilmadi', ru: 'Метод не найден', en: 'Method not found' },
+                        message: { uz: 'Metod topilmadi', ru: 'РњРµС‚РѕРґ РЅРµ РЅР°Р№РґРµРЅ', en: 'Method not found' },
                     },
                 };
         }

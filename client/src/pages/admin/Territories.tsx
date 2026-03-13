@@ -5,6 +5,8 @@ import { api } from '../../lib/api';
 import { toast } from '../../components/Toast';
 import { currentUser } from '../../stores/auth';
 import AddTerritoryModal from './AddTerritoryModal';
+import PageHeader from '../../components/page/PageHeader';
+import PageShell from '../../components/page/PageShell';
 
 interface Territory {
     id: string;
@@ -13,6 +15,10 @@ interface Territory {
     level: number | null;
     isActive: boolean;
     children?: Territory[];
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+    return error instanceof Error && error.message ? error.message : fallback;
 }
 
 const flattenTerritories = (nodes: Territory[], depth = 0): Array<Territory & { depth: number }> => {
@@ -109,9 +115,8 @@ const AdminTerritories: Component = () => {
         try {
             const response = await api.get<Territory[]>('/customers/territories/tree');
             return response || [];
-        } catch (err: any) {
-            console.error('Failed to load territories:', err);
-            toast.error(err?.message || 'Failed to load territories');
+        } catch (error) {
+            toast.error(getErrorMessage(error, 'Failed to load territories'));
             return [];
         }
     });
@@ -167,13 +172,6 @@ const AdminTerritories: Component = () => {
         setExpandedMap(id, (value) => !value);
     };
 
-    // Helper function for search auto-expand
-    const hasMatchingDescendant = (territory: Territory, matchIds: Set<string>): boolean => {
-        if (matchIds.has(territory.id)) return true;
-        if (!territory.children) return false;
-        return territory.children.some(child => hasMatchingDescendant(child, matchIds));
-    };
-
     const handleEdit = (territory: Territory) => {
         setEditingTerritory(territory);
         setDefaultParentId(territory.parentId || null);
@@ -192,9 +190,8 @@ const AdminTerritories: Component = () => {
             await api.patch(`/customers/territories/${territory.id}`, { isActive: !territory.isActive });
             toast.success(`Territory ${territory.isActive ? 'disabled' : 'enabled'} successfully`);
             refetch();
-        } catch (error: any) {
-            console.error('Failed to update territory:', error);
-            toast.error(error.message || 'Failed to update territory');
+        } catch (error) {
+            toast.error(getErrorMessage(error, 'Failed to update territory'));
         }
     };
 
@@ -276,21 +273,24 @@ const AdminTerritories: Component = () => {
     };
 
     return (
-        <div class="p-4 pt-6 sm:p-8 sm:pt-8 space-y-8">
-            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                    <h1 class="text-3xl font-bold text-white tracking-tight">Territories</h1>
-                    <p class="text-slate-400 mt-1">Organize territories into a hierarchy for assignment and reporting.</p>
-                </div>
-                <button
-                    onClick={() => { setEditingTerritory(null); setDefaultParentId(null); setShowModal(true); }}
-                    disabled={!canManage()}
-                    class={`w-full sm:w-auto px-6 py-3 text-white font-semibold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 ${canManage() ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20' : 'bg-slate-700 cursor-not-allowed'}`}
-                >
-                    <Plus class="w-5 h-5" />
-                    Add Territory
-                </button>
-            </div>
+        <PageShell>
+            <div class="space-y-8">
+                <PageHeader
+                    title="Territories"
+                    description="Organize territories into a hierarchy for assignment and reporting."
+                    backHref="/admin"
+                    backLabel="Back to dashboard"
+                    actions={
+                        <button
+                            onClick={() => { setEditingTerritory(null); setDefaultParentId(null); setShowModal(true); }}
+                            disabled={!canManage()}
+                            class={`w-full sm:w-auto px-6 py-3 text-white font-semibold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 ${canManage() ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20' : 'bg-slate-700 cursor-not-allowed'}`}
+                        >
+                            <Plus class="w-5 h-5" />
+                            Add Territory
+                        </button>
+                    }
+                />
 
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row gap-3">
                 <div class="relative flex-1">
@@ -358,7 +358,7 @@ const AdminTerritories: Component = () => {
                         <div class="p-8 flex flex-col items-center justify-center text-slate-500">
                             <FolderTree class="w-12 h-12 mb-3 opacity-20 text-red-400" />
                             <p class="text-base font-medium text-red-400">Failed to load territories</p>
-                            <p class="text-sm">{(territoryTree.error as any)?.message || 'An error occurred while loading territories.'}</p>
+                            <p class="text-sm">{getErrorMessage(territoryTree.error, 'An error occurred while loading territories.')}</p>
                             <button
                                 onClick={() => refetch()}
                                 class="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors flex items-center gap-1.5 text-sm"
@@ -381,7 +381,8 @@ const AdminTerritories: Component = () => {
                     canManage={canManage()}
                 />
             </Show>
-        </div>
+            </div>
+        </PageShell>
     );
 };
 

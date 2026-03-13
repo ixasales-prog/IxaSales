@@ -37,9 +37,9 @@ const AutoStartTracking: Component = () => {
                 return;
             }
 
-            // Check if user has tracking enabled
-            const userData = await api<any>(`/users/${user.id}`);
-            if (!userData.gpsTrackingEnabled) {
+            // Check if user has tracking enabled (self endpoint, no admin permission needed)
+            const me = await api<{ user: { id: string; gpsTrackingEnabled?: boolean } }>('/auth/me');
+            if (!me?.user?.gpsTrackingEnabled) {
                 console.log('[GPS] Tracking disabled for user');
                 return;
             }
@@ -65,10 +65,10 @@ const AutoStartTracking: Component = () => {
         } catch (err: any) {
             // 404 = GPS routes not mounted or not available
             const is404 = err?.message === 'Resource not found' || err?.message?.includes('404');
-            // 403 = Permission denied (shouldn't happen now, but handle gracefully)
-            const is403 = err?.message?.includes('403') || err?.message?.includes('FORBIDDEN') || err?.message?.includes('Only tenant admins');
+            // Permission denials from API should not be shown as browser GPS permission errors
+            const isPermissionError = /insufficient permissions|forbidden|permission denied|only tenant admins/i.test(err?.message || '');
             
-            if (is404 || is403) {
+            if (is404 || isPermissionError) {
                 // Silently skip when GPS API is not available or user doesn't have permission
                 console.log('[GPS] Tracking not available:', is404 ? 'API not found' : 'Permission denied');
                 return;

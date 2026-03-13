@@ -150,8 +150,8 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
         const [settings] = await db.select().from(schema.tenantNotificationSettings)
             .where(eq(schema.tenantNotificationSettings.tenantId, user.tenantId)).limit(1);
 
-        const [tenant] = await db.select({ telegramEnabled: schema.tenants.telegramEnabled })
-            .from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
+        const { getTelegramIntegration } = await import('../lib/tenant-integrations');
+        const telegram = await getTelegramIntegration(user.tenantId, false);
 
         // Get role-based notification settings
         const roleSettings = await db.select().from(schema.notificationRoleSettings)
@@ -160,7 +160,7 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
         if (!settings) {
             return {
                 success: true, data: {
-                    telegramEnabledByAdmin: tenant?.telegramEnabled ?? false,
+                    telegramEnabledByAdmin: telegram.enabled,
                     notifyNewOrder: true, notifyOrderApproved: true, notifyOrderCancelled: true, notifyOrderDelivered: true,
                     notifyOrderPartialDelivery: true, notifyOrderReturned: true, notifyOrderPartialReturn: true, notifyOrderCompleted: true,
                     notifyPaymentReceived: true, notifyPaymentPartial: true, notifyPaymentComplete: true, notifyLowStock: true, notifyDueDebt: false,
@@ -175,7 +175,7 @@ export const notificationRoutes: FastifyPluginAsync = async (fastify) => {
 
         return { success: true, data: { 
             ...settings, 
-            telegramEnabledByAdmin: tenant?.telegramEnabled ?? false,
+            telegramEnabledByAdmin: telegram.enabled,
             roleSettings: roleSettings.length > 0 ? roleSettings : generateDefaultRoleSettings(user.tenantId),
         } };
     });

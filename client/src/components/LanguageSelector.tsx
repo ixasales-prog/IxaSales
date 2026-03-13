@@ -21,6 +21,8 @@ const LanguageSelector: Component = () => {
             value={language()}
             onChange={(e) => setLanguage(e.currentTarget.value as Language)}
             class="language-select-compact"
+            aria-label="Select language"
+            title="Select language"
         >
             <For each={availableLanguages}>{(lang) => (
                 <option value={lang}>{languageShortLabels[lang]}</option>

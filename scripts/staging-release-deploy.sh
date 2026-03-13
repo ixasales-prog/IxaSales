@@ -68,13 +68,16 @@ main() {
   release_dir="${RELEASES_DIR}/${timestamp}"
   mkdir -p "${release_dir}" "${SHARED_DIR}/node_modules"
   tar -xzf "${ARTIFACT_PATH}" -C "${release_dir}"
+  mkdir -p "${SHARED_DIR}/uploads"
+  chown -R "${APP_USER:-ilhom1983}:${APP_GROUP:-ilhom1983}" "${SHARED_DIR}/uploads" || true
+  rm -rf "${release_dir}/uploads"
+  ln -sfn "${SHARED_DIR}/uploads" "${release_dir}/uploads"
 
   test -f "${release_dir}/dist/index-fastify.js"
   test -f "${release_dir}/client/dist/index.html"
   test -f "${release_dir}/package.json"
   test -f "${release_dir}/package-lock.json"
   test -f "${release_dir}/drizzle.config.ts"
-  test -d "${release_dir}/drizzle"
 
   deps_hash="$(sha256sum "${release_dir}/package-lock.json" | awk '{print $1}')"
   deps_dir="${SHARED_DIR}/node_modules/${deps_hash}"
@@ -97,7 +100,7 @@ main() {
     set +a
   fi
 
-  if [[ "${RUN_DB_MIGRATE}" == "1" ]]; then
+  if [[ "${RUN_DB_MIGRATE}" == "1" && -d "${release_dir}/drizzle" ]]; then
     migrate_hash="${deps_hash}-migrate"
     migrate_dir="${SHARED_DIR}/node_modules/${migrate_hash}"
     if [[ ! -d "${migrate_dir}" ]]; then

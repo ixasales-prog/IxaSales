@@ -6,6 +6,16 @@ import { eq, and } from 'drizzle-orm';
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from '../lib/loginSecurity';
 import { logAudit } from '../lib/audit';
 import { authLogger } from '../lib/logger';
+import { criticalEndpointLimiter } from '../lib/advanced-rate-limiting';
+import { evaluateTenantAccess } from '../lib/tenant-access';
+import {
+    createSession,
+    getSessionTtlMs,
+    getSessionTtlSeconds,
+    revokeSessionByToken,
+    revokeSessionsForUser,
+} from '../lib/auth-sessions';
+import { getPermissionsForRole } from '../lib/permissions';
 
 // Schemas
 const LoginBodySchema = Type.Object({
@@ -43,11 +53,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         schema: {
             body: LoginBodySchema,
         },
+        preHandler: [criticalEndpointLimiter.login],
     }, async (request, reply) => {
         const { email, password } = request.body;
 
         // Check if account is locked
-        const lockStatus = isLockedOut(email);
+        const lockStatus = await isLockedOut(email);
         if (lockStatus.locked) {
             return reply.code(429).send({
                 success: false,
@@ -75,7 +86,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!user) {
             authLogger.debug('User not found or inactive', { email });
-            const result = recordFailedAttempt(email);
+            const result = await recordFailedAttempt(email);
 
             // Notify Super Admin if locked out
             if (result.lockedOut) {
@@ -84,7 +95,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
                     const ip = request.headers['x-forwarded-for'] as string || 'unknown';
                     notifyLoginLocked(email, ip);
                 } catch (e) {
-                    authLogger.error('Failed to notify login locked', { error: String(e) });
+                    authLogger.error('Failed to notify login locked', undefined, { error: String(e) });
                 }
             }
 
@@ -105,7 +116,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         authLogger.debug('Password verification result', { valid: isValid });
 
         if (!isValid) {
-            const result = recordFailedAttempt(email);
+            const result = await recordFailedAttempt(email);
 
             if (result.lockedOut) {
                 try {
@@ -113,7 +124,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
                     const ip = request.headers['x-forwarded-for'] as string || 'unknown';
                     notifyLoginLocked(email, ip);
                 } catch (e) {
-                    authLogger.error('Failed to notify login locked', { error: String(e) });
+                    authLogger.error('Failed to notify login locked', undefined, { error: String(e) });
                 }
             }
 
@@ -128,30 +139,27 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             });
         }
 
-        // Check if tenant is suspended
+        let tenantAccess = { mode: 'full', reason: 'ok', message: '' as string };
+
+        // Check tenant access state (full vs read-only)
         authLogger.debug('Checking tenant status', { role: user.role, tenantId: user.tenantId });
         if (user.role !== 'super_admin' && user.tenantId) {
             const [tenant] = await db
-                .select({ isActive: schema.tenants.isActive })
+                .select({
+                    isActive: schema.tenants.isActive,
+                    planStatus: schema.tenants.planStatus,
+                    subscriptionEndAt: schema.tenants.subscriptionEndAt,
+                })
                 .from(schema.tenants)
                 .where(eq(schema.tenants.id, user.tenantId))
                 .limit(1);
 
-            authLogger.debug('Tenant status', { isActive: tenant?.isActive });
-
-            if (tenant && tenant.isActive === false) {
-                return reply.code(403).send({
-                    success: false,
-                    error: {
-                        code: 'TENANT_SUSPENDED',
-                        message: 'Your organization account has been suspended. Please contact support.',
-                    },
-                });
-            }
+            tenantAccess = evaluateTenantAccess(tenant);
+            authLogger.debug('Tenant access mode', { mode: tenantAccess.mode, reason: tenantAccess.reason });
         }
 
         // Clear failed attempts on success
-        clearFailedAttempts(email);
+        await clearFailedAttempts(email);
 
         // Log successful login
         await logAudit(
@@ -171,6 +179,17 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             tenantId: user.tenantId,
             role: user.role,
             type: 'user',
+        }, {
+            expiresIn: getSessionTtlSeconds(),
+        });
+
+        await createSession({
+            userId: user.id,
+            userType: 'user',
+            token: accessToken,
+            ipAddress: request.ip || null,
+            userAgent: (request.headers['user-agent'] as string) || null,
+            expiresAt: new Date(Date.now() + getSessionTtlMs()),
         });
 
         // Update last login
@@ -189,7 +208,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
                     name: user.name,
                     role: user.role,
                     tenantId: user.tenantId,
+                    actorType: 'user',
+                    permissions: getPermissionsForRole(user.role),
                 },
+                tenantAccess,
             },
         };
     });
@@ -200,68 +222,24 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             body: LoginBodySchema,
         },
     }, async (request, reply) => {
-        const { email, password } = request.body;
-
-        // Find customer user by email
-        const [user] = await db
-            .select()
-            .from(schema.customerUsers)
-            .where(
-                and(
-                    eq(schema.customerUsers.email, email.toLowerCase()),
-                    eq(schema.customerUsers.isActive, true)
-                )
-            )
-            .limit(1);
-
-        if (!user) {
-            return reply.code(401).send({
-                success: false,
-                error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
-            });
-        }
-
-        // Verify password
-        const isValid = await verifyPassword(password, user.passwordHash);
-        if (!isValid) {
-            return reply.code(401).send({
-                success: false,
-                error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
-            });
-        }
-
-        // Create JWT token
-        const accessToken = fastify.jwt.sign({
-            sub: user.id,
-            tenantId: user.tenantId,
-            role: 'customer_user',
-            type: 'customer_user',
-        });
-
-        // Update last login
-        await db
-            .update(schema.customerUsers)
-            .set({ lastLoginAt: new Date() })
-            .where(eq(schema.customerUsers.id, user.id));
-
-        return {
-            success: true,
-            data: {
-                token: accessToken,
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    role: 'customer_user',
-                    tenantId: user.tenantId,
-                    customerId: user.customerId,
-                },
+        return reply.code(410).send({
+            success: false,
+            error: {
+                code: 'LEGACY_AUTH_DISABLED',
+                message: 'Legacy customer portal password login is disabled. Use OTP-based customer portal authentication.',
             },
-        };
+        });
     });
 
     // Logout
-    fastify.post('/logout', async (request, reply) => {
+    fastify.post('/logout', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const authHeader = request.headers.authorization;
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+        if (token) {
+            await revokeSessionByToken(token);
+        }
         return { success: true };
     });
 
@@ -271,20 +249,40 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
 
-        // Fetch full user details
-        const [fullUser] = await db
-            .select({
-                id: schema.users.id,
-                email: schema.users.email,
-                name: schema.users.name,
-                role: schema.users.role,
-                tenantId: schema.users.tenantId,
-                phone: schema.users.phone,
-                createdAt: schema.users.createdAt,
-            })
-            .from(schema.users)
-            .where(eq(schema.users.id, user.id))
-            .limit(1);
+        let fullUser: any = null;
+        if (user.actorType === 'customer_user') {
+            const [customerUser] = await db
+                .select({
+                    id: schema.customerUsers.id,
+                    email: schema.customerUsers.email,
+                    name: schema.customerUsers.name,
+                    tenantId: schema.customerUsers.tenantId,
+                    customerId: schema.customerUsers.customerId,
+                    createdAt: schema.customerUsers.createdAt,
+                })
+                .from(schema.customerUsers)
+                .where(eq(schema.customerUsers.id, user.id))
+                .limit(1);
+            fullUser = customerUser
+                ? { ...customerUser, role: 'customer_user' }
+                : null;
+        } else {
+            const [staffUser] = await db
+                .select({
+                    id: schema.users.id,
+                    email: schema.users.email,
+                    name: schema.users.name,
+                    role: schema.users.role,
+                    tenantId: schema.users.tenantId,
+                    phone: schema.users.phone,
+                    gpsTrackingEnabled: schema.users.gpsTrackingEnabled,
+                    createdAt: schema.users.createdAt,
+                })
+                .from(schema.users)
+                .where(eq(schema.users.id, user.id))
+                .limit(1);
+            fullUser = staffUser;
+        }
 
         if (!fullUser) {
             return reply.code(404).send({
@@ -295,6 +293,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Get tenant info if applicable
         let tenant = null;
+        let tenantAccess = { mode: 'full', reason: 'ok', message: '' as string };
         if (fullUser.tenantId) {
             const [tenantData] = await db
                 .select({
@@ -304,11 +303,15 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
                     plan: schema.tenants.plan,
                     currency: schema.tenants.currency,
                     timezone: schema.tenants.timezone,
+                    isActive: schema.tenants.isActive,
+                    planStatus: schema.tenants.planStatus,
+                    subscriptionEndAt: schema.tenants.subscriptionEndAt,
                 })
                 .from(schema.tenants)
                 .where(eq(schema.tenants.id, fullUser.tenantId))
                 .limit(1);
             tenant = tenantData;
+            tenantAccess = evaluateTenantAccess(tenantData);
         }
 
         return {
@@ -316,6 +319,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             data: {
                 user: fullUser,
                 tenant,
+                tenantAccess,
             },
         };
     });
@@ -365,12 +369,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             })
             .where(eq(schema.users.id, user.id));
 
+        await revokeSessionsForUser(user.id, 'user');
+
         return { success: true, message: 'Password changed successfully' };
     });
 
     // Impersonate User (Super Admin only)
     fastify.post<{ Body: ImpersonateBody }>('/impersonate', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('auth.impersonate')],
         schema: {
             body: ImpersonateSchema,
         },
@@ -407,7 +413,33 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             role: targetUser.role,
             type: 'user',
             impersonatedBy: user.id,
+        }, {
+            expiresIn: getSessionTtlSeconds(),
         });
+
+        await createSession({
+            userId: targetUser.id,
+            userType: 'user',
+            token: accessToken,
+            ipAddress: request.ip || null,
+            userAgent: (request.headers['user-agent'] as string) || null,
+            expiresAt: new Date(Date.now() + getSessionTtlMs()),
+        });
+
+        await logAudit(
+            'user.impersonate',
+            {
+                impersonatedBy: user.id,
+                targetUserId: targetUser.id,
+                targetRole: targetUser.role,
+            },
+            user.id,
+            targetUser.tenantId,
+            targetUser.id,
+            'user',
+            request.ip || '::1',
+            (request.headers['user-agent'] as string) || 'Fastify Client'
+        );
 
         return {
             success: true,
@@ -419,6 +451,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
                     name: targetUser.name,
                     role: targetUser.role,
                     tenantId: targetUser.tenantId,
+                    actorType: 'user',
+                    permissions: getPermissionsForRole(targetUser.role),
+                    impersonatedBy: user.id,
                 },
             },
         };
@@ -491,8 +526,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         // Update user password
         await db
             .update(schema.users)
-            .set({ passwordHash: newHash })
+            .set({ passwordHash: newHash, updatedAt: new Date() })
             .where(eq(schema.users.id, tokenData.userId));
+
+        await revokeSessionsForUser(tokenData.userId, 'user');
 
         return { success: true, message: 'Password reset successfully. You can now log in.' };
     });

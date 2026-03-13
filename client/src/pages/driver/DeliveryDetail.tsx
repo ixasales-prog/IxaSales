@@ -22,7 +22,7 @@ const DeliveryDetailPage: Component = () => {
         try {
             const result = await api<DeliveryDetail>(`/delivery/orders/${params.id}`);
             return (result as any)?.data ?? result ?? null;
-        } catch (error) {
+        } catch {
             return null;
         }
     });

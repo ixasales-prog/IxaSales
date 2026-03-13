@@ -47,7 +47,7 @@ export const addressesRoutes: FastifyPluginAsync = async (fastify) => {
      */
     fastify.get('/addresses', {
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         const addresses = await db
@@ -65,7 +65,7 @@ export const addressesRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.post('/addresses', {
         schema: AddAddressSchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
         const { name, address, isDefault } = request.body as { name: string; address: string; isDefault?: boolean };
 
@@ -153,7 +153,7 @@ export const addressesRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.delete<{ Params: { id: string } }>('/addresses/:id', {
         schema: AddressIdParamsSchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         await db

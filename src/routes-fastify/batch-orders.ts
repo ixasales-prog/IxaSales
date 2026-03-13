@@ -11,8 +11,12 @@
 import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
-import { eq, and, inArray, sql } from 'drizzle-orm';
-import { ordersService } from '../services/orders.service';
+import { eq, and, inArray } from 'drizzle-orm';
+import { VALID_ORDER_TRANSITIONS, CANCELLABLE_ORDER_STATUSES, DRIVER_ASSIGNABLE_STATUSES } from '../lib/constants';
+import { transitionOrderStatus, handleOrderStatusTransitionEffects } from '../services/order-workflow.service';
+import { canAssignBatchDriver, canManageBatchOrders } from '../lib/order-policy';
+import { sendApiError } from '../lib/api-errors';
+import { abortIdempotentRequest, beginIdempotentRequest, finishIdempotentRequest } from '../lib/idempotency';
 
 // ============================================================================
 // SCHEMAS
@@ -68,29 +72,8 @@ interface BatchResponse {
     };
 }
 
-// ============================================================================
-// VALID STATUS TRANSITIONS
-// ============================================================================
-
-const VALID_TRANSITIONS: Record<string, string[]> = {
-    pending: ['confirmed', 'approved', 'cancelled'],
-    confirmed: ['approved', 'picking', 'cancelled'],
-    approved: ['picking', 'cancelled'],
-    picking: ['picked'],
-    picked: ['loaded'],
-    loaded: ['delivering'],
-    delivering: ['delivered', 'partial', 'returned'],
-    delivered: [],
-    partial: ['delivered', 'returned'],
-    returned: [],
-    cancelled: [],
-};
-
-// Statuses that can be cancelled
-const CANCELLABLE_STATUSES = ['pending', 'confirmed'];
-
-// Statuses that allow driver assignment
-const DRIVER_ASSIGNABLE_STATUSES = ['pending', 'confirmed', 'approved', 'picked', 'loaded'];
+// Status transitions, cancellable statuses, and driver-assignable statuses
+// are imported from '../lib/constants' (single source of truth)
 
 // ============================================================================
 // ROUTES
@@ -101,24 +84,28 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
     // BATCH STATUS CHANGE
     // ----------------------------------------------------------------
     fastify.post<{ Body: BatchStatusChangeBody }>('/status', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('orders.batch_manage')],
         schema: {
             body: BatchStatusChangeSchema,
         }
     }, async (request, reply) => {
         const user = request.user!;
         const { orderIds, newStatus, notes, notifyCustomers } = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'batch-orders.status');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
-        // Only tenant_admin and super_admin can batch change status
-        const allowedRoles = ['tenant_admin', 'super_admin'];
-        if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({
-                success: false,
-                error: {
-                    code: 'FORBIDDEN',
-                    message: 'Only administrators can batch update order status'
-                }
-            });
+        const policy = canManageBatchOrders(user);
+        if (!policy.allowed) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', policy.message || 'Access denied');
         }
 
         const results: BatchOperationResult[] = [];
@@ -127,7 +114,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Process in a transaction
         await db.transaction(async (tx) => {
-            // Fetch all orders at once
+            // Fetch all orders at once (include financial fields for side effects)
             const orders = await tx
                 .select({
                     id: schema.orders.id,
@@ -135,6 +122,9 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
                     status: schema.orders.status,
                     tenantId: schema.orders.tenantId,
                     customerId: schema.orders.customerId,
+                    totalAmount: schema.orders.totalAmount,
+                    paidAmount: schema.orders.paidAmount,
+                    paymentStatus: schema.orders.paymentStatus,
                 })
                 .from(schema.orders)
                 .where(and(
@@ -163,7 +153,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
 
                 // Check valid transition
                 const currentStatus = order.status || 'pending';
-                const validTransitions = VALID_TRANSITIONS[currentStatus] || [];
+                const validTransitions = VALID_ORDER_TRANSITIONS[currentStatus] || [];
 
                 if (!validTransitions.includes(newStatus)) {
                     results.push({
@@ -177,24 +167,12 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
                     continue;
                 }
 
-                // Perform the update
                 try {
-                    await tx
-                        .update(schema.orders)
-                        .set({
-                            status: newStatus as any,
-                            deliveredAt: newStatus === 'delivered' ? new Date() : undefined,
-                            cancelledAt: newStatus === 'cancelled' ? new Date() : undefined,
-                            cancelledBy: newStatus === 'cancelled' ? user.id : undefined,
-                            updatedAt: new Date()
-                        })
-                        .where(eq(schema.orders.id, orderId));
-
-                    // Log status change
-                    await tx.insert(schema.orderStatusHistory).values({
-                        orderId: orderId,
-                        fromStatus: currentStatus,
-                        toStatus: newStatus,
+                    await transitionOrderStatus({
+                        tx,
+                        tenantId: user.tenantId,
+                        orderId,
+                        newStatus,
                         changedBy: user.id,
                         notes: notes || `Batch status change to ${newStatus}`,
                     });
@@ -219,6 +197,17 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             }
         });
 
+        for (const result of results) {
+            if (!result.success) continue;
+            await handleOrderStatusTransitionEffects({
+                tenantId: user.tenantId,
+                orderId: result.orderId,
+                newStatus,
+                notes: notes || `Batch status change to ${newStatus}`,
+                actorName: user.name,
+            });
+        }
+
         // Send notifications if requested (after transaction commits)
         if (notifyCustomers && succeeded > 0) {
             try {
@@ -239,6 +228,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             }
         };
 
+        await finishIdempotentRequest(idempotency, 200, response);
         return response;
     });
 
@@ -246,24 +236,28 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
     // BATCH ASSIGN DRIVER
     // ----------------------------------------------------------------
     fastify.post<{ Body: BatchAssignDriverBody }>('/assign-driver', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('orders.assign_driver')],
         schema: {
             body: BatchAssignDriverSchema,
         }
     }, async (request, reply) => {
         const user = request.user!;
         const { orderIds, driverId } = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'batch-orders.assign-driver');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
-        // Only tenant_admin and super_admin can batch assign drivers
-        const allowedRoles = ['tenant_admin', 'super_admin'];
-        if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({
-                success: false,
-                error: {
-                    code: 'FORBIDDEN',
-                    message: 'Only administrators can batch assign drivers'
-                }
-            });
+        const policy = canAssignBatchDriver(user);
+        if (!policy.allowed) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', policy.message || 'Access denied');
         }
 
         // Validate driver exists and is active
@@ -283,23 +277,13 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!driver) {
-            return reply.code(404).send({
-                success: false,
-                error: {
-                    code: 'NOT_FOUND',
-                    message: 'Driver not found'
-                }
-            });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'NOT_FOUND', 'Driver not found');
         }
 
         if (!driver.isActive) {
-            return reply.code(400).send({
-                success: false,
-                error: {
-                    code: 'INVALID_DRIVER',
-                    message: 'Driver is not active'
-                }
-            });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 400, 'INVALID_DRIVER', 'Driver is not active');
         }
 
         const results: BatchOperationResult[] = [];
@@ -339,7 +323,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
 
                 // Check if order is in a status that allows driver assignment
                 const currentStatus = order.status || 'pending';
-                if (!DRIVER_ASSIGNABLE_STATUSES.includes(currentStatus)) {
+                if (!(DRIVER_ASSIGNABLE_STATUSES as readonly string[]).includes(currentStatus)) {
                     results.push({
                         orderId,
                         orderNumber: order.orderNumber,
@@ -390,6 +374,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             }
         };
 
+        await finishIdempotentRequest(idempotency, 200, response);
         return response;
     });
 
@@ -397,24 +382,28 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
     // BATCH ASSIGN SALES REP
     // ----------------------------------------------------------------
     fastify.post<{ Body: BatchAssignSalesRepBody }>('/assign-sales-rep', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('orders.batch_manage')],
         schema: {
             body: BatchAssignSalesRepSchema,
         }
     }, async (request, reply) => {
         const user = request.user!;
         const { orderIds, salesRepId } = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'batch-orders.assign-sales-rep');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
-        // Only tenant_admin and super_admin can batch assign sales reps
-        const allowedRoles = ['tenant_admin', 'super_admin'];
-        if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({
-                success: false,
-                error: {
-                    code: 'FORBIDDEN',
-                    message: 'Only administrators can batch assign sales reps'
-                }
-            });
+        const policy = canManageBatchOrders(user);
+        if (!policy.allowed) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', policy.message || 'Access denied');
         }
 
         // Validate sales rep exists
@@ -434,23 +423,13 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!salesRep) {
-            return reply.code(404).send({
-                success: false,
-                error: {
-                    code: 'NOT_FOUND',
-                    message: 'Sales rep not found'
-                }
-            });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'NOT_FOUND', 'Sales rep not found');
         }
 
         if (!salesRep.isActive) {
-            return reply.code(400).send({
-                success: false,
-                error: {
-                    code: 'INVALID_SALES_REP',
-                    message: 'Sales rep is not active'
-                }
-            });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 400, 'INVALID_SALES_REP', 'Sales rep is not active');
         }
 
         const results: BatchOperationResult[] = [];
@@ -542,6 +521,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             }
         };
 
+        await finishIdempotentRequest(idempotency, 200, response);
         return response;
     });
 
@@ -549,24 +529,28 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
     // BATCH CANCEL
     // ----------------------------------------------------------------
     fastify.post<{ Body: BatchCancelBody }>('/cancel', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('orders.batch_manage')],
         schema: {
             body: BatchCancelSchema,
         }
     }, async (request, reply) => {
         const user = request.user!;
         const { orderIds, reason, notifyCustomers } = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'batch-orders.cancel');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
-        // Only tenant_admin and super_admin can batch cancel
-        const allowedRoles = ['tenant_admin', 'super_admin'];
-        if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({
-                success: false,
-                error: {
-                    code: 'FORBIDDEN',
-                    message: 'Only administrators can batch cancel orders'
-                }
-            });
+        const policy = canManageBatchOrders(user);
+        if (!policy.allowed) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', policy.message || 'Access denied');
         }
 
         const results: BatchOperationResult[] = [];
@@ -582,6 +566,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
                     tenantId: schema.orders.tenantId,
                     customerId: schema.orders.customerId,
                     totalAmount: schema.orders.totalAmount,
+                    paidAmount: schema.orders.paidAmount,
                 })
                 .from(schema.orders)
                 .where(and(
@@ -606,7 +591,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
                 }
 
                 const currentStatus = order.status || 'pending';
-                if (!CANCELLABLE_STATUSES.includes(currentStatus)) {
+                if (!(CANCELLABLE_ORDER_STATUSES as readonly string[]).includes(currentStatus)) {
                     results.push({
                         orderId,
                         orderNumber: order.orderNumber,
@@ -619,51 +604,11 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
                 }
 
                 try {
-                    // Get order items for stock release
-                    const items = await tx
-                        .select({
-                            productId: schema.orderItems.productId,
-                            qtyOrdered: schema.orderItems.qtyOrdered,
-                        })
-                        .from(schema.orderItems)
-                        .where(eq(schema.orderItems.orderId, orderId));
-
-                    // Release reserved stock
-                    for (const item of items) {
-                        await tx
-                            .update(schema.products)
-                            .set({
-                                reservedQuantity: sql`GREATEST(0, ${schema.products.reservedQuantity} - ${item.qtyOrdered})`,
-                            })
-                            .where(eq(schema.products.id, item.productId));
-                    }
-
-                    // Reduce customer debt
-                    await tx
-                        .update(schema.customers)
-                        .set({
-                            debtBalance: sql`GREATEST(0, ${schema.customers.debtBalance} - ${order.totalAmount})`,
-                            updatedAt: new Date(),
-                        })
-                        .where(eq(schema.customers.id, order.customerId));
-
-                    // Update order status
-                    await tx
-                        .update(schema.orders)
-                        .set({
-                            status: 'cancelled',
-                            cancelledAt: new Date(),
-                            cancelledBy: user.id,
-                            cancelReason: reason || 'Batch cancellation',
-                            updatedAt: new Date()
-                        })
-                        .where(eq(schema.orders.id, orderId));
-
-                    // Log status change
-                    await tx.insert(schema.orderStatusHistory).values({
-                        orderId: orderId,
-                        fromStatus: currentStatus,
-                        toStatus: 'cancelled',
+                    await transitionOrderStatus({
+                        tx,
+                        tenantId: user.tenantId,
+                        orderId,
+                        newStatus: 'cancelled',
                         changedBy: user.id,
                         notes: reason || 'Batch cancellation',
                     });
@@ -707,6 +652,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             }
         };
 
+        await finishIdempotentRequest(idempotency, 200, response);
         return response;
     });
 
@@ -714,7 +660,7 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
     // GET BATCH OPERATION PREVIEW
     // ----------------------------------------------------------------
     fastify.post<{ Body: { orderIds: string[]; operation: string; targetStatus?: string } }>('/preview', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('orders.batch_manage')],
         schema: {
             body: Type.Object({
                 orderIds: Type.Array(Type.String(), { minItems: 1, maxItems: 100 }),
@@ -725,14 +671,9 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
         const { orderIds, operation, targetStatus } = request.body;
-
-        // Only admins can preview batch operations
-        const allowedRoles = ['tenant_admin', 'super_admin'];
-        if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({
-                success: false,
-                error: { code: 'FORBIDDEN', message: 'Only administrators can perform batch operations' }
-            });
+        const policy = canManageBatchOrders(user);
+        if (!policy.allowed) {
+            return sendApiError(reply, 403, 'FORBIDDEN', policy.message || 'Access denied');
         }
 
         // Fetch orders
@@ -757,18 +698,18 @@ export const batchOrderRoutes: FastifyPluginAsync = async (fastify) => {
             let reason = '';
 
             if (operation === 'status_change' && targetStatus) {
-                const validTransitions = VALID_TRANSITIONS[currentStatus] || [];
+                const validTransitions = VALID_ORDER_TRANSITIONS[currentStatus] || [];
                 if (!validTransitions.includes(targetStatus)) {
                     canProcess = false;
                     reason = `Cannot change from '${currentStatus}' to '${targetStatus}'`;
                 }
             } else if (operation === 'cancel') {
-                if (!CANCELLABLE_STATUSES.includes(currentStatus)) {
+                if (!(CANCELLABLE_ORDER_STATUSES as readonly string[]).includes(currentStatus)) {
                     canProcess = false;
                     reason = `Cannot cancel order with status '${currentStatus}'`;
                 }
             } else if (operation === 'assign_driver') {
-                if (!DRIVER_ASSIGNABLE_STATUSES.includes(currentStatus)) {
+                if (!(DRIVER_ASSIGNABLE_STATUSES as readonly string[]).includes(currentStatus)) {
                     canProcess = false;
                     reason = `Cannot assign driver to order with status '${currentStatus}'`;
                 }

@@ -80,22 +80,17 @@ export class CommissionService {
       isActive: data.isActive !== undefined ? data.isActive : true,
     };
 
-    // Handle applicableRoles array - store as 'all' and encode in description
-    // Since targetId is UUID type but roles are strings, we store role info in description
+    // Handle applicableRoles array - store as JSON string in dedicated column
     if (
       data.applicableRoles &&
       Array.isArray(data.applicableRoles) &&
       data.applicableRoles.length > 0
     ) {
-      transformedData.appliesTo = "all";
-      // Store roles in description as JSON for easy parsing
-      const rolesJson = JSON.stringify({
-        applicableRoles: data.applicableRoles,
-      });
-      transformedData.description =
-        (transformedData.description || "") + `\n[ROLES:${rolesJson}]`;
+      transformedData.appliesTo = "role";
+      transformedData.applicableRoles = JSON.stringify(data.applicableRoles);
     } else {
       transformedData.appliesTo = "all";
+      transformedData.applicableRoles = null;
     }
 
     // Map percentage/fixedAmount to basePercentage
@@ -117,11 +112,10 @@ export class CommissionService {
     transformedData.calculationBase = data.calculationBase || "order_total";
     transformedData.eligibilityStatus = data.eligibilityStatus || "delivered";
 
+    // Set tierMode
+    transformedData.tierMode = data.tierMode || 'per_order';
+
     // Create the commission rule
-    // Ensure tierMode defaults to per_order if not specified
-    if (!transformedData.tierMode) {
-      transformedData.tierMode = 'per_order';
-    }
     const [rule] = await db
       .insert(commissionRules)
       .values(transformedData)
@@ -167,20 +161,15 @@ export class CommissionService {
       transformedData.effectiveTo = data.effectiveTo;
     if (data.isActive !== undefined) transformedData.isActive = data.isActive;
 
-    // Handle applicableRoles array - store as 'all' and encode in description
-    if (
-      data.applicableRoles &&
-      Array.isArray(data.applicableRoles) &&
-      data.applicableRoles.length > 0
-    ) {
-      transformedData.appliesTo = "all";
-      // Store roles in description as JSON for easy parsing
-      const rolesJson = JSON.stringify({
-        applicableRoles: data.applicableRoles,
-      });
-      transformedData.description =
-        (data.description || transformedData.description || "") +
-        `\n[ROLES:${rolesJson}]`;
+    // Handle applicableRoles array - store as JSON string in dedicated column
+    if (data.applicableRoles !== undefined) {
+      if (Array.isArray(data.applicableRoles) && data.applicableRoles.length > 0) {
+        transformedData.appliesTo = "role";
+        transformedData.applicableRoles = JSON.stringify(data.applicableRoles);
+      } else {
+        transformedData.appliesTo = "all";
+        transformedData.applicableRoles = null;
+      }
     }
 
     // Map percentage/fixedAmount to basePercentage
@@ -198,6 +187,11 @@ export class CommissionService {
       transformedData.maxCommission = data.maxAmount.toString();
     }
 
+    // Handle tierMode if provided
+    if (data.tierMode !== undefined) {
+      transformedData.tierMode = data.tierMode;
+    }
+
     const [updated] = await db
       .update(commissionRules)
       .set(transformedData)
@@ -205,16 +199,6 @@ export class CommissionService {
         and(eq(commissionRules.tenantId, tenantId), eq(commissionRules.id, id)),
       )
       .returning();
-
-    // Handle tierMode if provided
-    if (data.tierMode) {
-      await db
-        .update(commissionRules)
-        .set({ tierMode: data.tierMode })
-        .where(
-          and(eq(commissionRules.tenantId, tenantId), eq(commissionRules.id, id)),
-        );
-    }
 
     // Handle tiers update if provided
     if (data.tiers && Array.isArray(data.tiers)) {
@@ -314,19 +298,26 @@ export class CommissionService {
     // Filter rules based on applies_to
     const applicableRules: CommissionRule[] = [];
 
+    // Get user's role once for all rules
+    const userResult = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const userRole = userResult[0]?.role;
+
     for (const rule of activeRules) {
-      // Extract applicable roles from description
+      // Parse applicable roles from the dedicated column
       let applicableRoles: string[] = [];
-      if (rule.description) {
-        const rolesMatch = rule.description.match(/\[ROLES:(.+?)\]/);
-        if (rolesMatch) {
-          try {
-            const rolesData = JSON.parse(rolesMatch[1]);
-            applicableRoles = rolesData.applicableRoles || [];
-          } catch (e) {
-            // Fallback to all if parsing fails
+      if (rule.applicableRoles) {
+        try {
+          applicableRoles = JSON.parse(rule.applicableRoles);
+          if (!Array.isArray(applicableRoles)) {
             applicableRoles = [];
           }
+        } catch {
+          // If parsing fails, treat as no roles specified
+          applicableRoles = [];
         }
       }
 
@@ -334,16 +325,14 @@ export class CommissionService {
         // If no specific roles, rule applies to all
         if (applicableRoles.length === 0) {
           applicableRules.push(rule);
-        } else {
+        } else if (userRole && applicableRoles.includes(userRole)) {
           // Check if user has one of the applicable roles
-          const user = await db
-            .select()
-            .from(users)
-            .where(eq(users.id, userId))
-            .limit(1);
-          if (user[0] && applicableRoles.includes(user[0].role)) {
-            applicableRules.push(rule);
-          }
+          applicableRules.push(rule);
+        }
+      } else if (rule.appliesTo === "role") {
+        // Role-based rule - check if user's role matches
+        if (applicableRoles.length > 0 && userRole && applicableRoles.includes(userRole)) {
+          applicableRules.push(rule);
         }
       } else if (rule.appliesTo === "user" && rule.targetId === userId) {
         applicableRules.push(rule);

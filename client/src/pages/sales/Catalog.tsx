@@ -159,7 +159,7 @@ const Catalog: Component = () => {
     return (
         <div class="min-h-screen pb-safe">
             {/* Header */}
-            <div class="fixed top-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
+            <div class="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="px-4 py-3">
                     {/* Search Bar */}
                     <div class="flex gap-2">
@@ -276,8 +276,8 @@ const Catalog: Component = () => {
                 />
             </Show>
 
-            {/* Content with top padding for fixed header + category pills */}
-            <div class="px-4" style={{ "padding-top": showFilters() ? "210px" : "110px" }}>
+            {/* Content */}
+            <div class="px-4">
                 {/* Loading */}
                 <Show when={productsResponse.loading}>
                     <div class="flex items-center justify-center py-12">

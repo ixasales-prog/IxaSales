@@ -1,5 +1,6 @@
 import { pgTable, uuid, varchar, timestamp, boolean, integer, decimal, pgEnum } from 'drizzle-orm/pg-core';
 import { tenants } from './core';
+import { customers } from './customers';
 
 // ============================================================================
 // ENUMS
@@ -31,6 +32,7 @@ export const discounts = pgTable('discounts', {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
     name: varchar('name', { length: 255 }).notNull(),
+    code: varchar('code', { length: 100 }),
     type: discountTypeEnum('type').notNull(),
     value: decimal('value', { precision: 15, scale: 2 }),
     minQty: integer('min_qty'),
@@ -65,5 +67,19 @@ export const volumeTiers = pgTable('volume_tiers', {
     discountId: uuid('discount_id').references(() => discounts.id).notNull(),
     minQty: integer('min_qty').notNull(),
     discountPercent: decimal('discount_percent', { precision: 5, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow(),
+});
+
+// ============================================================================
+// DISCOUNT USAGES (audit + usage limits)
+// ============================================================================
+
+export const discountUsages = pgTable('discount_usages', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+    discountId: uuid('discount_id').references(() => discounts.id).notNull(),
+    orderId: uuid('order_id').notNull(), // FK added after orders table is defined (circular dep)
+    customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    discountAmount: decimal('discount_amount', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
 });

@@ -97,7 +97,7 @@ const AdminTelegram: Component = () => {
     return (
         <div class="p-6 pt-6 lg:p-8 lg:pt-8 max-w-2xl mx-auto">
             <A
-                href="/admin/settings"
+                href="/admin"
                 class="inline-flex items-center gap-2 text-slate-400 hover:text-white mb-6 transition-colors"
             >
                 <ArrowLeft class="w-4 h-4" />
@@ -287,6 +287,19 @@ const AdminTelegram: Component = () => {
                     </button>
                 </div>
             </Show>
+
+            <div class="bg-blue-500/10 border border-blue-500/20 rounded-xl p-5 mb-6">
+                <h4 class="text-white font-medium mb-2">Personal Telegram Link</h4>
+                <p class="text-sm text-slate-400 mb-3">
+                    Bot setup is organization-wide. Link your own Telegram account in your profile to receive admin notifications.
+                </p>
+                <A
+                    href="/admin/profile"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors"
+                >
+                    Open My Profile
+                </A>
+            </div>
 
             {/* Customer Instructions */}
             <div class="mt-8 bg-purple-500/10 border border-purple-500/20 rounded-xl p-5">

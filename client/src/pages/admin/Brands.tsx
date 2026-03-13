@@ -3,25 +3,38 @@ import { Plus, Search, Package, Loader2, RefreshCw, Edit, Trash2 } from 'lucide-
 import { api } from '../../lib/api';
 import { toast } from '../../components/Toast';
 import AddBrandModal from './AddBrandModal';
+import PageHeader from '../../components/page/PageHeader';
+import PageShell from '../../components/page/PageShell';
+
+interface Brand {
+    id: string;
+    name: string;
+    isActive: boolean;
+    createdAt: string;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+    return error instanceof Error && error.message ? error.message : fallback;
+}
 
 const AdminBrands: Component = () => {
     const [showAddModal, setShowAddModal] = createSignal(false);
     const [search, setSearch] = createSignal('');
-    const [selectedBrand, setSelectedBrand] = createSignal<any>(null);
+    const [selectedBrand, setSelectedBrand] = createSignal<Brand | null>(null);
 
     const [brands, { refetch }] = createResource(async () => {
-        const response = await api.get('/products/brands');
+        const response = await api.get<Brand[]>('/products/brands');
         return response;
     });
 
     const filteredBrands = () => {
         const query = search().toLowerCase();
-        return brands()?.filter((b: any) =>
+        return brands()?.filter((b) =>
             b.name.toLowerCase().includes(query)
         ) || [];
     };
 
-    const handleEdit = (brand: any) => {
+    const handleEdit = (brand: Brand) => {
         setSelectedBrand(brand);
         setShowAddModal(true);
     };
@@ -32,9 +45,8 @@ const AdminBrands: Component = () => {
             await api.delete(`/products/brands/${id}`);
             toast.success('Brand deleted successfully');
             refetch();
-        } catch (error: any) {
-            console.error('Failed to delete brand:', error);
-            toast.error(error.message || 'Failed to delete brand');
+        } catch (error) {
+            toast.error(getErrorMessage(error, 'Failed to delete brand'));
         }
     };
 
@@ -44,20 +56,23 @@ const AdminBrands: Component = () => {
     };
 
     return (
-        <div class="p-4 pt-6 sm:p-8 sm:pt-8 space-y-8">
-            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                    <h1 class="text-3xl font-bold text-white tracking-tight">Brands</h1>
-                    <p class="text-slate-400 mt-1">Manage product brands</p>
-                </div>
-                <button
-                    onClick={() => setShowAddModal(true)}
-                    class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
-                >
-                    <Plus class="w-5 h-5" />
-                    Add Brand
-                </button>
-            </div>
+        <PageShell>
+            <div class="space-y-8">
+                <PageHeader
+                    title="Brands"
+                    description="Manage product brands."
+                    backHref="/admin"
+                    backLabel="Back to dashboard"
+                    actions={
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                        >
+                            <Plus class="w-5 h-5" />
+                            Add Brand
+                        </button>
+                    }
+                />
 
             {/* Search and Filter */}
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row gap-4">
@@ -163,7 +178,8 @@ const AdminBrands: Component = () => {
                     onSuccess={() => refetch()}
                 />
             </Show>
-        </div>
+            </div>
+        </PageShell>
     );
 };
 

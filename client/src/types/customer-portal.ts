@@ -55,6 +55,8 @@ export interface TenantInfo {
     phone?: string;
     email?: string;
     address?: string;
+    telegramEnabled?: boolean;
+    hasTelegramBot?: boolean;
     telegramBotUsername?: string;
 }
 
@@ -65,6 +67,8 @@ export interface TenantBranding {
     email?: string;
     address?: string;
     currency: string;
+    telegramEnabled?: boolean;
+    hasTelegramBot?: boolean;
     telegramBotUsername?: string;
 }
 

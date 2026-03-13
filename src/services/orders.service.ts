@@ -33,6 +33,9 @@ export interface CreateOrderInput {
     notes?: string;
     deliveryNotes?: string;
     requestedDeliveryDate?: string;
+    // Discount support
+    discountId?: string;
+    discountCode?: string;
     // Pre-calculated totals (for sales rep mode where client sends totals)
     subtotalAmount?: number;
     discountAmount?: number;
@@ -43,6 +46,7 @@ export interface CreateOrderInput {
 export interface CreateOrderContext {
     mode: 'sales_rep' | 'customer_portal';
     userId?: string;
+    actorRole?: string;
     salesRepId?: string;
     skipCreditCheck?: boolean;
     applyAutoDiscount?: boolean;
@@ -67,6 +71,7 @@ export interface CreateOrderResult {
     order: typeof schema.orders.$inferSelect;
     items: ValidatedOrderItem[];
     subtotalAmount: number;
+    discountId?: string;
     discountAmount: number;
     discountName?: string;
     totalAmount: number;
@@ -78,6 +83,14 @@ export interface CreateOrderResult {
 // ============================================================================
 
 export class OrdersService {
+    private isOrderNumberUniqueViolation(error: unknown): boolean {
+        const err = error as { code?: string; constraint?: string; message?: string };
+        if (err?.code !== '23505') return false;
+        const constraint = (err.constraint || '').toLowerCase();
+        const message = (err.message || '').toLowerCase();
+        return constraint.includes('order_number') || message.includes('order_number');
+    }
+
     // --------------------------------------------------------------------------
     // ORDER NUMBER GENERATION
     // --------------------------------------------------------------------------
@@ -355,13 +368,255 @@ export class OrdersService {
     }
 
     // --------------------------------------------------------------------------
+    // DISCOUNT SCOPE ENFORCEMENT
+    // --------------------------------------------------------------------------
+
+    /**
+     * Checks whether a discount's scopes allow it to be used by a given customer.
+     * Returns true if the discount is allowed, false otherwise.
+     */
+    private async checkDiscountScopes(
+        tx: any,
+        discountId: string,
+        customerId: string,
+        tenantId: string
+    ): Promise<boolean> {
+        const scopes = await tx
+            .select()
+            .from(schema.discountScopes)
+            .where(eq(schema.discountScopes.discountId, discountId));
+
+        if (scopes.length === 0) return true; // No scopes = available to all
+
+        // Check for 'all' scope — means no restrictions
+        const hasAllScope = scopes.some((s: any) => s.scopeType === 'all');
+        if (hasAllScope) return true;
+
+        // Load customer details for tier/territory checks
+        const [customer] = await tx
+            .select({
+                id: schema.customers.id,
+                tierId: schema.customers.tierId,
+                territoryId: schema.customers.territoryId,
+            })
+            .from(schema.customers)
+            .where(eq(schema.customers.id, customerId))
+            .limit(1);
+
+        if (!customer) return false;
+
+        // Group scopes by type
+        const scopesByType: Record<string, string[]> = {};
+        for (const scope of scopes) {
+            const type = scope.scopeType as string;
+            if (!scopesByType[type]) scopesByType[type] = [];
+            if (scope.scopeId) scopesByType[type].push(scope.scopeId);
+        }
+
+        // For restrictive scopes (customer, customer_tier, territory),
+        // the customer must match at least one scope of each type that is defined.
+        // Product/category/brand scopes are about what items qualify, not who can use it.
+
+        if (scopesByType['customer'] && scopesByType['customer'].length > 0) {
+            if (!scopesByType['customer'].includes(customerId)) return false;
+        }
+
+        if (scopesByType['customer_tier'] && scopesByType['customer_tier'].length > 0) {
+            if (!customer.tierId || !scopesByType['customer_tier'].includes(customer.tierId)) return false;
+        }
+
+        if (scopesByType['territory'] && scopesByType['territory'].length > 0) {
+            if (!customer.territoryId || !scopesByType['territory'].includes(customer.territoryId)) return false;
+        }
+
+        return true;
+    }
+
+    // --------------------------------------------------------------------------
+    // DISCOUNT CALCULATION
+    // --------------------------------------------------------------------------
+
+    /**
+     * Calculates the discount amount for a given discount, cart total, and item count.
+     */
+    private async calculateDiscountAmount(
+        tx: any,
+        discount: any,
+        cartTotal: number,
+        itemsCount: number
+    ): Promise<number> {
+        const discountValue = Number(discount.value || 0);
+        let discountAmount = 0;
+
+        switch (discount.type) {
+            case 'percentage':
+                discountAmount = (cartTotal * discountValue) / 100;
+                if (discount.maxDiscountAmount) {
+                    discountAmount = Math.min(discountAmount, Number(discount.maxDiscountAmount));
+                }
+                break;
+
+            case 'fixed':
+                discountAmount = discountValue;
+                break;
+
+            case 'buy_x_get_y':
+                if (discount.minQty && discount.freeQty) {
+                    const sets = Math.floor(itemsCount / (discount.minQty + discount.freeQty));
+                    if (sets > 0) {
+                        const avgPrice = cartTotal / itemsCount;
+                        discountAmount = sets * discount.freeQty * avgPrice;
+                    }
+                }
+                break;
+
+            case 'volume': {
+                const tiers = await tx
+                    .select()
+                    .from(schema.volumeTiers)
+                    .where(eq(schema.volumeTiers.discountId, discount.id))
+                    .orderBy(schema.volumeTiers.minQty);
+
+                if (tiers.length > 0) {
+                    let applicableTier = null;
+                    for (const tier of tiers) {
+                        if (itemsCount >= (tier.minQty || 0)) {
+                            applicableTier = tier;
+                        }
+                    }
+                    if (applicableTier && applicableTier.discountPercent) {
+                        discountAmount = (cartTotal * Number(applicableTier.discountPercent)) / 100;
+                    }
+                }
+                break;
+            }
+        }
+
+        discountAmount = Math.min(discountAmount, cartTotal);
+        discountAmount = Math.round(discountAmount * 100) / 100;
+        return discountAmount;
+    }
+
+    // --------------------------------------------------------------------------
+    // VALIDATE AND APPLY DISCOUNT (by ID or code)
+    // --------------------------------------------------------------------------
+
+    /**
+     * Validates a discount by ID or code, checks all scopes, and calculates the amount.
+     * Runs within the provided transaction for financial consistency.
+     */
+    async validateAndApplyDiscount(
+        tx: any,
+        tenantId: string,
+        customerId: string,
+        cartTotal: number,
+        itemsCount: number,
+        options: { discountId?: string; discountCode?: string }
+    ): Promise<{ discount: ApplicableDiscount; error?: never } | { discount?: never; error: string }> {
+        const now = new Date();
+
+        // 1. Look up discount by ID or code
+        let discount: any = null;
+        if (options.discountId) {
+            const [found] = await tx
+                .select()
+                .from(schema.discounts)
+                .where(and(
+                    eq(schema.discounts.id, options.discountId),
+                    eq(schema.discounts.tenantId, tenantId)
+                ))
+                .limit(1);
+            discount = found;
+        } else if (options.discountCode) {
+            const [found] = await tx
+                .select()
+                .from(schema.discounts)
+                .where(and(
+                    eq(schema.discounts.tenantId, tenantId),
+                    sql`LOWER(${schema.discounts.code}) = LOWER(${options.discountCode})`
+                ))
+                .limit(1);
+            discount = found;
+        }
+
+        if (!discount) {
+            return { error: 'Discount not found' };
+        }
+
+        // 2. Check active/date validity
+        if (!discount.isActive) {
+            return { error: 'Discount is not active' };
+        }
+        if (discount.startsAt && new Date(discount.startsAt) > now) {
+            return { error: 'Discount has not started yet' };
+        }
+        if (discount.endsAt && new Date(discount.endsAt) < now) {
+            return { error: 'Discount has expired' };
+        }
+
+        // 3. Check minimum order amount
+        const minOrderAmount = discount.minOrderAmount ? Number(discount.minOrderAmount) : 0;
+        if (minOrderAmount > 0 && cartTotal < minOrderAmount) {
+            return { error: `Minimum order amount of ${minOrderAmount} required` };
+        }
+
+        // 4. Scope enforcement
+        const scopeAllowed = await this.checkDiscountScopes(tx, discount.id, customerId, tenantId);
+        if (!scopeAllowed) {
+            return { error: 'Discount is not available for this customer' };
+        }
+
+        // 5. Calculate discount amount
+        const discountAmount = await this.calculateDiscountAmount(tx, discount, cartTotal, itemsCount);
+        if (discountAmount <= 0) {
+            return { error: 'Discount does not apply to this order' };
+        }
+
+        return {
+            discount: {
+                id: discount.id,
+                name: discount.name,
+                type: discount.type,
+                value: Number(discount.value || 0),
+                amount: discountAmount,
+            },
+        };
+    }
+
+    // --------------------------------------------------------------------------
+    // DISCOUNT USAGE TRACKING
+    // --------------------------------------------------------------------------
+
+    /**
+     * Records discount usage for audit and limits. Must run inside the order creation tx.
+     */
+    async recordDiscountUsage(
+        tx: any,
+        tenantId: string,
+        discountId: string,
+        orderId: string,
+        customerId: string,
+        discountAmount: number
+    ): Promise<void> {
+        await tx.insert(schema.discountUsages).values({
+            tenantId,
+            discountId,
+            orderId,
+            customerId,
+            discountAmount: String(discountAmount),
+        });
+    }
+
+    // --------------------------------------------------------------------------
     // AUTO-DISCOUNT (for Customer Portal)
     // --------------------------------------------------------------------------
 
     /**
      * Finds and returns the best applicable auto-discount for an order.
+     * Uses the transaction for consistency and enforces full scope checks.
      */
     async findBestAutoDiscount(
+        tx: any,
         tenantId: string,
         customerId: string,
         cartTotal: number,
@@ -369,7 +624,7 @@ export class OrdersService {
     ): Promise<ApplicableDiscount | null> {
         const now = new Date();
 
-        const discounts = await db
+        const activeDiscounts = await tx
             .select()
             .from(schema.discounts)
             .where(and(
@@ -385,83 +640,21 @@ export class OrdersService {
                 )
             ));
 
-        if (discounts.length === 0) return null;
+        if (activeDiscounts.length === 0) return null;
 
         let bestDiscount: ApplicableDiscount | null = null;
         let bestAmount = 0;
 
-        for (const discount of discounts) {
+        for (const discount of activeDiscounts) {
             const minOrderAmount = discount.minOrderAmount ? Number(discount.minOrderAmount) : 0;
+            if (minOrderAmount > 0 && cartTotal < minOrderAmount) continue;
 
-            if (minOrderAmount > 0 && cartTotal < minOrderAmount) {
-                continue;
-            }
+            // Full scope enforcement
+            const scopeAllowed = await this.checkDiscountScopes(tx, discount.id, customerId, tenantId);
+            if (!scopeAllowed) continue;
 
-            // Check customer scope restrictions
-            const scopes = await db
-                .select()
-                .from(schema.discountScopes)
-                .where(eq(schema.discountScopes.discountId, discount.id));
-
-            if (scopes.length > 0) {
-                const customerScopes = scopes.filter((s: any) => s.scopeType === 'customer');
-                if (customerScopes.length > 0) {
-                    const isCustomerIncluded = customerScopes.some((s: any) => s.scopeId === customerId);
-                    if (!isCustomerIncluded) {
-                        continue;
-                    }
-                }
-            }
-
-            let discountAmount = 0;
-            const discountValue = Number(discount.value || 0);
-
-            switch (discount.type) {
-                case 'percentage':
-                    discountAmount = (cartTotal * discountValue) / 100;
-                    if (discount.maxDiscountAmount) {
-                        const maxDiscount = Number(discount.maxDiscountAmount);
-                        discountAmount = Math.min(discountAmount, maxDiscount);
-                    }
-                    break;
-
-                case 'fixed':
-                    discountAmount = discountValue;
-                    break;
-
-                case 'buy_x_get_y':
-                    if (discount.minQty && discount.freeQty) {
-                        const sets = Math.floor(itemsCount / (discount.minQty + discount.freeQty));
-                        if (sets > 0) {
-                            const avgPrice = cartTotal / itemsCount;
-                            discountAmount = sets * discount.freeQty * avgPrice;
-                        }
-                    }
-                    break;
-
-                case 'volume':
-                    const tiers = await db
-                        .select()
-                        .from(schema.volumeTiers)
-                        .where(eq(schema.volumeTiers.discountId, discount.id))
-                        .orderBy(schema.volumeTiers.minQty);
-
-                    if (tiers.length > 0) {
-                        let applicableTier = null;
-                        for (const tier of tiers) {
-                            if (itemsCount >= (tier.minQty || 0)) {
-                                applicableTier = tier;
-                            }
-                        }
-                        if (applicableTier && applicableTier.discountPercent) {
-                            discountAmount = (cartTotal * Number(applicableTier.discountPercent)) / 100;
-                        }
-                    }
-                    break;
-            }
-
-            discountAmount = Math.min(discountAmount, cartTotal);
-            discountAmount = Math.round(discountAmount * 100) / 100;
+            const discountAmount = await this.calculateDiscountAmount(tx, discount, cartTotal, itemsCount);
+            if (discountAmount <= 0) continue;
 
             if (discountAmount > bestAmount) {
                 bestAmount = discountAmount;
@@ -469,7 +662,7 @@ export class OrdersService {
                     id: discount.id,
                     name: discount.name,
                     type: discount.type,
-                    value: discountValue,
+                    value: Number(discount.value || 0),
                     amount: discountAmount,
                 };
             }
@@ -582,10 +775,17 @@ export class OrdersService {
             return { error: { code: 'NOT_FOUND', message: 'Customer not found', status: 404 } };
         }
 
-        // 2. Check ownership (sales_rep mode only)
-        if (context.mode === 'sales_rep' && context.userId) {
-            // Sales reps can only create orders for their assigned customers
-            // unless they're admin/supervisor (handled at route level)
+        // 2. Check ownership (sales reps can only order for assigned customers)
+        if (context.mode === 'sales_rep' && context.actorRole === 'sales_rep' && context.userId) {
+            if (customer.assignedSalesRepId && customer.assignedSalesRepId !== context.userId) {
+                return {
+                    error: {
+                        code: 'FORBIDDEN',
+                        message: 'You can only create orders for your assigned customers',
+                        status: 403,
+                    },
+                };
+            }
         }
 
         // 3. Validate products and stock
@@ -611,29 +811,47 @@ export class OrdersService {
         let subtotalAmount = validation.items.reduce((sum, item) => sum + item.lineTotal, 0);
         let discountAmount = 0;
         let discountName: string | undefined;
+        let discountId: string | undefined;
 
-        // For sales_rep mode, use provided totals if available
-        if (context.mode === 'sales_rep' && input.subtotalAmount !== undefined) {
-            subtotalAmount = input.subtotalAmount;
-            discountAmount = input.discountAmount || 0;
+        const totalQty = validation.items.reduce((sum, item) => sum + item.quantity, 0);
+
+        // 4a. Apply explicit discount (by id or code) if provided
+        if (input.discountId || input.discountCode) {
+            const discountResult = await this.validateAndApplyDiscount(
+                tx, tenantId, customerId, subtotalAmount, totalQty,
+                { discountId: input.discountId, discountCode: input.discountCode }
+            );
+            if (discountResult.error) {
+                return {
+                    error: {
+                        code: 'DISCOUNT_INVALID',
+                        message: discountResult.error,
+                        status: 400,
+                    },
+                };
+            }
+            discountAmount = discountResult.discount!.amount;
+            discountName = discountResult.discount!.name;
+            discountId = discountResult.discount!.id;
         }
-
-        // Apply auto-discount for customer portal
-        if (context.mode === 'customer_portal' && context.applyAutoDiscount) {
-            const totalQty = validation.items.reduce((sum, item) => sum + item.quantity, 0);
+        // 4b. Apply auto-discount for customer portal (only if no explicit discount)
+        else if (context.mode === 'customer_portal' && context.applyAutoDiscount) {
             const autoDiscount = await this.findBestAutoDiscount(
-                tenantId,
-                customerId,
-                subtotalAmount,
-                totalQty
+                tx, tenantId, customerId, subtotalAmount, totalQty
             );
             if (autoDiscount) {
                 discountAmount = autoDiscount.amount;
                 discountName = autoDiscount.name;
+                discountId = autoDiscount.id;
             }
         }
+        // 4c. Sales rep with client-provided discountAmount but no discount reference
+        else if (context.mode === 'sales_rep' && input.discountAmount) {
+            discountAmount = input.discountAmount;
+        }
 
-        const totalAmount = input.totalAmount ?? (subtotalAmount - discountAmount);
+        const taxAmount = Number(input.taxAmount || 0);
+        const totalAmount = subtotalAmount - discountAmount + taxAmount;
 
         // 5. Validate credit/tier limits (unless explicitly skipped)
         if (!context.skipCreditCheck) {
@@ -643,45 +861,66 @@ export class OrdersService {
             }
         }
 
-        // 6. Generate order number
-        const orderNumber = await this.generateOrderNumber(tx, tenantId);
-
         // 7. Determine sales rep
         let salesRepId: string | undefined;
         if (context.mode === 'sales_rep') {
-            salesRepId = context.salesRepId || context.userId;
+            salesRepId = context.salesRepId;
+            if (!salesRepId && context.actorRole === 'sales_rep') {
+                salesRepId = context.userId;
+            }
         }
 
-        // 8. Build notes with discount info for portal orders
+        // 8. Build notes with discount info
         let finalNotes = notes || null;
-        if (context.mode === 'customer_portal' && discountName && discountAmount > 0) {
+        if (discountName && discountAmount > 0) {
             const discountNote = `[Discount applied: ${discountName} (-${discountAmount.toLocaleString()})]`;
             finalNotes = finalNotes ? `${finalNotes}\n${discountNote}` : discountNote;
         }
 
-        // 9. Insert order
-        const [order] = await tx
-            .insert(schema.orders)
-            .values({
-                tenantId,
-                orderNumber,
-                customerId,
-                salesRepId,
-                createdByUserId: context.userId,
-                status: 'pending',
-                paymentStatus: 'unpaid',
-                subtotalAmount: String(subtotalAmount),
-                discountAmount: String(discountAmount),
-                taxAmount: String(input.taxAmount || 0),
-                totalAmount: String(totalAmount),
-                paidAmount: '0',
-                notes: finalNotes,
-                deliveryNotes: deliveryNotes || null,
-                requestedDeliveryDate: requestedDeliveryDate || null,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            })
-            .returning();
+        // 9. Insert order (with retry on rare order-number unique collision)
+        let order: typeof schema.orders.$inferSelect | undefined;
+        let lastInsertError: unknown;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const orderNumber = await this.generateOrderNumber(tx, tenantId);
+            try {
+                const [createdOrder] = await tx
+                    .insert(schema.orders)
+                    .values({
+                        tenantId,
+                        orderNumber,
+                        customerId,
+                        salesRepId,
+                        createdByUserId: context.userId,
+                        status: 'pending',
+                        paymentStatus: 'unpaid',
+                        subtotalAmount: String(subtotalAmount),
+                        discountId: discountId || null,
+                        discountAmount: String(discountAmount),
+                        taxAmount: String(taxAmount),
+                        totalAmount: String(totalAmount),
+                        paidAmount: '0',
+                        notes: finalNotes,
+                        deliveryNotes: deliveryNotes || null,
+                        requestedDeliveryDate: requestedDeliveryDate || null,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    })
+                    .returning();
+                order = createdOrder;
+                break;
+            } catch (error) {
+                if (!this.isOrderNumberUniqueViolation(error)) {
+                    throw error;
+                }
+                lastInsertError = error;
+            }
+        }
+
+        if (!order) {
+            throw (lastInsertError instanceof Error
+                ? lastInsertError
+                : new Error('ORDER_NUMBER_GENERATION_FAILED'));
+        }
 
         // 10. Insert order items
         await this.createOrderItems(tx, order.id, validation.items);
@@ -692,7 +931,12 @@ export class OrdersService {
         // 12. Update customer debt
         await this.updateCustomerDebt(tx, customerId, totalAmount);
 
-        // 13. Log status change
+        // 13. Record discount usage (inside same tx for financial consistency)
+        if (discountId && discountAmount > 0) {
+            await this.recordDiscountUsage(tx, tenantId, discountId, order.id, customerId, discountAmount);
+        }
+
+        // 14. Log status change
         const statusNote = context.mode === 'customer_portal'
             ? 'Order created via customer portal'
             : 'Order created';
@@ -702,6 +946,7 @@ export class OrdersService {
             order,
             items: validation.items,
             subtotalAmount,
+            discountId,
             discountAmount,
             discountName,
             totalAmount,

@@ -27,10 +27,29 @@ const TOKEN_KEY = 'customer_portal_token';
 const PHONE_KEY = 'customer_portal_phone';
 const TENANT_KEY = 'customer_portal_tenant';
 
+function readSessionFirst(key: string): string | null {
+    if (typeof window === 'undefined') return null;
+    const sessionValue = window.sessionStorage.getItem(key);
+    if (sessionValue !== null) return sessionValue;
+    const legacyValue = window.localStorage.getItem(key);
+    if (legacyValue !== null) {
+        window.sessionStorage.setItem(key, legacyValue);
+        window.localStorage.removeItem(key);
+        return legacyValue;
+    }
+    return null;
+}
+
 export const tokenStorage = {
-    get: () => localStorage.getItem(TOKEN_KEY),
-    set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
-    clear: () => localStorage.removeItem(TOKEN_KEY),
+    get: () => readSessionFirst(TOKEN_KEY),
+    set: (token: string) => {
+        sessionStorage.setItem(TOKEN_KEY, token);
+        localStorage.removeItem(TOKEN_KEY);
+    },
+    clear: () => {
+        sessionStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(TOKEN_KEY);
+    },
 };
 
 export const phoneStorage = {
@@ -81,6 +100,10 @@ const resolveBaseUrl = () => {
 
 const BASE_URL = resolveBaseUrl();
 
+function normalizeOtpInput(otp: string): string {
+    return otp.replace(/\D/g, '').slice(0, 6);
+}
+
 async function fetchWithAuth<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -107,7 +130,7 @@ async function fetchWithAuth<T>(
         // the frontend should translate it using the i18n system
         // The error.code is returned, and the frontend can use translateErrorCode() from i18n.ts
         return json;
-    } catch (error) {
+    } catch {
         return {
             success: false,
             error: {
@@ -116,6 +139,12 @@ async function fetchWithAuth<T>(
             }
         };
     }
+}
+
+export function createIdempotencyKey(prefix: string): string {
+    const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+    const uuid = cryptoObj?.randomUUID ? cryptoObj.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${prefix}-${uuid}`;
 }
 
 // ============================================================================
@@ -139,9 +168,42 @@ export const authApi = {
         token: string;
         customer: { id: string; name: string; phone: string }
     }>> {
+        const normalizedOtp = normalizeOtpInput(otp);
         return fetchWithAuth('/customer-portal/auth/verify-otp', {
             method: 'POST',
-            body: JSON.stringify({ phone, otp, tenantSubdomain: getSubdomain() })
+            body: JSON.stringify({ phone, otp: normalizedOtp, tenantSubdomain: getSubdomain() })
+        });
+    },
+
+    async registerRequest(payload: {
+        name: string;
+        phone: string;
+        telegramUsername?: string;
+        telegramUserId?: string;
+        telegramFirstName?: string;
+        telegramLastName?: string;
+        telegramLanguageCode?: string;
+        registrationSource?: string;
+        consentGiven?: boolean;
+        consentAt?: string;
+        notes?: string;
+    }): Promise<ApiResponse<{
+        requestId?: string;
+        status: 'pending' | 'already_registered';
+        message: string;
+    }>> {
+        return fetchWithAuth('/customer-portal/auth/register-request', {
+            method: 'POST',
+            body: JSON.stringify({
+                ...payload,
+                tenantSubdomain: getSubdomain(),
+            }),
+        });
+    },
+
+    async logout(): Promise<ApiResponse<{ message?: string }>> {
+        return fetchWithAuth('/customer-portal/auth/logout', {
+            method: 'POST',
         });
     },
 };
@@ -198,10 +260,12 @@ export const ordersApi = {
     async create(
         items: { productId: string; quantity: number }[],
         notes?: string,
-        deliveryNotes?: string
+        deliveryNotes?: string,
+        idempotencyKey?: string
     ): Promise<ApiResponse<{ orderId: string; orderNumber: string; totalAmount: number; itemCount: number; message: string }>> {
         return fetchWithAuth('/customer-portal/orders', {
             method: 'POST',
+            headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
             body: JSON.stringify({ items, notes, deliveryNotes })
         });
     },
@@ -213,14 +277,17 @@ export const ordersApi = {
         });
     },
 
-    async reorder(orderId: string): Promise<ApiResponse<{
+    async reorder(orderId: string, idempotencyKey?: string): Promise<ApiResponse<{
         orderId: string;
         orderNumber: string;
         totalAmount: number;
         itemCount: number;
         message: string
     }>> {
-        return fetchWithAuth(`/customer-portal/reorder/${orderId}`, { method: 'POST' });
+        return fetchWithAuth(`/customer-portal/reorder/${orderId}`, {
+            method: 'POST',
+            headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+        });
     },
 };
 
@@ -247,6 +314,29 @@ export const productsApi = {
         subcategories: { id: string; name: string; categoryId: string }[]
     }>> {
         return fetchWithAuth('/customer-portal/categories');
+    },
+
+    async listPublic(page = 1, search = '', categoryId = ''): Promise<PaginatedResponse<Product>> {
+        const params = new URLSearchParams({ page: String(page), limit: '20' });
+        if (search) params.append('search', search);
+        if (categoryId) params.append('categoryId', categoryId);
+        const subdomain = getSubdomain();
+
+        const res = await fetchWithAuth<Product[]>(`/customer-portal/public/${subdomain}/products?${params}`);
+        return res as PaginatedResponse<Product>;
+    },
+
+    async getPublicCategories(): Promise<ApiResponse<{
+        categories: { id: string; name: string }[];
+        subcategories: { id: string; name: string; categoryId: string }[];
+    }>> {
+        const subdomain = getSubdomain();
+        return fetchWithAuth(`/customer-portal/public/${subdomain}/categories`);
+    },
+
+    async getPublicDetail(productId: string): Promise<ApiResponse<Product>> {
+        const subdomain = getSubdomain();
+        return fetchWithAuth(`/customer-portal/public/${subdomain}/products/${productId}`);
     },
 };
 
@@ -412,13 +502,18 @@ export interface ReviewStats {
     distribution: Record<number, number>;
 }
 
+interface ProductReviewsResponse extends ApiResponse<Review[]> {
+    stats?: ReviewStats;
+    canReview?: boolean;
+}
+
 export const reviewsApi = {
     async getForProduct(productId: string): Promise<ApiResponse<{
         reviews: Review[];
         stats: ReviewStats;
         canReview: boolean;
     }>> {
-        const res = await fetchWithAuth<Review[]>(`/customer-portal/reviews/${productId}`) as any;
+        const res = await fetchWithAuth<Review[]>(`/customer-portal/reviews/${productId}`) as ProductReviewsResponse;
         if (res.success) {
             return {
                 success: true,
@@ -429,7 +524,12 @@ export const reviewsApi = {
                 }
             };
         }
-        return res;
+        return {
+            success: false,
+            error: res.error,
+            message: res.message,
+            warnings: res.warnings,
+        };
     },
 
     async add(productId: string, rating: number, comment?: string): Promise<ApiResponse<{ id: string; message: string }>> {

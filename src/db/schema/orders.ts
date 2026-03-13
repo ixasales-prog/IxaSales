@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, decimal, date, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, integer, decimal, date, pgEnum, index } from 'drizzle-orm/pg-core';
 import { tenants, users } from './core';
 import { customers, customerUsers } from './customers';
 import { products } from './products';
@@ -44,6 +44,7 @@ export const orders = pgTable('orders', {
     status: orderStatusEnum('status').default('pending'),
     paymentStatus: paymentStatusEnum('payment_status').default('unpaid'),
     subtotalAmount: decimal('subtotal_amount', { precision: 15, scale: 2 }).notNull(),
+    discountId: uuid('discount_id').references(() => discounts.id),
     discountAmount: decimal('discount_amount', { precision: 15, scale: 2 }).default('0'),
     taxAmount: decimal('tax_amount', { precision: 15, scale: 2 }).default('0'),
     totalAmount: decimal('total_amount', { precision: 15, scale: 2 }).notNull(),
@@ -57,7 +58,14 @@ export const orders = pgTable('orders', {
     cancelReason: text('cancel_reason'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => ({
+    // Composite indexes for multi-column lookups and filtering
+    idxOrdersTenantCustomer: index('idx_orders_tenant_customer').on(table.tenantId, table.customerId),
+    idxOrdersTenantStatus: index('idx_orders_tenant_status').on(table.tenantId, table.status),
+    idxOrdersTenantCreatedAt: index('idx_orders_tenant_created_at').on(table.tenantId, table.createdAt),
+    idxOrdersCustomerDate: index('idx_orders_customer_date').on(table.customerId, table.createdAt),
+    idxOrdersSalesRep: index('idx_orders_sales_rep').on(table.salesRepId),
+}));
 
 // ============================================================================
 // ORDER ITEMS
@@ -78,7 +86,10 @@ export const orderItems = pgTable('order_items', {
     lineTotal: decimal('line_total', { precision: 15, scale: 2 }).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (table) => ({
+    idxOrderItemsOrderId: index('idx_order_items_order_id').on(table.orderId),
+    idxOrderItemsProductId: index('idx_order_items_product_id').on(table.productId),
+}));
 
 // ============================================================================
 // ORDER STATUS HISTORY
@@ -92,4 +103,7 @@ export const orderStatusHistory = pgTable('order_status_history', {
     changedBy: uuid('changed_by').references(() => users.id),
     notes: text('notes'),
     createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+    idxOrderStatusHistoryOrderId: index('idx_order_status_history_order_id').on(table.orderId),
+    idxOrderStatusHistoryCreatedAt: index('idx_order_status_history_created_at').on(table.createdAt),
+}));

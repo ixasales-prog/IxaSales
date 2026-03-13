@@ -2,8 +2,10 @@ import { type Component } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { Truck, Package, User } from 'lucide-solid';
 import AutoStartTracking from '../gps-tracking/AutoStartTracking';
+import { useI18n } from '../../i18n';
 
 const MobileDriverLayout: Component<{ children: any }> = (props) => {
+    const { t } = useI18n();
     const location = useLocation();
 
     const activeClass = (path: string) =>
@@ -22,17 +24,17 @@ const MobileDriverLayout: Component<{ children: any }> = (props) => {
             <nav class="fixed bottom-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-t border-slate-800/50 flex items-center justify-around px-2 z-50 pb-safe">
                 <A href="/driver" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/driver')}`}>
                     <Truck size={24} />
-                    <span class="text-[10px] font-medium">Trips</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.driver.trips')}</span>
                 </A>
 
                 <A href="/driver/deliveries" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/driver/deliveries')}`}>
                     <Package size={24} />
-                    <span class="text-[10px] font-medium">Deliveries</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.driver.deliveries')}</span>
                 </A>
 
                 <A href="/driver/profile" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/driver/profile')}`}>
                     <User size={24} />
-                    <span class="text-[10px] font-medium">Profile</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.driver.profile')}</span>
                 </A>
             </nav>
         </div>

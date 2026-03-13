@@ -2,11 +2,13 @@ import { type Component, Show, createEffect, createSignal, onCleanup } from 'sol
 import { DownloadCloud, Smartphone, X } from 'lucide-solid';
 import { canInstall, isInstalledPWA, promptInstall, syncInstallState } from '../../lib/pwa';
 import { currentUser } from '../../stores/auth';
+import { useI18n } from '../../i18n';
 
 const REQUIRED_ROLES = new Set(['sales_rep', 'supervisor', 'driver', 'warehouse']);
 const OPTIONAL_ROLES = new Set(['super_admin', 'tenant_admin']);
 
 const InstallGating: Component = () => {
+    const { t } = useI18n();
     const [installAvailable, setInstallAvailable] = createSignal(false);
     const [dismissed, setDismissed] = createSignal(false);
     const [installing, setInstalling] = createSignal(false);
@@ -42,14 +44,14 @@ const InstallGating: Component = () => {
                                     <Smartphone class="w-6 h-6 text-indigo-300" />
                                 </div>
                                 <div>
-                                    <h2 class="text-white font-semibold text-lg">Install required</h2>
-                                    <p class="text-slate-400 text-sm">Add the app to your home screen to continue.</p>
+                                    <h2 class="text-white font-semibold text-lg">{t('sharedUi.installGating.requiredTitle')}</h2>
+                                    <p class="text-slate-400 text-sm">{t('sharedUi.installGating.requiredSubtitle')}</p>
                                 </div>
                             </div>
                         </div>
 
                         <div class="mt-5 rounded-2xl bg-slate-800/60 border border-slate-700/60 p-4 text-sm text-slate-300">
-                            Faster access, offline-ready shell, and smoother GPS tracking.
+                            {t('sharedUi.installGating.requiredBenefits')}
                         </div>
 
                         <button
@@ -58,7 +60,7 @@ const InstallGating: Component = () => {
                             disabled={!canInstall() || installing()}
                             class="mt-5 w-full rounded-2xl bg-indigo-500 text-white font-semibold py-3 transition-all hover:bg-indigo-400 disabled:opacity-60"
                         >
-                            {installing() ? 'Installing…' : 'Install now'}
+                            {installing() ? t('sharedUi.installGating.installing') : t('sharedUi.installGating.installNow')}
                         </button>
                     </div>
                 </div>
@@ -72,8 +74,8 @@ const InstallGating: Component = () => {
                                 <DownloadCloud class="w-5 h-5 text-blue-300" />
                             </div>
                             <div class="flex-1">
-                                <h3 class="text-white font-semibold">Install the app</h3>
-                                <p class="text-slate-400 text-sm">Get quick access from your home screen.</p>
+                                <h3 class="text-white font-semibold">{t('sharedUi.installGating.optionalTitle')}</h3>
+                                <p class="text-slate-400 text-sm">{t('sharedUi.installGating.optionalSubtitle')}</p>
                             </div>
                             <button
                                 type="button"
@@ -90,14 +92,14 @@ const InstallGating: Component = () => {
                                 disabled={!canInstall() || installing()}
                                 class="flex-1 rounded-xl bg-blue-500 text-white font-semibold py-2.5 text-sm hover:bg-blue-400 disabled:opacity-60"
                             >
-                                {installing() ? 'Installing…' : 'Install'}
+                                {installing() ? t('sharedUi.installGating.installing') : t('sharedUi.installGating.install')}
                             </button>
                             <button
                                 type="button"
                                 onClick={() => setDismissed(true)}
                                 class="flex-1 rounded-xl border border-slate-700 text-slate-300 font-semibold py-2.5 text-sm hover:border-slate-500"
                             >
-                                Maybe later
+                                {t('sharedUi.installGating.maybeLater')}
                             </button>
                         </div>
                     </div>

@@ -1,36 +1,34 @@
 /**
  * User Location Map Page
- * 
+ *
  * Full-page map view showing all tracked users for supervisors/admins.
  */
 
-import { type Component } from 'solid-js';
-import { A } from '@solidjs/router';
-import { ArrowLeft } from 'lucide-solid';
+import type { Component } from 'solid-js';
 import UserLocationMap from '../../components/gps-tracking/UserLocationMap';
+import PageHeader from '../../components/page/PageHeader';
+import PageSection from '../../components/page/PageSection';
+import PageShell from '../../components/page/PageShell';
 
 const UserLocationMapPage: Component = () => {
-    return (
-        <div class="min-h-screen bg-slate-950 text-white">
-            {/* Header */}
-            <div class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 px-6 py-4">
-                <div class="flex items-center gap-4">
-                    <A href="/admin/gps-tracking" class="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-                        <ArrowLeft class="w-5 h-5" />
-                    </A>
-                    <div>
-                        <h1 class="text-xl font-bold">User Locations</h1>
-                        <p class="text-slate-400 text-sm">Real-time GPS tracking map</p>
-                    </div>
-                </div>
-            </div>
+  return (
+    <PageShell>
+      <div class="space-y-6">
+        <PageHeader
+          title="User Locations"
+          description="Real-time GPS tracking map for enabled sales reps and drivers."
+          backHref="/admin/gps-tracking"
+          backLabel="Back to GPS settings"
+        />
 
-            {/* Map */}
-            <div class="h-[calc(100vh-80px)]">
-                <UserLocationMap />
-            </div>
-        </div>
-    );
+        <PageSection class="overflow-hidden" contentClass="p-0">
+          <div class="min-h-[520px] h-[520px] lg:h-[calc(100vh-16rem)]">
+            <UserLocationMap />
+          </div>
+        </PageSection>
+      </div>
+    </PageShell>
+  );
 };
 
 export default UserLocationMapPage;

@@ -7,11 +7,16 @@ import { formatCurrency, formatDate } from '../../stores/settings';
 interface OrderDetail {
     id: string;
     orderNumber: string;
-    customerName: string;
+    customer: {
+        id: string;
+        name: string;
+        code?: string;
+        phone?: string;
+        address?: string;
+    } | null;
     totalAmount: string;
     status: string;
     paymentStatus: string;
-    itemCount: number;
     createdAt: string;
     notes?: string;
     items: Array<{
@@ -55,7 +60,7 @@ const OrderDetailPage: Component = () => {
         async (id) => {
             if (!id) return null;
             try {
-                const res = await api.get(`/orders/${id}`);
+                const res = await api.get(`/orders/${id}/detail`);
                 return (res as any)?.data || res || null;
             } catch (_e) {
                 return null;
@@ -93,7 +98,7 @@ const OrderDetailPage: Component = () => {
                                 <div class="flex justify-between items-start mb-3">
                                     <div>
                                         <div class="text-white font-bold">{detail().orderNumber}</div>
-                                        <div class="text-slate-400 text-sm">{detail().customerName}</div>
+                                        <div class="text-slate-400 text-sm">{detail().customer?.name || 'Unknown customer'}</div>
                                     </div>
                                     <span class={`px-2 py-1 rounded-full text-xs font-medium ${getPaymentBadge(detail().paymentStatus)}`}>
                                         {detail().paymentStatus}

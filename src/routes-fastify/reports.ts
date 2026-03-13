@@ -264,4 +264,249 @@ export const reportRoutes: FastifyPluginAsync = async (fastify) => {
 
         return { success: true, data: report };
     });
+
+    // -------------------------------------------------------------------------
+    // Parameterized Sales Reports (fromDate, toDate, optional salesRepId)
+    // -------------------------------------------------------------------------
+
+    // Sales rep × Order status crosstab (within period)
+    fastify.get('/sales-rep-order-status', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, salesRepId } = request.query as { fromDate?: string; toDate?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate and toDate are required' } });
+        }
+
+        const conditions: any[] = [sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`, sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            salesRepId: schema.users.id,
+            salesRepName: schema.users.name,
+            status: schema.orders.status,
+            orderCount: count(schema.orders.id),
+            totalSales: sum(schema.orders.totalAmount),
+        })
+            .from(schema.orders)
+            .leftJoin(schema.users, eq(schema.orders.salesRepId, schema.users.id))
+            .where(and(...conditions))
+            .groupBy(schema.users.id, schema.users.name, schema.orders.status)
+            .orderBy(schema.users.name, schema.orders.status);
+
+        return { success: true, data: report };
+    });
+
+    // Sales rep × Brands crosstab (within period) – revenue per rep per brand
+    fastify.get('/sales-rep-brands', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, salesRepId } = request.query as { fromDate?: string; toDate?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate and toDate are required' } });
+        }
+
+        const conditions: any[] = [
+            sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`,
+            sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`,
+        ];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            salesRepId: schema.users.id,
+            salesRepName: schema.users.name,
+            brandId: schema.brands.id,
+            brandName: schema.brands.name,
+            revenue: sum(schema.orderItems.lineTotal),
+            orderCount: count(schema.orders.id),
+        })
+            .from(schema.orderItems)
+            .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+            .innerJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
+            .innerJoin(schema.brands, eq(schema.products.brandId, schema.brands.id))
+            .leftJoin(schema.users, eq(schema.orders.salesRepId, schema.users.id))
+            .where(and(...conditions))
+            .groupBy(schema.users.id, schema.users.name, schema.brands.id, schema.brands.name)
+            .orderBy(schema.users.name, schema.brands.name);
+
+        return { success: true, data: report };
+    });
+
+    // Sales rep × Categories crosstab (within period) – via subcategory → category
+    fastify.get('/sales-rep-categories', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, salesRepId } = request.query as { fromDate?: string; toDate?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate and toDate are required' } });
+        }
+
+        const conditions: any[] = [
+            sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`,
+            sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`,
+        ];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            salesRepId: schema.users.id,
+            salesRepName: schema.users.name,
+            categoryId: schema.categories.id,
+            categoryName: schema.categories.name,
+            revenue: sum(schema.orderItems.lineTotal),
+            orderCount: count(schema.orders.id),
+        })
+            .from(schema.orderItems)
+            .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+            .innerJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
+            .innerJoin(schema.subcategories, eq(schema.products.subcategoryId, schema.subcategories.id))
+            .innerJoin(schema.categories, eq(schema.subcategories.categoryId, schema.categories.id))
+            .leftJoin(schema.users, eq(schema.orders.salesRepId, schema.users.id))
+            .where(and(...conditions))
+            .groupBy(schema.users.id, schema.users.name, schema.categories.id, schema.categories.name)
+            .orderBy(schema.users.name, schema.categories.name);
+
+        return { success: true, data: report };
+    });
+
+    // Date × Sales rep crosstab (within period) – one row per date, columns = reps, cells = revenue
+    fastify.get('/date-sales-rep', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, salesRepId } = request.query as { fromDate?: string; toDate?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate and toDate are required' } });
+        }
+
+        const conditions: any[] = [
+            sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`,
+            sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`,
+        ];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            date: sql<string>`(${schema.orders.createdAt}::date)::text`,
+            salesRepId: schema.users.id,
+            salesRepName: schema.users.name,
+            orderCount: count(schema.orders.id),
+            revenue: sum(schema.orders.totalAmount),
+        })
+            .from(schema.orders)
+            .leftJoin(schema.users, eq(schema.orders.salesRepId, schema.users.id))
+            .where(and(...conditions))
+            .groupBy(sql`${schema.orders.createdAt}::date`, schema.users.id, schema.users.name)
+            .orderBy(sql`${schema.orders.createdAt}::date`, schema.users.name);
+
+        return { success: true, data: report };
+    });
+
+    // Date × Brand crosstab (within period) – one row per date, columns = brands, cells = revenue
+    fastify.get('/date-brands', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, salesRepId } = request.query as { fromDate?: string; toDate?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate and toDate are required' } });
+        }
+
+        const conditions: any[] = [
+            sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`,
+            sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`,
+        ];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            date: sql<string>`(${schema.orders.createdAt}::date)::text`,
+            brandId: schema.brands.id,
+            brandName: schema.brands.name,
+            revenue: sum(schema.orderItems.lineTotal),
+            orderCount: count(schema.orders.id),
+        })
+            .from(schema.orderItems)
+            .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+            .innerJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
+            .innerJoin(schema.brands, eq(schema.products.brandId, schema.brands.id))
+            .where(and(...conditions))
+            .groupBy(sql`${schema.orders.createdAt}::date`, schema.brands.id, schema.brands.name)
+            .orderBy(sql`${schema.orders.createdAt}::date`, schema.brands.name);
+
+        return { success: true, data: report };
+    });
+
+    // Date × Category crosstab (within period) – one row per date, columns = categories, cells = revenue
+    fastify.get('/date-categories', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, salesRepId } = request.query as { fromDate?: string; toDate?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate and toDate are required' } });
+        }
+
+        const conditions: any[] = [
+            sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`,
+            sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`,
+        ];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            date: sql<string>`(${schema.orders.createdAt}::date)::text`,
+            categoryId: schema.categories.id,
+            categoryName: schema.categories.name,
+            revenue: sum(schema.orderItems.lineTotal),
+            orderCount: count(schema.orders.id),
+        })
+            .from(schema.orderItems)
+            .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+            .innerJoin(schema.products, eq(schema.orderItems.productId, schema.products.id))
+            .innerJoin(schema.subcategories, eq(schema.products.subcategoryId, schema.subcategories.id))
+            .innerJoin(schema.categories, eq(schema.subcategories.categoryId, schema.categories.id))
+            .where(and(...conditions))
+            .groupBy(sql`${schema.orders.createdAt}::date`, schema.categories.id, schema.categories.name)
+            .orderBy(sql`${schema.orders.createdAt}::date`, schema.categories.name);
+
+        return { success: true, data: report };
+    });
+
+    // Product history – orders containing a product in period, optional rep filter
+    fastify.get('/product-history', { preHandler: [reportAuth] }, async (request, reply) => {
+        const user = request.user!;
+        const { fromDate, toDate, productId, salesRepId } = request.query as { fromDate?: string; toDate?: string; productId?: string; salesRepId?: string };
+
+        if (!fromDate || !toDate || !productId) {
+            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'fromDate, toDate and productId are required' } });
+        }
+
+        const conditions: any[] = [
+            eq(schema.orderItems.productId, productId),
+            sql`(${schema.orders.createdAt}::date >= ${fromDate}::date)`,
+            sql`(${schema.orders.createdAt}::date <= ${toDate}::date)`,
+        ];
+        if (user.role !== 'super_admin') conditions.push(eq(schema.orders.tenantId, user.tenantId));
+        if (salesRepId) conditions.push(eq(schema.orders.salesRepId, salesRepId));
+
+        const report = await db.select({
+            orderId: schema.orders.id,
+            orderNumber: schema.orders.orderNumber,
+            orderDate: schema.orders.createdAt,
+            status: schema.orders.status,
+            salesRepName: schema.users.name,
+            customerName: schema.customers.name,
+            qtyOrdered: schema.orderItems.qtyOrdered,
+            lineTotal: schema.orderItems.lineTotal,
+        })
+            .from(schema.orderItems)
+            .innerJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+            .leftJoin(schema.users, eq(schema.orders.salesRepId, schema.users.id))
+            .leftJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
+            .where(and(...conditions))
+            .orderBy(desc(schema.orders.createdAt))
+            .limit(500);
+
+        return { success: true, data: report };
+    });
 };

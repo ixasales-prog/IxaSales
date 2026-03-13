@@ -9,7 +9,6 @@ import { Type } from '@sinclair/typebox';
 import { db } from '../../db';
 import * as schema from '../../db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { createErrorResponse } from '../../lib/error-codes';
 import { requireCustomerAuth } from './middleware';
 
 // ============================================================================
@@ -23,6 +22,12 @@ const ListPaymentsQuerySchema = {
     })
 };
 
+function parsePositiveInt(value: string | undefined, fallback: number, min: number, max: number): number {
+    const parsed = Number.parseInt(value || '', 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.min(max, parsed));
+}
+
 // ============================================================================
 // ROUTES
 // ============================================================================
@@ -34,12 +39,12 @@ export const paymentsRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.get('/payments', {
         schema: ListPaymentsQuerySchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
         const query = request.query as { page?: string; limit?: string };
 
-        const page = parseInt(query.page || '1');
-        const limit = parseInt(query.limit || '20');
+        const page = parsePositiveInt(query.page, 1, 1, 1000);
+        const limit = parsePositiveInt(query.limit, 20, 1, 100);
         const offset = (page - 1) * limit;
 
         const payments = await db

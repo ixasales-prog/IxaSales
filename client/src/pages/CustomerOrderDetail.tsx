@@ -8,7 +8,7 @@
 import { type Component, createSignal, Show, For, onMount } from 'solid-js';
 import { useParams, useNavigate } from '@solidjs/router';
 import { ArrowLeft, Package, Loader2, CreditCard, CheckCircle, Clock, Truck, XCircle, AlertCircle, Box, Check, RefreshCw } from 'lucide-solid';
-import { customerApi } from '../services/customer-api';
+import { createIdempotencyKey, customerApi } from '../services/customer-api';
 import type { OrderDetail, TimelineStep } from '../types/customer-portal';
 import { formatMoney, getImageUrl } from '../utils/formatters';
 import { formatDateTime } from '../stores/settings';
@@ -107,7 +107,8 @@ const CustomerOrderDetailContent: Component = () => {
 
         setReordering(true);
         try {
-            const result = await customerApi.orders.reorder(order()!.id);
+            const idempotencyKey = createIdempotencyKey(`customer-reorder-${order()!.id}`);
+            const result = await customerApi.orders.reorder(order()!.id, idempotencyKey);
             if (result.success && result.data) {
                 toast.success(result.data.message);
                 navigate('/customer');

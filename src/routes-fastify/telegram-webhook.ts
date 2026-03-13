@@ -14,19 +14,20 @@
  *   - Notification preferences management
  */
 
-import { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db } from '../db';
 import * as schema from '../db/schema';
 import { eq, and, or, sql } from 'drizzle-orm';
-import { escapeHtml, parseCallbackData } from '../lib/telegram';
+import { escapeHtml, getTenantAdminsWithTelegram, notifyUser, parseCallbackData } from '../lib/telegram';
+import { getTelegramIntegration } from '../lib/tenant-integrations';
 
 interface TelegramUpdate {
     update_id: number;
     message?: {
         message_id: number;
         chat: { id: number };
-        from?: { id: number; first_name?: string; last_name?: string; username?: string };
+        from?: { id: number; first_name?: string; last_name?: string; username?: string; language_code?: string };
         text?: string;
         contact?: { phone_number: string };
     };
@@ -44,7 +45,9 @@ interface TelegramUpdate {
 
 // Schemas
 const TenantIdParamsSchema = Type.Object({
-    tenantId: Type.String(),
+    tenantId: Type.String({
+        pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    }),
 });
 
 const ConfigureBodySchema = Type.Optional(Type.Object({
@@ -254,6 +257,115 @@ async function editMessage(
     }
 }
 
+function createShareContactKeyboard(label = 'Share Phone Number') {
+    return {
+        keyboard: [[{ text: label, request_contact: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+    };
+}
+
+interface TenantTelegramContext {
+    id: string;
+    name: string;
+    subdomain: string;
+    currency: string | null;
+    telegramBotToken: string | null;
+    telegramWebhookSecret: string | null;
+    telegramBotUsername: string | null;
+    telegramEnabled: boolean;
+}
+
+async function getTenantTelegramContext(tenantId: string): Promise<TenantTelegramContext | null> {
+    const [tenant] = await db
+        .select({
+            id: schema.tenants.id,
+            name: schema.tenants.name,
+            subdomain: schema.tenants.subdomain,
+            currency: schema.tenants.currency,
+        })
+        .from(schema.tenants)
+        .where(eq(schema.tenants.id, tenantId))
+        .limit(1);
+
+    if (!tenant) {
+        return null;
+    }
+
+    const integration = await getTelegramIntegration(tenantId, true);
+    return {
+        ...tenant,
+        telegramBotToken: integration.botToken || null,
+        telegramWebhookSecret: integration.webhookSecret || null,
+        telegramBotUsername: integration.botUsername || null,
+        telegramEnabled: integration.enabled,
+    };
+}
+
+function maskChatId(chatId: string): string {
+    if (chatId.length <= 4) return '****';
+    return `***${chatId.slice(-4)}`;
+}
+
+function summarizeTelegramUpdate(update: TelegramUpdate): Record<string, unknown> {
+    if (update.callback_query) {
+        return {
+            updateId: update.update_id,
+            kind: 'callback_query',
+            chatId: update.callback_query.message?.chat.id
+                ? maskChatId(String(update.callback_query.message.chat.id))
+                : null,
+            callbackData: update.callback_query.data || null,
+        };
+    }
+
+    if (update.message) {
+        return {
+            updateId: update.update_id,
+            kind: 'message',
+            chatId: maskChatId(String(update.message.chat.id)),
+            hasText: typeof update.message.text === 'string' && update.message.text.length > 0,
+            hasContact: !!update.message.contact?.phone_number,
+        };
+    }
+
+    return {
+        updateId: update.update_id,
+        kind: 'unknown',
+    };
+}
+
+function isStrictWebhookSecretRequired(): boolean {
+    // Always required in production. Optional opt-in strict mode for non-production environments.
+    if (process.env.NODE_ENV === 'production') {
+        return true;
+    }
+    return process.env.STRICT_TELEGRAM_WEBHOOK_SECRET === 'true';
+}
+
+async function ensureTenantScopedAccess(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    tenantId: string
+): Promise<boolean> {
+    const user = request.user;
+    if (!user) {
+        await reply.code(401).send({ success: false, error: 'Authentication required' });
+        return false;
+    }
+
+    if (user.role === 'super_admin') {
+        return true;
+    }
+
+    if (!user.tenantId || user.tenantId !== tenantId) {
+        await reply.code(403).send({ success: false, error: 'Forbidden tenant scope' });
+        return false;
+    }
+
+    return true;
+}
+
 // ============================================================================
 // CALLBACK QUERY HANDLER
 // ============================================================================
@@ -271,22 +383,20 @@ async function handleCallbackQuery(
         return { ok: true };
     }
 
-    const [tenant] = await db
-        .select({
-            telegramBotToken: schema.tenants.telegramBotToken,
-            telegramWebhookSecret: schema.tenants.telegramWebhookSecret,
-        })
-        .from(schema.tenants)
-        .where(eq(schema.tenants.id, tenantId))
-        .limit(1);
+    const tenant = await getTenantTelegramContext(tenantId);
 
     if (!tenant || !tenant.telegramBotToken) {
         return { ok: true };
     }
 
     const secretHeader = headers['x-telegram-bot-api-secret-token'] as string | undefined;
-    if (tenant.telegramWebhookSecret && secretHeader !== tenant.telegramWebhookSecret) {
-        console.warn('[Telegram Webhook] Invalid secret for callback query');
+    if (tenant.telegramWebhookSecret) {
+        if (secretHeader !== tenant.telegramWebhookSecret) {
+            console.warn('[Telegram Webhook] Invalid secret for callback query');
+            return { ok: false };
+        }
+    } else if (isStrictWebhookSecretRequired()) {
+        console.warn('[Telegram Webhook] Missing webhook secret for callback query');
         return { ok: false };
     }
 
@@ -304,7 +414,7 @@ async function handleCallbackQuery(
                             tenant.telegramBotToken,
                             chatId,
                             messageId,
-                            `✅ <b>Delivery Confirmed</b>\n\nThank you for confirming receipt of order #${escapeHtml(orderNumber)}!\n\nWe appreciate your business. 🙏`
+                            `вњ… <b>Delivery Confirmed</b>\n\nThank you for confirming receipt of order #${escapeHtml(orderNumber)}!\n\nWe appreciate your business. рџ™Џ`
                         );
                     }
 
@@ -322,7 +432,7 @@ async function handleCallbackQuery(
                         tenant.telegramBotToken,
                         chatId,
                         messageId,
-                        `⚠️ <b>Issue Reported</b>\n\nA support request has been created for order #${escapeHtml(orderNumber || '')}.\n\nOur team will contact you shortly.`
+                        `вљ пёЏ <b>Issue Reported</b>\n\nA support request has been created for order #${escapeHtml(orderNumber || '')}.\n\nOur team will contact you shortly.`
                     );
                 }
 
@@ -388,8 +498,10 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         const { tenantId } = request.params;
         const update = request.body as TelegramUpdate;
 
-        console.log('[Telegram Webhook] Received update for tenant:', tenantId);
-        console.log('[Telegram Webhook] Update:', JSON.stringify(update, null, 2));
+        console.log('[Telegram Webhook] Received update', {
+            tenantId,
+            summary: summarizeTelegramUpdate(update),
+        });
 
         if (!checkWebhookRateLimit(tenantId)) {
             console.log('[Telegram Webhook] Rate limited:', tenantId);
@@ -409,21 +521,15 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         const chatId = update.message.chat.id.toString();
         const text = update.message.text?.trim();
         const contactPhone = update.message.contact?.phone_number;
+        const from = update.message.from;
 
-        console.log('[Telegram Webhook] Processing message:', { chatId, text, contactPhone });
+        console.log('[Telegram Webhook] Processing message summary:', {
+            chatId: maskChatId(chatId),
+            hasText: typeof text === 'string' && text.length > 0,
+            hasContact: !!contactPhone,
+        });
 
-        const [tenant] = await db
-            .select({
-                id: schema.tenants.id,
-                name: schema.tenants.name,
-                subdomain: schema.tenants.subdomain,
-                telegramBotToken: schema.tenants.telegramBotToken,
-                telegramWebhookSecret: schema.tenants.telegramWebhookSecret,
-                currency: schema.tenants.currency,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(tenantId);
 
         if (!tenant || !tenant.telegramBotToken) {
             console.log('[Telegram Webhook] Tenant not found or no bot token:', tenantId);
@@ -436,37 +542,41 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                 console.warn('[Telegram Webhook] Invalid webhook secret for tenant:', tenantId);
                 return reply.code(401).send({ ok: false, error: 'Invalid webhook secret' });
             }
+        } else if (isStrictWebhookSecretRequired()) {
+            console.warn('[Telegram Webhook] Rejecting webhook with missing secret configuration:', tenantId);
+            return reply.code(401).send({ ok: false, error: 'Webhook secret required' });
         } else {
             console.warn('[Telegram Webhook] No webhook secret configured for tenant:', tenantId);
         }
 
-        // Handle /start command
-        if (text === '/start') {
+        const startMatch = (text || '').match(/^\/start(?:\s+(.+))?$/);
+
+        // Handle /start command (supports deep-link payloads like "/start reg_demo")
+        if (startMatch) {
             console.log('[Telegram Webhook] Handling /start command for chat:', chatId);
 
             const result = await sendBotMessageWithKeyboard(tenant.telegramBotToken, chatId,
-                `👋 <b>${escapeHtml(tenant.name)}</b> ga xush kelibsiz!\n\n` +
+                `рџ‘‹ <b>${escapeHtml(tenant.name)}</b> ga xush kelibsiz!\n\n` +
                 `Buyurtmalaringiz haqida bildirishnomalar olish uchun telefon raqamingizni yuboring.\n\n` +
                 `Raqamni qo'lda yozishingiz mumkin (masalan, <code>+998901234567</code>) yoki quyidagi tugmani bosing.`,
-                {
-                    keyboard: [[{ text: '📱 Telefon raqamni ulashish', request_contact: true }]],
-                    resize_keyboard: true,
-                    one_time_keyboard: true,
-                }
+                createShareContactKeyboard('рџ“± Telefon raqamni ulashish')
             );
             console.log('[Telegram Webhook] /start message sent, result:', result);
+            if (startMatch[1]) {
+                console.log('[Telegram Webhook] /start payload:', startMatch[1]);
+            }
             return { ok: true };
         }
 
         // Handle /help command
         if (text === '/help') {
             await sendBotMessage(tenant.telegramBotToken, chatId,
-                `ℹ️ <b>Help</b>\n\n` +
+                `в„№пёЏ <b>Help</b>\n\n` +
                 `Available commands:\n` +
-                `• /start - Start registration\n` +
-                `• /status - Check your account status\n` +
-                `• /unlink - Unlink your account\n` +
-                `• /help - Show this help\n\n` +
+                `вЂў /start - Start registration\n` +
+                `вЂў /status - Check your account status\n` +
+                `вЂў /unlink - Unlink your account\n` +
+                `вЂў /help - Show this help\n\n` +
                 `To link your account, send your registered phone number.`
             );
             return { ok: true };
@@ -494,7 +604,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                 }).where(eq(schema.users.id, linkedUser.id));
 
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `✅ <b>Staff Account Unlinked</b>\n\n` +
+                    `вњ… <b>Staff Account Unlinked</b>\n\n` +
                     `Your account <b>${escapeHtml(linkedUser.name)}</b> has been unlinked.\n\n` +
                     `You will no longer receive notifications here.\n` +
                     `To re-link, generate a new code from your dashboard.`
@@ -519,7 +629,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
             if (!customer) {
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `❌ <b>No Account Linked</b>\n\n` +
+                    `вќЊ <b>No Account Linked</b>\n\n` +
                     `Your Telegram is not linked to any account.`
                 );
                 return { ok: true };
@@ -534,7 +644,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                 .where(eq(schema.customers.id, customer.id));
 
             await sendBotMessage(tenant.telegramBotToken, chatId,
-                `✅ <b>Customer Account Unlinked</b>\n\n` +
+                `вњ… <b>Customer Account Unlinked</b>\n\n` +
                 `Your account <b>${escapeHtml(customer.name)}</b> has been unlinked.\n\n` +
                 `You will no longer receive notifications here.\n` +
                 `To re-link, use /start and send your phone number.`
@@ -562,7 +672,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
             if (linkedUser) {
                 const roleDisplay = linkedUser.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `✅ <b>Staff Account Linked</b>\n\n` +
+                    `вњ… <b>Staff Account Linked</b>\n\n` +
                     `Name: ${escapeHtml(linkedUser.name)}\n` +
                     `Role: ${roleDisplay}\n` +
                     `Status: Active\n\n` +
@@ -586,14 +696,14 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
             if (customer) {
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `✅ <b>Customer Account Linked</b>\n\n` +
+                    `вњ… <b>Customer Account Linked</b>\n\n` +
                     `Name: ${escapeHtml(customer.name)}\n` +
                     `Status: Active\n\n` +
                     `You will receive notifications about your orders.`
                 );
             } else {
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `❌ <b>Account Not Linked</b>\n\n` +
+                    `вќЊ <b>Account Not Linked</b>\n\n` +
                     `<b>For customers:</b> Send your phone number to link.\n` +
                     `<b>For staff:</b> Get a link code from your dashboard.`
                 );
@@ -630,7 +740,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                         .where(eq(schema.userTelegramLinkCodes.id, linkData.id));
 
                     await sendBotMessage(tenant.telegramBotToken, chatId,
-                        `❌ <b>Link Code Expired</b>\n\n` +
+                        `вќЊ <b>Link Code Expired</b>\n\n` +
                         `This code has expired. Please generate a new code from your dashboard.`
                     );
                     return { ok: true };
@@ -651,7 +761,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                         .where(eq(schema.userTelegramLinkCodes.id, linkData.id));
 
                     await sendBotMessage(tenant.telegramBotToken, chatId,
-                        `❌ <b>Invalid Code</b>\n\n` +
+                        `вќЊ <b>Invalid Code</b>\n\n` +
                         `User not found. Please generate a new code.`
                     );
                     return { ok: true };
@@ -660,7 +770,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                 // Check if user already linked to another chat
                 if (userInfo.telegramChatId && userInfo.telegramChatId !== chatId) {
                     await sendBotMessage(tenant.telegramBotToken, chatId,
-                        `⚠️ <b>Already Linked</b>\n\n` +
+                        `вљ пёЏ <b>Already Linked</b>\n\n` +
                         `This account is already linked to another Telegram chat.\n` +
                         `Please unlink it first from your dashboard.`
                     );
@@ -678,13 +788,13 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                     .where(eq(schema.userTelegramLinkCodes.id, linkData.id));
 
                 await sendBotMessage(tenant.telegramBotToken, chatId,
-                    `✅ <b>Account Linked Successfully!</b>\n\n` +
+                    `вњ… <b>Account Linked Successfully!</b>\n\n` +
                     `Welcome, <b>${escapeHtml(userInfo.name)}</b>!\n\n` +
                     `You will now receive notifications here:\n` +
-                    `• New orders\n` +
-                    `• Order status updates\n` +
-                    `• Payment notifications\n` +
-                    `• Important alerts\n\n` +
+                    `вЂў New orders\n` +
+                    `вЂў Order status updates\n` +
+                    `вЂў Payment notifications\n` +
+                    `вЂў Important alerts\n\n` +
                     `Use /status to check your link status.\n` +
                     `Use /unlink to disconnect this account.`
                 );
@@ -700,9 +810,10 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         phone = normalizePhone(phone, countryGuess);
 
         if (!phone || phone.length < 8) {
-            await sendBotMessage(tenant.telegramBotToken, chatId,
-                `❓ Please send your phone number to link your account.\n\n` +
-                `Example: <code>+998901234567</code>`
+            await sendBotMessageWithKeyboard(tenant.telegramBotToken, chatId,
+                `вќ“ Please send your phone number to link your account.\n\n` +
+                `Example: <code>+998901234567</code>`,
+                createShareContactKeyboard('рџ“± Share Phone Number')
             );
             return { ok: true };
         }
@@ -731,17 +842,76 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!customer) {
+            const normalizedPhone = phone;
+            const requestIp = ((request.headers['x-forwarded-for'] as string) || request.ip || '').split(',')[0].trim() || null;
+            const telegramUsername = from?.username ? from.username.replace(/^@/, '') : null;
+            const senderName = [from?.first_name, from?.last_name].filter(Boolean).join(' ').trim();
+            const requestName = senderName || (telegramUsername ? `@${telegramUsername}` : `Telegram ${chatId.slice(-4)}`);
+            const [pendingRequest] = await db
+                .select({
+                    id: schema.customerRegistrationRequests.id,
+                    status: schema.customerRegistrationRequests.status,
+                })
+                .from(schema.customerRegistrationRequests)
+                .where(and(
+                    eq(schema.customerRegistrationRequests.tenantId, tenantId),
+                    eq(schema.customerRegistrationRequests.phone, normalizedPhone),
+                    eq(schema.customerRegistrationRequests.status, 'pending')
+                ))
+                .limit(1);
+            if (pendingRequest) {
+                await sendBotMessage(tenant.telegramBotToken, chatId,
+                    `<b>So'rov allaqachon yuborilgan</b>\n\n` +
+                    `Sizning ro'yxatdan o'tish so'rovingiz ko'rib chiqilmoqda.\n` +
+                    `Iltimos, admin tasdig'ini kuting.`
+                );
+                return { ok: true };
+            }
+            const [registrationRequest] = await db
+                .insert(schema.customerRegistrationRequests)
+                .values({
+                    tenantId,
+                    name: requestName,
+                    phone: normalizedPhone,
+                    telegramChatId: chatId,
+                    telegramUsername,
+                    telegramUserId: from?.id ? String(from.id) : null,
+                    telegramFirstName: from?.first_name || null,
+                    telegramLastName: from?.last_name || null,
+                    telegramLanguageCode: from?.language_code || null,
+                    registrationSource: 'telegram_bot',
+                    consentGiven: true,
+                    consentAt: new Date(),
+                    requestIp,
+                    requestUserAgent: 'telegram-webhook',
+                    notes: 'Created from Telegram bot phone-share flow',
+                    status: 'pending',
+                })
+                .returning({ id: schema.customerRegistrationRequests.id });
+            const admins = await getTenantAdminsWithTelegram(tenantId);
+            const requestLabel = registrationRequest.id.slice(0, 8);
+            for (const admin of admins) {
+                await notifyUser(
+                    admin.telegramChatId,
+                    `<b>Yangi ro'yxatdan o'tish so'rovi (Telegram)</b>\n\n` +
+                    `ID: ${requestLabel}\n` +
+                    `Ism: ${escapeHtml(requestName)}\n` +
+                    `Telefon: ${escapeHtml(normalizedPhone)}\n` +
+                    (telegramUsername ? `Telegram: @${escapeHtml(telegramUsername)}\n` : '') +
+                    `\nTasdiqlash uchun admin paneldan ko'ring.`
+                );
+            }
             await sendBotMessage(tenant.telegramBotToken, chatId,
-                `❌ <b>Phone number not found</b>\n\n` +
-                `We couldn't find an account with phone number <code>${phone}</code>.\n\n` +
-                `Please make sure you're using the same phone number registered with ${tenant.name}.`
+                `<b>So'rov yuborildi</b>\n\n` +
+                `Telefon raqamingiz bo'yicha ro'yxatdan o'tish so'rovi yaratildi.\n` +
+                `Admin tasdiqlaganidan keyin OTP orqali tizimga kirishingiz mumkin.\n\n` +
+                `Telefon: <code>${escapeHtml(normalizedPhone)}</code>`
             );
             return { ok: true };
         }
-
         if (customer.telegramChatId === chatId) {
             await sendBotMessage(tenant.telegramBotToken, chatId,
-                `✅ <b>Already linked!</b>\n\n` +
+                `вњ… <b>Already linked!</b>\n\n` +
                 `Your account <b>${customer.name}</b> is already connected.\n` +
                 `You will receive notifications about your orders here.`
             );
@@ -751,8 +921,15 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         // Link customer to Telegram
         await db
             .update(schema.customers)
-            .set({
+                        .set({
                 telegramChatId: chatId,
+                telegramUserId: from?.id ? String(from.id) : null,
+                telegramUsername: from?.username ? from.username.replace(/^@/, '') : null,
+                telegramFirstName: from?.first_name || null,
+                telegramLastName: from?.last_name || null,
+                telegramLanguageCode: from?.language_code || null,
+                telegramLinkedAt: new Date(),
+                registrationSource: 'telegram_bot',
                 updatedAt: new Date(),
             })
             .where(eq(schema.customers.id, customer.id));
@@ -761,16 +938,16 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         const portalUrl = `${portalBaseUrl}/customer?tenant=${tenant.subdomain}`;
 
         await sendBotMessage(tenant.telegramBotToken, chatId,
-            `✅ <b>Muvaffaqiyatli bog'landi!</b>\n\n` +
+            `вњ… <b>Muvaffaqiyatli bog'landi!</b>\n\n` +
             `Xush kelibsiz, <b>${escapeHtml(customer.name)}</b>!\n\n` +
             `Siz endi quyidagi bildirishnomalarni olasiz:\n` +
-            `• Buyurtma tasdig'i\n` +
-            `• Yetkazib berish yangilanishlari\n` +
-            `• To'lov eslatmalari\n` +
-            `• To'lov tasdig'i\n\n` +
-            `📱 <b>Mijoz kabinetiga kirish:</b>\n` +
+            `вЂў Buyurtma tasdig'i\n` +
+            `вЂў Yetkazib berish yangilanishlari\n` +
+            `вЂў To'lov eslatmalari\n` +
+            `вЂў To'lov tasdig'i\n\n` +
+            `рџ“± <b>Mijoz kabinetiga kirish:</b>\n` +
             `${portalUrl}\n\n` +
-            `${escapeHtml(tenant.name)} bilan bog'langaningiz uchun rahmat! 🎉`
+            `${escapeHtml(tenant.name)} bilan bog'langaningiz uchun rahmat! рџЋ‰`
         );
 
         console.log(`[Telegram] Customer ${customer.id} linked to chat ${chatId}`);
@@ -779,18 +956,15 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Get webhook setup instructions
     fastify.get<{ Params: TenantIdParams }>('/setup/:tenantId', {
+        preHandler: [fastify.authenticate],
         schema: { params: TenantIdParamsSchema },
     }, async (request, reply) => {
         const { tenantId } = request.params;
+        if (!await ensureTenantScopedAccess(request, reply, tenantId)) {
+            return;
+        }
 
-        const [tenant] = await db
-            .select({
-                name: schema.tenants.name,
-                telegramBotToken: schema.tenants.telegramBotToken,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(tenantId);
 
         if (!tenant) {
             return reply.code(404).send({ success: false, error: 'Tenant not found' });
@@ -825,11 +999,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
         const secretToken = (request.body as any)?.secretToken;
 
-        const [tenant] = await db
-            .select({ telegramBotToken: schema.tenants.telegramBotToken })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, user.tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(user.tenantId);
 
         if (!tenant || !tenant.telegramBotToken) {
             return reply.code(400).send({ success: false, error: 'No bot token configured' });
@@ -871,16 +1041,16 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Configure webhook for tenant's bot
     fastify.post<{ Params: TenantIdParams }>('/configure/:tenantId', {
+        preHandler: [fastify.authenticate],
         schema: { params: TenantIdParamsSchema },
     }, async (request, reply) => {
         const { tenantId } = request.params;
+        if (!await ensureTenantScopedAccess(request, reply, tenantId)) {
+            return;
+        }
         const secretToken = (request.body as any)?.secretToken;
 
-        const [tenant] = await db
-            .select({ telegramBotToken: schema.tenants.telegramBotToken })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(tenantId);
 
         if (!tenant || !tenant.telegramBotToken) {
             return reply.code(400).send({ success: false, error: 'No bot token configured' });
@@ -922,15 +1092,15 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Get webhook status for tenant's bot
     fastify.get<{ Params: TenantIdParams }>('/status/:tenantId', {
+        preHandler: [fastify.authenticate],
         schema: { params: TenantIdParamsSchema },
     }, async (request, reply) => {
         const { tenantId } = request.params;
+        if (!await ensureTenantScopedAccess(request, reply, tenantId)) {
+            return;
+        }
 
-        const [tenant] = await db
-            .select({ telegramBotToken: schema.tenants.telegramBotToken })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(tenantId);
 
         if (!tenant || !tenant.telegramBotToken) {
             return reply.code(400).send({ success: false, error: 'No bot token configured' });
@@ -951,6 +1121,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Test endpoint (development only)
     fastify.post<{ Params: TenantIdParams; Body: Static<typeof TestBodySchema> }>('/test/:tenantId', {
+        preHandler: [fastify.authenticate],
         schema: { params: TenantIdParamsSchema, body: TestBodySchema },
     }, async (request, reply) => {
         if (process.env.NODE_ENV === 'production') {
@@ -958,16 +1129,12 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         const { tenantId } = request.params;
+        if (!await ensureTenantScopedAccess(request, reply, tenantId)) {
+            return;
+        }
         const { chatId } = request.body;
 
-        const [tenant] = await db
-            .select({
-                name: schema.tenants.name,
-                telegramBotToken: schema.tenants.telegramBotToken,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(tenantId);
 
         if (!tenant || !tenant.telegramBotToken) {
             return reply.code(400).send({ success: false, error: 'No bot token configured' });
@@ -981,10 +1148,10 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         chat_id: chatId,
-                        text: `👋 Welcome to <b>${escapeHtml(tenant.name)}</b>!\n\nTo receive notifications about your orders, please share your phone number.\n\nYou can type it manually (e.g., <code>+998901234567</code>) or tap the button below.`,
+                        text: `рџ‘‹ Welcome to <b>${escapeHtml(tenant.name)}</b>!\n\nTo receive notifications about your orders, please share your phone number.\n\nYou can type it manually (e.g., <code>+998901234567</code>) or tap the button below.`,
                         parse_mode: 'HTML',
                         reply_markup: {
-                            keyboard: [[{ text: '📱 Share Phone Number', request_contact: true }]],
+                            keyboard: [[{ text: 'рџ“± Share Phone Number', request_contact: true }]],
                             resize_keyboard: true,
                             one_time_keyboard: true,
                         },
@@ -1004,6 +1171,7 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Poll endpoint (development only)
     fastify.post<{ Params: TenantIdParams }>('/poll/:tenantId', {
+        preHandler: [fastify.authenticate],
         schema: { params: TenantIdParamsSchema },
     }, async (request, reply) => {
         if (process.env.NODE_ENV === 'production') {
@@ -1011,18 +1179,11 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         const { tenantId } = request.params;
+        if (!await ensureTenantScopedAccess(request, reply, tenantId)) {
+            return;
+        }
 
-        const [tenant] = await db
-            .select({
-                id: schema.tenants.id,
-                name: schema.tenants.name,
-                telegramBotToken: schema.tenants.telegramBotToken,
-                telegramWebhookSecret: schema.tenants.telegramWebhookSecret,
-                currency: schema.tenants.currency,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantTelegramContext(tenantId);
 
         if (!tenant || !tenant.telegramBotToken) {
             return reply.code(400).send({ success: false, error: 'No bot token configured' });
@@ -1044,14 +1205,14 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
             const processedUpdates: any[] = [];
 
             for (const update of updates) {
-                console.log('[Telegram Poll] Processing update:', JSON.stringify(update, null, 2));
+                console.log('[Telegram Poll] Processing update summary:', summarizeTelegramUpdate(update as TelegramUpdate));
 
                 if (update.message) {
                     const chatId = update.message.chat.id.toString();
                     const text = update.message.text?.trim();
                     const contactPhone = update.message.contact?.phone_number;
 
-                    if (text === '/start') {
+                    if ((text || '').match(/^\/start(?:\s+(.+))?$/)) {
                         const sendResult = await fetch(
                             `https://api.telegram.org/bot${tenant.telegramBotToken}/sendMessage`,
                             {
@@ -1059,13 +1220,9 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     chat_id: chatId,
-                                    text: `👋 Welcome to <b>${escapeHtml(tenant.name)}</b>!\n\nTo receive notifications about your orders, please share your phone number.\n\nYou can type it manually (e.g., <code>+998901234567</code>) or tap the button below.`,
+                                    text: `рџ‘‹ Welcome to <b>${escapeHtml(tenant.name)}</b>!\n\nTo receive notifications about your orders, please share your phone number.\n\nYou can type it manually (e.g., <code>+998901234567</code>) or tap the button below.`,
                                     parse_mode: 'HTML',
-                                    reply_markup: {
-                                        keyboard: [[{ text: '📱 Share Phone Number', request_contact: true }]],
-                                        resize_keyboard: true,
-                                        one_time_keyboard: true,
-                                    },
+                                    reply_markup: createShareContactKeyboard('рџ“± Share Phone Number'),
                                 }),
                             }
                         );
@@ -1080,8 +1237,8 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
                         processedUpdates.push({
                             update_id: update.update_id,
                             type: text ? 'text' : (contactPhone ? 'contact' : 'other'),
-                            chatId,
-                            content: text || contactPhone || 'unknown',
+                            chatId: maskChatId(chatId),
+                            content: text ? '[text omitted]' : (contactPhone ? '[contact omitted]' : 'unknown'),
                         });
                     }
 
@@ -1104,3 +1261,4 @@ export const telegramWebhookRoutes: FastifyPluginAsync = async (fastify) => {
         }
     });
 };
+

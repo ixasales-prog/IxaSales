@@ -8,6 +8,10 @@ import { FastifyRequest, FastifyReply, FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { verifyCustomerToken, type CustomerTokenPayload } from '../../lib/customer-auth';
 import { createErrorResponse, type ErrorCode } from '../../lib/error-codes';
+import { db } from '../../db';
+import * as schema from '../../db/schema';
+import { and, eq } from 'drizzle-orm';
+import { evaluateTenantAccess, isSafeMethod, type TenantAccessState } from '../../lib/tenant-access';
 
 // ============================================================================
 // AUTHENTICATED CUSTOMER CONTEXT
@@ -17,6 +21,7 @@ declare module 'fastify' {
     interface FastifyRequest {
         customerAuth: CustomerTokenPayload | null;
         isCustomerAuthenticated: boolean;
+        customerTenantAccess: TenantAccessState | null;
     }
 }
 
@@ -44,9 +49,10 @@ const customerAuthPluginCallback: FastifyPluginAsync = async (fastify) => {
     // Decorate request with customer auth properties
     fastify.decorateRequest('customerAuth', null);
     fastify.decorateRequest('isCustomerAuthenticated', false);
+    fastify.decorateRequest('customerTenantAccess', null);
 
     // Pre-handler hook to parse JWT and attach customer
-    fastify.addHook('onRequest', async (request: FastifyRequest, _reply: FastifyReply) => {
+    fastify.addHook('onRequest', async (request: FastifyRequest) => {
         try {
             const authHeader = request.headers.authorization;
             const token = authHeader?.replace('Bearer ', '');
@@ -59,15 +65,43 @@ const customerAuthPluginCallback: FastifyPluginAsync = async (fastify) => {
 
             const payload = await verifyCustomerToken(token);
             if (payload) {
+                const [customer] = await db
+                    .select({ isActive: schema.customers.isActive })
+                    .from(schema.customers)
+                    .where(and(
+                        eq(schema.customers.id, payload.customerId),
+                        eq(schema.customers.tenantId, payload.tenantId)
+                    ))
+                    .limit(1);
+
+                if (!customer || !customer.isActive) {
+                    request.customerAuth = null;
+                    request.isCustomerAuthenticated = false;
+                    request.customerTenantAccess = null;
+                    return;
+                }
+
                 request.customerAuth = payload;
                 request.isCustomerAuthenticated = true;
+                const [tenant] = await db
+                    .select({
+                        isActive: schema.tenants.isActive,
+                        planStatus: schema.tenants.planStatus,
+                        subscriptionEndAt: schema.tenants.subscriptionEndAt,
+                    })
+                    .from(schema.tenants)
+                    .where(eq(schema.tenants.id, payload.tenantId))
+                    .limit(1);
+                request.customerTenantAccess = evaluateTenantAccess(tenant);
             } else {
                 request.customerAuth = null;
                 request.isCustomerAuthenticated = false;
+                request.customerTenantAccess = null;
             }
         } catch {
             request.customerAuth = null;
             request.isCustomerAuthenticated = false;
+            request.customerTenantAccess = null;
         }
     });
 };
@@ -91,6 +125,19 @@ export async function requireCustomerAuth(
     if (!request.customerAuth) {
         return reply.status(401).send(createErrorResponse('UNAUTHORIZED'));
     }
+
+    if (request.customerTenantAccess?.mode === 'read_only' && !isSafeMethod(request.method)) {
+        return reply.status(403).send({
+            success: false,
+            error: {
+                code: 'TENANT_READ_ONLY',
+                message: request.customerTenantAccess.message || 'Tenant is in read-only mode.',
+            },
+            data: {
+                tenantAccess: request.customerTenantAccess,
+            },
+        });
+    }
 }
 
 // ============================================================================
@@ -100,6 +147,14 @@ export async function requireCustomerAuth(
 /**
  * Create rate limit error response with retry info
  */
-export function rateLimitResponse(reply: FastifyReply, _retryAfterMs: number) {
-    return reply.status(429).send(createErrorResponse('RATE_LIMITED'));
+export function rateLimitResponse(reply: FastifyReply, retryAfterMs: number) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+    const body = createErrorResponse('RATE_LIMITED') as ReturnType<typeof createErrorResponse> & {
+        data?: { retryAfterMs: number; retryAfterSeconds: number };
+    };
+    body.data = { retryAfterMs, retryAfterSeconds };
+    return reply
+        .header('Retry-After', String(retryAfterSeconds))
+        .status(429)
+        .send(body);
 }

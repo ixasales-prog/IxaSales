@@ -8,6 +8,7 @@ import {
     Loader2,
     Search,
     User,
+    Plus,
     ChevronRight,
     MapPin,
     Calendar,
@@ -17,6 +18,7 @@ import { api } from '../../lib/api';
 import { useI18n } from '../../i18n';
 import toast from '../../components/Toast';
 import { setCustomer, setPendingVisit } from '../../stores/cart';
+import AddCustomerModal from './AddCustomerModal';
 
 // API base URL for constructing absolute image URLs
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -107,11 +109,12 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
 
     // Customer search
     const [customerSearch, setCustomerSearch] = createSignal('');
+    const [showAddCustomerModal, setShowAddCustomerModal] = createSignal(false);
 
     let fileInputRef: HTMLInputElement | undefined;
 
     // Fetch customers
-    const [customers] = createResource(
+    const [customers, { refetch: refetchCustomers }] = createResource(
         () => customerSearch(),
         async (search) => {
             const params: Record<string, string> = { limit: '30' };
@@ -358,6 +361,14 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
                             class="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                     </div>
+
+                    <button
+                        onClick={() => setShowAddCustomerModal(true)}
+                        class="w-full mb-4 py-3 bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 rounded-xl text-blue-300 font-medium flex items-center justify-center gap-2 transition-colors"
+                    >
+                        <Plus class="w-4 h-4" />
+                        Add New Customer
+                    </button>
 
                     {/* Customer list */}
                     <Show when={customers.loading}>
@@ -687,6 +698,24 @@ const QuickVisitModal: Component<QuickVisitModalProps> = (props) => {
                         </button>
                     </div>
                 </div>
+            </Show>
+
+            <Show when={showAddCustomerModal()}>
+                <AddCustomerModal
+                    onClose={() => setShowAddCustomerModal(false)}
+                    onSuccess={(newCustomer) => {
+                        if (newCustomer?.id && newCustomer?.name) {
+                            handleCustomerSelect({
+                                id: newCustomer.id,
+                                name: newCustomer.name,
+                                phone: newCustomer.phone ?? null,
+                                address: newCustomer.address ?? null,
+                            });
+                        }
+                        setShowAddCustomerModal(false);
+                        refetchCustomers();
+                    }}
+                />
             </Show>
         </div>
     );

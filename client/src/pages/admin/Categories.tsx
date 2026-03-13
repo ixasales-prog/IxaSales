@@ -4,6 +4,8 @@ import { api } from '../../lib/api';
 import { toast } from '../../components/Toast';
 import AddCategoryModal from './AddCategoryModal';
 import AddSubcategoryModal from './AddSubcategoryModal';
+import PageHeader from '../../components/page/PageHeader';
+import PageShell from '../../components/page/PageShell';
 
 interface Category {
     id: string;
@@ -20,6 +22,10 @@ interface Subcategory {
     createdAt: string;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+    return error instanceof Error && error.message ? error.message : fallback;
+}
+
 const AdminCategories: Component = () => {
     const [showAddModal, setShowAddModal] = createSignal(false);
     const [selectedCategory, setSelectedCategory] = createSignal<Category | null>(null);
@@ -29,7 +35,7 @@ const AdminCategories: Component = () => {
     const [expandedCategory, setExpandedCategory] = createSignal<string | null>(null);
 
     const [categories, { refetch }] = createResource(async () => {
-        const response = await api.get('/products/categories');
+        const response = await api.get<Category[]>('/products/categories');
         return response;
     });
 
@@ -40,7 +46,7 @@ const AdminCategories: Component = () => {
 
     const filteredCategories = () => {
         const query = search().toLowerCase();
-        return categories()?.filter((c: any) =>
+        return categories()?.filter((c) =>
             c.name.toLowerCase().includes(query)
         ) || [];
     };
@@ -68,9 +74,8 @@ const AdminCategories: Component = () => {
             await api.delete(`/products/categories/${id}`);
             toast.success('Category deleted successfully');
             refetch();
-        } catch (error: any) {
-            console.error('Failed to delete category:', error);
-            toast.error(error.message || 'Failed to delete category');
+        } catch (error) {
+            toast.error(getErrorMessage(error, 'Failed to delete category'));
         }
     };
 
@@ -88,9 +93,8 @@ const AdminCategories: Component = () => {
             await api.delete(`/products/subcategories/${id}`);
             toast.success('Subcategory deleted successfully');
             refetchSubcategories();
-        } catch (error: any) {
-            console.error('Failed to delete subcategory:', error);
-            toast.error(error.message || 'Failed to delete subcategory');
+        } catch (error) {
+            toast.error(getErrorMessage(error, 'Failed to delete subcategory'));
         }
     };
 
@@ -100,20 +104,23 @@ const AdminCategories: Component = () => {
     };
 
     return (
-        <div class="p-4 pt-6 sm:p-8 sm:pt-8 space-y-8">
-            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                    <h1 class="text-3xl font-bold text-white tracking-tight">Categories</h1>
-                    <p class="text-slate-400 mt-1">Manage product categories and subcategories</p>
-                </div>
-                <button
-                    onClick={() => setShowAddModal(true)}
-                    class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
-                >
-                    <Plus class="w-5 h-5" />
-                    Add Category
-                </button>
-            </div>
+        <PageShell>
+            <div class="space-y-8">
+                <PageHeader
+                    title="Categories"
+                    description="Manage product categories and subcategories."
+                    backHref="/admin"
+                    backLabel="Back to dashboard"
+                    actions={
+                        <button
+                            onClick={() => setShowAddModal(true)}
+                            class="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                        >
+                            <Plus class="w-5 h-5" />
+                            Add Category
+                        </button>
+                    }
+                />
 
             {/* Search and Filter */}
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row gap-4">
@@ -284,7 +291,8 @@ const AdminCategories: Component = () => {
                     onSuccess={handleSubcategorySuccess}
                 />
             </Show>
-        </div>
+            </div>
+        </PageShell>
     );
 };
 

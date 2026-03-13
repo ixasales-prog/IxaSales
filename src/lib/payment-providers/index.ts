@@ -5,7 +5,7 @@
  */
 
 import { db, schema } from '../../db';
-import { eq, and, gt, lt } from 'drizzle-orm';
+import { eq, and, gt, lt, desc } from 'drizzle-orm';
 import crypto from 'crypto';
 
 import { generateClickUrl } from './click';
@@ -78,21 +78,29 @@ export async function createPaymentLink(options: CreatePaymentLinkOptions): Prom
         return null;
     }
 
-    // Generate token
-    const token = generatePaymentToken();
-    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
-
-    // Save to database
-    await db.insert(schema.paymentTokens).values({
+    const existingToken = await findActivePaymentToken({
         tenantId,
         orderId,
         customerId,
-        token,
-        amount: amount.toString(),
+        amount,
         currency,
-        status: 'pending',
-        expiresAt,
     });
+
+    const token = existingToken?.token || generatePaymentToken();
+    const expiresAt = existingToken?.expiresAt || new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+
+    if (!existingToken) {
+        await db.insert(schema.paymentTokens).values({
+            tenantId,
+            orderId,
+            customerId,
+            token,
+            amount: amount.toString(),
+            currency,
+            status: 'pending',
+            expiresAt,
+        });
+    }
 
     // Build URLs
     const baseUrl = process.env.PAYMENT_PORTAL_URL || `https://${tenant.subdomain}.ixasales.com`;
@@ -129,6 +137,43 @@ export async function createPaymentLink(options: CreatePaymentLinkOptions): Prom
     };
 }
 
+export async function findActivePaymentToken(params: {
+    tenantId: string;
+    orderId: string;
+    customerId: string;
+    amount?: number;
+    currency?: string;
+}) {
+    const [result] = await db
+        .select()
+        .from(schema.paymentTokens)
+        .where(
+            and(
+                eq(schema.paymentTokens.tenantId, params.tenantId),
+                eq(schema.paymentTokens.orderId, params.orderId),
+                eq(schema.paymentTokens.customerId, params.customerId),
+                eq(schema.paymentTokens.status, 'pending'),
+                gt(schema.paymentTokens.expiresAt, new Date())
+            )
+        )
+        .orderBy(desc(schema.paymentTokens.createdAt))
+        .limit(1);
+
+    if (!result) {
+        return null;
+    }
+
+    if (params.amount !== undefined && Number(result.amount) !== params.amount) {
+        return null;
+    }
+
+    if (params.currency && result.currency !== params.currency) {
+        return null;
+    }
+
+    return result;
+}
+
 /**
  * Get payment token info
  */
@@ -157,52 +202,6 @@ export async function getPaymentToken(token: string): Promise<{
             customerName: result.customerName || '',
         },
     };
-}
-
-/**
- * Mark payment token as paid
- */
-export async function markTokenAsPaid(
-    token: string,
-    provider: 'click' | 'payme',
-    providerTransactionId: string
-): Promise<boolean> {
-    const [updated] = await db
-        .update(schema.paymentTokens)
-        .set({
-            status: 'paid',
-            paidAt: new Date(),
-            paidVia: provider,
-            providerTransactionId,
-        })
-        .where(
-            and(
-                eq(schema.paymentTokens.token, token),
-                eq(schema.paymentTokens.status, 'pending')
-            )
-        )
-        .returning();
-
-    return !!updated;
-}
-
-/**
- * Check if token is valid and not expired
- */
-export async function isTokenValid(token: string): Promise<boolean> {
-    const [result] = await db
-        .select({ status: schema.paymentTokens.status, expiresAt: schema.paymentTokens.expiresAt })
-        .from(schema.paymentTokens)
-        .where(
-            and(
-                eq(schema.paymentTokens.token, token),
-                eq(schema.paymentTokens.status, 'pending'),
-                gt(schema.paymentTokens.expiresAt, new Date())
-            )
-        )
-        .limit(1);
-
-    return !!result;
 }
 
 /**

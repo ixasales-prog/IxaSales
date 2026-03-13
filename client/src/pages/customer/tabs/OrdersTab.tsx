@@ -32,6 +32,7 @@ const OrdersTab: Component<OrdersTabProps> = (props) => {
     const { t } = useI18n();
     const [showFilter, setShowFilter] = createSignal(false);
     const [orderStatusFilter, setOrderStatusFilter] = createSignal<string>('all');
+    const translateUnsafeKey = (key: string) => t(key as never);
 
     const filteredOrders = () => {
         const filter = orderStatusFilter();
@@ -74,7 +75,7 @@ const OrdersTab: Component<OrdersTabProps> = (props) => {
                             <Show when={s !== 'all'}>
                                 <span class="pill-dot" style={{ background: getOrderStatusColor(s) }} />
                             </Show>
-                            {t(`orders.filters.${s}` as any)}
+                            {translateUnsafeKey(`orders.filters.${s}`)}
                         </button>
                     )}</For>
                 </div>
@@ -112,7 +113,7 @@ const OrdersTab: Component<OrdersTabProps> = (props) => {
                                             color: getOrderStatusColor(order.status)
                                         }}
                                     >
-                                        {t(`orders.status.${order.status}` as any)}
+                                        {translateUnsafeKey(`orders.status.${order.status}`)}
                                     </span>
                                     <ChevronRight size={18} class="order-arrow" />
                                 </div>

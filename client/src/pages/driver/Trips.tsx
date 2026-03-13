@@ -1,13 +1,19 @@
 import { type Component, For, Show, createSignal, createResource } from 'solid-js';
 import { A } from '@solidjs/router';
-import * as LucideIcons from 'lucide-solid';
 import {
+    AlertCircle,
     Truck,
     Package,
     Calendar,
+    CheckCircle2,
+    Clock,
+    File,
     Loader2,
-    ChevronRight
+    ChevronRight,
+    Play,
+    XCircle
 } from 'lucide-solid';
+import { Dynamic } from 'solid-js/web';
 import { api } from '../../lib/api';
 import { formatDate } from '../../stores/settings';
 import { getTripStatusConfig } from '../../components/shared/order';
@@ -24,6 +30,17 @@ interface Trip {
 
 const Trips: Component = () => {
     const [statusFilter, setStatusFilter] = createSignal<string>('');
+    const statusIcons = {
+        AlertCircle,
+        Calendar,
+        CheckCircle2,
+        Clock,
+        File,
+        Package,
+        Play,
+        Truck,
+        XCircle,
+    } as const;
 
     // Fetch trips for driver
     const [trips] = createResource(
@@ -53,7 +70,7 @@ const Trips: Component = () => {
     return (
         <div class="min-h-screen pb-20">
             {/* Header */}
-            <div class="fixed top-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
+            <div class="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="px-4 py-4">
                     <h1 class="text-xl font-bold text-white mb-1">My Trips</h1>
                     <p class="text-slate-500 text-sm">Manage your delivery routes</p>
@@ -78,7 +95,7 @@ const Trips: Component = () => {
             </div>
 
             {/* Content */}
-            <div class="pt-32 px-4">
+            <div class="px-4">
                 {/* Loading */}
                 <Show when={trips.loading}>
                     <div class="flex items-center justify-center py-12">
@@ -103,7 +120,7 @@ const Trips: Component = () => {
                         <For each={tripList()}>
                             {(trip) => {
                                 const config = getTripStatusConfig(trip.status);
-                                const StatusIcon = LucideIcons[config.icon as keyof typeof LucideIcons] as any;
+                                const StatusIcon = statusIcons[config.icon as keyof typeof statusIcons] || Clock;
 
                                 return (
                                     <A
@@ -119,7 +136,7 @@ const Trips: Component = () => {
                                                 </div>
                                             </div>
                                             <span class={`flex items-center gap-1 px-2 py-1 rounded-full flex-shrink-0 ${config.bg} ${config.text} text-[10px] font-bold border ${config.border}`}>
-                                                <StatusIcon class="w-3 h-3" />
+                                                <Dynamic component={StatusIcon} class="w-3 h-3" />
                                                 {config.label}
                                             </span>
                                         </div>

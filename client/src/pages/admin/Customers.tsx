@@ -17,6 +17,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../stores/settings';
+import { useI18n } from '../../i18n';
 
 interface Customer {
     id: string;
@@ -38,6 +39,7 @@ interface Customer {
 }
 
 const Customers: Component = () => {
+    const { t } = useI18n();
     const [searchQuery, setSearchQuery] = createSignal('');
     const [page, setPage] = createSignal(1);
     const [debouncedSearch, setDebouncedSearch] = createSignal('');
@@ -118,10 +120,10 @@ const Customers: Component = () => {
         const debt = parseFloat(customer.currentDebt || '0');
         const limit = parseFloat(customer.creditLimit || '0');
 
-        if (debt <= 0) return { color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20', label: 'Clear' };
-        if (limit > 0 && debt >= limit) return { color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', label: 'Over Limit' };
-        if (debt > 0) return { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', label: 'Has Debt' };
-        return { color: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/20', label: 'Unknown' };
+        if (debt <= 0) return { color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20', label: t('adminPages.customers.debtStatusClear') };
+        if (limit > 0 && debt >= limit) return { color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', label: t('adminPages.customers.debtStatusOverLimit') };
+        if (debt > 0) return { color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', label: t('adminPages.customers.debtStatusHasDebt') };
+        return { color: 'text-slate-400', bg: 'bg-slate-500/10', border: 'border-slate-500/20', label: t('adminPages.customers.debtStatusUnknown') };
     };
 
     const handleEdit = (customer: Customer) => {
@@ -189,7 +191,7 @@ const Customers: Component = () => {
             });
             refetch();
         } catch (err: any) {
-            setError(err.message || 'Failed to create customer.');
+            setError(err.message || t('adminPages.customers.saveFailed'));
         } finally {
             setSubmitting(false);
         }
@@ -200,8 +202,8 @@ const Customers: Component = () => {
             {/* Header */}
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
-                    <h1 class="text-2xl font-bold text-white">Customers</h1>
-                    <p class="text-slate-400 text-sm">Manage your customer database</p>
+                    <h1 class="text-2xl font-bold text-white">{t('adminPages.customers.title')}</h1>
+                    <p class="text-slate-400 text-sm">{t('adminPages.customers.subtitle')}</p>
                 </div>
                 <button
                     onClick={() => {
@@ -223,7 +225,7 @@ const Customers: Component = () => {
                     class="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 active:scale-[0.98] transition-all"
                 >
                     <Plus class="w-5 h-5" />
-                    Add Customer
+                    {t('adminPages.customers.addCustomer')}
                 </button>
             </div>
 
@@ -236,7 +238,7 @@ const Customers: Component = () => {
                             type="text"
                             value={searchQuery()}
                             onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                            placeholder="Search customers..."
+                            placeholder={t('adminPages.customers.searchPlaceholder') as string}
                             class="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                         <Show when={searchQuery()}>
@@ -250,7 +252,7 @@ const Customers: Component = () => {
                     </div>
                     <button class="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 border border-slate-700 text-slate-300 font-medium rounded-xl hover:bg-slate-700 transition-colors">
                         <Filter class="w-4 h-4" />
-                        Filters
+                        {t('adminPages.customers.filters')}
                     </button>
                 </div>
             </div>
@@ -270,13 +272,13 @@ const Customers: Component = () => {
                         <table class="w-full">
                             <thead class="bg-slate-800/50 border-b border-slate-700">
                                 <tr>
-                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Customer</th>
-                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Contact</th>
-                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Tier</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Credit Limit</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Current Debt</th>
-                                    <th class="text-center text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Status</th>
-                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">Actions</th>
+                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.customer')}</th>
+                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.contact')}</th>
+                                    <th class="text-left text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.tier')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.creditLimit')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.currentDebt')}</th>
+                                    <th class="text-center text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.status')}</th>
+                                    <th class="text-right text-slate-400 text-xs font-medium uppercase tracking-wider px-6 py-4">{t('adminPages.customers.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-800">
@@ -292,7 +294,7 @@ const Customers: Component = () => {
                                                         </div>
                                                         <div>
                                                             <div class="text-white font-medium">{customer.name}</div>
-                                                            <div class="text-slate-500 text-xs">{customer.code || 'No code'}</div>
+                                                            <div class="text-slate-500 text-xs">{customer.code || t('adminPages.customers.noCode')}</div>
                                                         </div>
                                                     </div>
                                                 </td>
@@ -372,7 +374,7 @@ const Customers: Component = () => {
                                                 </div>
                                                 <div>
                                                     <div class="text-white font-medium">{customer.name}</div>
-                                                    <div class="text-slate-500 text-xs">{customer.phone || 'No phone'}</div>
+                                                    <div class="text-slate-500 text-xs">{customer.phone || t('adminPages.customers.noPhone')}</div>
                                                 </div>
                                             </div>
                                             <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold ${debtStatus.bg} ${debtStatus.color}`}>
@@ -400,8 +402,8 @@ const Customers: Component = () => {
                     <Show when={customers().length === 0}>
                         <div class="text-center py-16">
                             <Users class="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                            <h3 class="text-lg font-semibold text-white mb-2">No customers found</h3>
-                            <p class="text-slate-400 text-sm">Try adjusting your search or add a new customer</p>
+                            <h3 class="text-lg font-semibold text-white mb-2">{t('adminPages.customers.noCustomersFound')}</h3>
+                            <p class="text-slate-400 text-sm">{t('adminPages.customers.noCustomersHint')}</p>
                         </div>
                     </Show>
                 </Show>
@@ -410,7 +412,7 @@ const Customers: Component = () => {
                 <Show when={meta().totalPages > 1}>
                     <div class="flex items-center justify-between px-6 py-4 border-t border-slate-800">
                         <div class="text-slate-400 text-sm">
-                            Page {meta().page} of {meta().totalPages}
+                            {t('adminPages.customers.pageOf', { page: meta().page, total: meta().totalPages })}
                         </div>
                         <div class="flex items-center gap-2">
                             <button
@@ -438,7 +440,7 @@ const Customers: Component = () => {
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
                     <div class="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
                         <div class="p-6 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-slate-900 z-10">
-                            <h2 class="text-xl font-bold text-white">{editingId() ? 'Edit Customer' : 'Add New Customer'}</h2>
+                            <h2 class="text-xl font-bold text-white">{editingId() ? t('adminPages.customers.editCustomer') : t('adminPages.customers.addNewCustomer')}</h2>
                             <button onClick={() => setShowCreateModal(false)} class="text-slate-400 hover:text-white transition-colors">
                                 <X class="w-6 h-6" />
                             </button>
@@ -453,30 +455,30 @@ const Customers: Component = () => {
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Customer Name *</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.customerName')}</label>
                                     <input
                                         type="text"
                                         required
                                         value={formData.name}
                                         onInput={(e) => setFormData('name', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="Business Name"
+                                        placeholder={t('adminPages.customers.customerNamePlaceholder') as string}
                                     />
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Customer Code</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.customerCode')}</label>
                                     <input
                                         type="text"
                                         value={formData.code}
                                         onInput={(e) => setFormData('code', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="Optional (e.g. CUST001)"
+                                        placeholder={t('adminPages.customers.customerCodePlaceholder') as string}
                                     />
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Email Address</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.emailAddress')}</label>
                                     <input
                                         type="email"
                                         value={formData.email}
@@ -487,7 +489,7 @@ const Customers: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Phone Number</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.phoneNumber')}</label>
                                     <input
                                         type="tel"
                                         value={formData.phone}
@@ -499,35 +501,35 @@ const Customers: Component = () => {
                             </div>
 
                             <div class="space-y-1.5">
-                                <label class="text-sm font-medium text-slate-300">Contact Person</label>
+                                <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.contactPerson')}</label>
                                 <input
                                     type="text"
                                     value={formData.contactPerson}
                                     onInput={(e) => setFormData('contactPerson', e.currentTarget.value)}
                                     class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                    placeholder="Primary contact name"
+                                    placeholder={t('adminPages.customers.contactPersonPlaceholder') as string}
                                 />
                             </div>
 
                             <div class="space-y-1.5">
-                                <label class="text-sm font-medium text-slate-300">Address</label>
+                                <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.address')}</label>
                                 <textarea
                                     value={formData.address}
                                     onInput={(e) => setFormData('address', e.currentTarget.value)}
                                     class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none min-h-[80px]"
-                                    placeholder="Full shipping/billing address"
+                                    placeholder={t('adminPages.customers.addressPlaceholder') as string}
                                 />
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Pricing Tier</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.pricingTier')}</label>
                                     <select
                                         value={formData.tierId}
                                         onInput={(e) => setFormData('tierId', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="">Default Tier</option>
+                                        <option value="">{t('adminPages.customers.defaultTier')}</option>
                                         <For each={tiers()}>
                                             {(tier) => <option value={tier.id}>{tier.name}</option>}
                                         </For>
@@ -535,13 +537,13 @@ const Customers: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Territory</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.territory')}</label>
                                     <select
                                         value={formData.territoryId}
                                         onInput={(e) => setFormData('territoryId', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="">Unassigned</option>
+                                        <option value="">{t('adminPages.customers.unassigned')}</option>
                                         <For each={territories()}>
                                             {(territory) => <option value={territory.id}>{territory.name}</option>}
                                         </For>
@@ -549,13 +551,13 @@ const Customers: Component = () => {
                                 </div>
 
                                 <div class="space-y-1.5">
-                                    <label class="text-sm font-medium text-slate-300">Sales Rep</label>
+                                    <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.salesRep')}</label>
                                     <select
                                         value={formData.assignedSalesRepId}
                                         onInput={(e) => setFormData('assignedSalesRepId', e.currentTarget.value)}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="">Unassigned</option>
+                                        <option value="">{t('adminPages.customers.unassigned')}</option>
                                         <For each={salesReps()}>
                                             {(rep: any) => <option value={rep.id}>{rep.name}</option>}
                                         </For>
@@ -564,12 +566,12 @@ const Customers: Component = () => {
                             </div>
 
                             <div class="space-y-1.5">
-                                <label class="text-sm font-medium text-slate-300">Notes</label>
+                                <label class="text-sm font-medium text-slate-300">{t('adminPages.customers.notes')}</label>
                                 <textarea
                                     value={formData.notes}
                                     onInput={(e) => setFormData('notes', e.currentTarget.value)}
                                     class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none min-h-[60px]"
-                                    placeholder="Additional notes..."
+                                    placeholder={t('adminPages.customers.notesPlaceholder') as string}
                                 />
                             </div>
 
@@ -579,16 +581,16 @@ const Customers: Component = () => {
                                     onClick={() => setShowCreateModal(false)}
                                     class="px-5 py-2.5 text-slate-300 font-medium hover:text-white transition-colors"
                                 >
-                                    Cancel
+                                    {t('adminPages.customers.cancel')}
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={submitting()}
                                     class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-xl shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
-                                    <Show when={submitting()} fallback={editingId() ? 'Update Customer' : 'Create Customer'}>
+                                    <Show when={submitting()} fallback={editingId() ? t('adminPages.customers.updateCustomer') : t('adminPages.customers.createCustomer')}>
                                         <Loader2 class="w-4 h-4 animate-spin" />
-                                        {editingId() ? 'Updating...' : 'Creating...'}
+                                        {editingId() ? t('adminPages.customers.updating') : t('adminPages.customers.creating')}
                                     </Show>
                                 </button>
                             </div>

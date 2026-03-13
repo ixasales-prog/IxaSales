@@ -1,4 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import type { TenantAccessState } from '../lib/tenant-access';
+import type { AppPermission } from '../lib/permissions';
 
 // User type for authenticated requests
 export interface AuthUser {
@@ -8,12 +10,17 @@ export interface AuthUser {
     role: string;
     tenantId: string;
     phone?: string;
+    customerId?: string;
+    actorType?: 'user' | 'customer_user';
+    permissions?: AppPermission[];
+    impersonatedBy?: string;
 }
 
 declare module 'fastify' {
     interface FastifyRequest {
         user: AuthUser | null | undefined;
         isAuthenticated: boolean;
+        tenantAccess: TenantAccessState | null;
     }
 }
 
@@ -24,6 +31,7 @@ declare module '@fastify/jwt' {
             tenantId: string | null;
             role: string;
             type: string;
+            customerId?: string;
             impersonatedBy?: string;
         };
         user: AuthUser;

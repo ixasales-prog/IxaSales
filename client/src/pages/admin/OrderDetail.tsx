@@ -11,20 +11,27 @@
 import { type Component, Show, For, createSignal, createResource, createMemo } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useParams, A } from '@solidjs/router';
-import * as LucideIcons from 'lucide-solid';
 import {
+    AlertCircle,
     ArrowLeft,
+    Calendar,
+    CheckCircle2,
     Package,
     Loader2,
     User,
     Clock,
     DollarSign,
     Edit3,
+    File,
     Save,
     X,
     MapPin,
     Phone,
-    FileText
+    FileText,
+    Play,
+    ShoppingBag,
+    Truck,
+    XCircle
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatDateTime } from '../../stores/settings';
@@ -95,6 +102,19 @@ const AdminOrderDetail: Component = () => {
     const [editedDeliveryDate, setEditedDeliveryDate] = createSignal<string | null>(null);
     const [editedItems, setEditedItems] = createSignal<Map<string, number>>(new Map());
     const [removedItems, setRemovedItems] = createSignal<Set<string>>(new Set());
+    const statusIcons = {
+        AlertCircle,
+        Calendar,
+        CheckCircle2,
+        Clock,
+        DollarSign,
+        File,
+        Package,
+        Play,
+        ShoppingBag,
+        Truck,
+        XCircle,
+    } as const;
 
     const fetchOrder = async (id: string): Promise<OrderDetailData | null> => {
         if (!id) return null;
@@ -117,8 +137,8 @@ const AdminOrderDetail: Component = () => {
 
     const statusConfig = createMemo(() => order() ? getOrderStatusConfig(order()!.status) : null);
     const paymentConfig = createMemo(() => order() ? getPaymentStatusConfig(order()!.paymentStatus) : null);
-    const StatusIcon = createMemo(() => statusConfig()?.icon ? LucideIcons[statusConfig()!.icon as keyof typeof LucideIcons] as any : Clock);
-    const PaymentIcon = createMemo(() => paymentConfig()?.icon ? LucideIcons[paymentConfig()!.icon as keyof typeof LucideIcons] as any : DollarSign);
+    const StatusIcon = createMemo(() => statusConfig()?.icon ? statusIcons[statusConfig()!.icon as keyof typeof statusIcons] || Clock : Clock);
+    const PaymentIcon = createMemo(() => paymentConfig()?.icon ? statusIcons[paymentConfig()!.icon as keyof typeof statusIcons] || DollarSign : DollarSign);
 
     // Enter edit mode - initialize edit state from current order
     const enterEditMode = () => {

@@ -90,10 +90,12 @@ jobs:
       - name: Prepare release artifact
         shell: bash
         run: |
-          mkdir -p release/client release/drizzle release/migrations
+          mkdir -p release/client release/migrations
           cp -R dist release/dist
           cp -R client/dist release/client/dist
-          cp -R drizzle release/drizzle
+          if [[ -d drizzle ]]; then
+            cp -R drizzle release/drizzle
+          fi
           if [[ -d migrations ]]; then
             cp -R migrations release/migrations
           fi

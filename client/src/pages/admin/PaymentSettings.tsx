@@ -87,6 +87,7 @@ const PaymentSettings: Component = () => {
                             </div>
                             <label class="toggle-switch">
                                 <input
+                                    id="payment-portal-enabled"
                                     type="checkbox"
                                     checked={settings().paymentPortalEnabled}
                                     onChange={(e) => updateField('paymentPortalEnabled', e.currentTarget.checked)}
@@ -108,8 +109,9 @@ const PaymentSettings: Component = () => {
 
                             <div class="form-grid">
                                 <div class="form-group">
-                                    <label>Merchant ID</label>
+                                    <label for="click-merchant-id">Merchant ID</label>
                                     <input
+                                        id="click-merchant-id"
                                         type="text"
                                         placeholder="12345"
                                         value={settings().clickMerchantId}
@@ -118,8 +120,9 @@ const PaymentSettings: Component = () => {
                                 </div>
 
                                 <div class="form-group">
-                                    <label>Service ID</label>
+                                    <label for="click-service-id">Service ID</label>
                                     <input
+                                        id="click-service-id"
                                         type="text"
                                         placeholder="67890"
                                         value={settings().clickServiceId}
@@ -128,9 +131,10 @@ const PaymentSettings: Component = () => {
                                 </div>
 
                                 <div class="form-group full-width">
-                                    <label>Secret Key</label>
+                                    <label for="click-secret-key">Secret Key</label>
                                     <div class="password-input">
                                         <input
+                                            id="click-secret-key"
                                             type={showClickSecret() ? 'text' : 'password'}
                                             placeholder="••••••••••••••••"
                                             value={settings().clickSecretKey}
@@ -140,6 +144,7 @@ const PaymentSettings: Component = () => {
                                             type="button"
                                             class="toggle-visibility"
                                             onClick={() => setShowClickSecret(!showClickSecret())}
+                                            aria-label={showClickSecret() ? 'Hide Click secret key' : 'Show Click secret key'}
                                         >
                                             {showClickSecret() ? '🙈' : '👁️'}
                                         </button>
@@ -165,8 +170,9 @@ const PaymentSettings: Component = () => {
 
                             <div class="form-grid">
                                 <div class="form-group full-width">
-                                    <label>Merchant ID</label>
+                                    <label for="payme-merchant-id">Merchant ID</label>
                                     <input
+                                        id="payme-merchant-id"
                                         type="text"
                                         placeholder="5e730e8e0b852a417aa49ceb"
                                         value={settings().paymeMerchantId}
@@ -175,9 +181,10 @@ const PaymentSettings: Component = () => {
                                 </div>
 
                                 <div class="form-group full-width">
-                                    <label>Secret Key</label>
+                                    <label for="payme-secret-key">Secret Key</label>
                                     <div class="password-input">
                                         <input
+                                            id="payme-secret-key"
                                             type={showPaymeSecret() ? 'text' : 'password'}
                                             placeholder="••••••••••••••••"
                                             value={settings().paymeSecretKey}
@@ -187,6 +194,7 @@ const PaymentSettings: Component = () => {
                                             type="button"
                                             class="toggle-visibility"
                                             onClick={() => setShowPaymeSecret(!showPaymeSecret())}
+                                            aria-label={showPaymeSecret() ? 'Hide Payme secret key' : 'Show Payme secret key'}
                                         >
                                             {showPaymeSecret() ? '🙈' : '👁️'}
                                         </button>

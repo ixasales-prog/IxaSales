@@ -2,8 +2,10 @@ import { type Component, createSignal, Show } from 'solid-js';
 import { A, useSearchParams, useNavigate } from '@solidjs/router';
 import { Lock, CheckCircle, XCircle, Loader2 } from 'lucide-solid';
 import { useBranding } from '../../stores/branding';
+import { useI18n } from '../../i18n';
 
 const ResetPassword: Component = () => {
+    const { t } = useI18n();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
 
@@ -19,12 +21,12 @@ const ResetPassword: Component = () => {
         e.preventDefault();
 
         if (password() !== confirmPassword()) {
-            setError('Passwords do not match');
+            setError(t('auth.passwordsDoNotMatch'));
             return;
         }
 
         if (password().length < 6) {
-            setError('Password must be at least 6 characters');
+            setError(t('auth.passwordMinLength'));
             return;
         }
 
@@ -48,10 +50,10 @@ const ResetPassword: Component = () => {
                 // Redirect to login after 3 seconds
                 setTimeout(() => navigate('/login'), 3000);
             } else {
-                setError(data.error?.message || 'Something went wrong');
+                setError(data.error?.message || t('auth.genericError'));
             }
         } catch (_err) {
-            setError('Network error. Please try again.');
+            setError(t('auth.networkError'));
         } finally {
             setLoading(false);
         }
@@ -70,12 +72,12 @@ const ResetPassword: Component = () => {
                     <Show when={!token()}>
                         <div class="text-center py-6">
                             <XCircle class="w-16 h-16 text-red-400 mx-auto mb-4" />
-                            <h2 class="text-xl font-semibold text-white mb-2">Invalid Link</h2>
+                            <h2 class="text-xl font-semibold text-white mb-2">{t('auth.invalidLink')}</h2>
                             <p class="text-slate-400 mb-6">
-                                This password reset link is invalid or has expired.
+                                {t('auth.invalidLinkText')}
                             </p>
                             <A href="/forgot-password" class="text-blue-400 hover:text-blue-300 font-medium">
-                                Request a new link
+                                {t('auth.requestNewLink')}
                             </A>
                         </div>
                     </Show>
@@ -83,12 +85,12 @@ const ResetPassword: Component = () => {
                     <Show when={token() && success()}>
                         <div class="text-center py-6">
                             <CheckCircle class="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-                            <h2 class="text-xl font-semibold text-white mb-2">Password Reset!</h2>
+                            <h2 class="text-xl font-semibold text-white mb-2">{t('auth.passwordResetSuccess')}</h2>
                             <p class="text-slate-400 mb-6">
-                                Your password has been reset successfully. Redirecting to login...
+                                {t('auth.passwordResetSuccessText')}
                             </p>
                             <A href="/login" class="text-blue-400 hover:text-blue-300 font-medium">
-                                Go to Login
+                                {t('auth.goToLogin')}
                             </A>
                         </div>
                     </Show>
@@ -99,19 +101,19 @@ const ResetPassword: Component = () => {
                                 <Lock class="w-6 h-6 text-blue-400" />
                             </div>
                             <div>
-                                <h2 class="text-xl font-semibold text-white">Reset Password</h2>
-                                <p class="text-sm text-slate-400">Enter your new password</p>
+                                <h2 class="text-xl font-semibold text-white">{t('auth.resetTitle')}</h2>
+                                <p class="text-sm text-slate-400">{t('auth.resetSubtitle')}</p>
                             </div>
                         </div>
 
                         <form onSubmit={handleSubmit} class="space-y-5">
                             <div>
-                                <label class="block text-sm text-slate-400 mb-2">New Password</label>
+                                <label class="block text-sm text-slate-400 mb-2">{t('auth.newPassword')}</label>
                                 <input
                                     type="password"
                                     value={password()}
                                     onInput={(e) => setPassword(e.currentTarget.value)}
-                                    placeholder="••••••••"
+                                    placeholder={t('auth.passwordPlaceholder') as string}
                                     required
                                     minLength={6}
                                     class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
@@ -119,12 +121,12 @@ const ResetPassword: Component = () => {
                             </div>
 
                             <div>
-                                <label class="block text-sm text-slate-400 mb-2">Confirm Password</label>
+                                <label class="block text-sm text-slate-400 mb-2">{t('auth.confirmPassword')}</label>
                                 <input
                                     type="password"
                                     value={confirmPassword()}
                                     onInput={(e) => setConfirmPassword(e.currentTarget.value)}
-                                    placeholder="••••••••"
+                                    placeholder={t('auth.passwordPlaceholder') as string}
                                     required
                                     class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                                 />
@@ -141,9 +143,9 @@ const ResetPassword: Component = () => {
                                 disabled={loading() || !password() || !confirmPassword()}
                                 class="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-500 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
-                                <Show when={loading()} fallback="Reset Password">
+                                <Show when={loading()} fallback={t('auth.resetPassword')}>
                                     <Loader2 class="w-5 h-5 animate-spin" />
-                                    Resetting...
+                                    {t('auth.resetting')}
                                 </Show>
                             </button>
                         </form>

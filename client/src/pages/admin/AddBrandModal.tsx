@@ -20,6 +20,9 @@ const AddBrandModal: Component<AddBrandModalProps> = (props) => {
     const [loading, setLoading] = createSignal(false);
     const [name, setName] = createSignal(props.brand?.name || '');
 
+    const getErrorMessage = (error: unknown, fallback: string) =>
+        error instanceof Error && error.message ? error.message : fallback;
+
     const handleSubmit = async (e: Event) => {
         e.preventDefault();
         setLoading(true);
@@ -34,9 +37,8 @@ const AddBrandModal: Component<AddBrandModalProps> = (props) => {
             }
             props.onSuccess();
             props.onClose();
-        } catch (error: any) {
-            console.error('Failed to save brand:', error);
-            toast.error(error.message || 'Failed to save brand');
+        } catch (error) {
+            toast.error(getErrorMessage(error, 'Failed to save brand'));
         } finally {
             setLoading(false);
         }

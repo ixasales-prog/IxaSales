@@ -10,8 +10,8 @@ import { db } from '../../db';
 import * as schema from '../../db/schema';
 import { eq } from 'drizzle-orm';
 import { verifyCustomerToken } from '../../lib/customer-auth';
-import { createErrorResponse } from '../../lib/error-codes';
 import { requireCustomerAuth } from './middleware';
+import { getTelegramIntegration } from '../../lib/tenant-integrations';
 
 // ============================================================================
 // SCHEMAS
@@ -26,10 +26,44 @@ const SubdomainParamsSchema = {
 // ============================================================================
 
 export const brandingRoutes: FastifyPluginAsync = async (fastify) => {
+    async function getBrandingByTenantId(tenantId: string) {
+        const [tenant] = await db
+            .select({
+                id: schema.tenants.id,
+                name: schema.tenants.name,
+                logo: schema.tenants.logo,
+                phone: schema.tenants.phone,
+                email: schema.tenants.email,
+                address: schema.tenants.address,
+                currency: schema.tenants.currency,
+                telegramBotUsername: schema.tenants.telegramBotUsername,
+            })
+            .from(schema.tenants)
+            .where(eq(schema.tenants.id, tenantId))
+            .limit(1);
+
+        if (!tenant) {
+            return null;
+        }
+
+        const telegram = await getTelegramIntegration(tenant.id, false);
+        return {
+            name: tenant.name,
+            logo: tenant.logo,
+            phone: tenant.phone,
+            email: tenant.email,
+            address: tenant.address,
+            currency: tenant.currency,
+            telegramEnabled: telegram.enabled,
+            telegramBotUsername: telegram.botUsername || tenant.telegramBotUsername,
+            hasTelegramBot: telegram.hasBotToken,
+        };
+    }
+
     /**
      * Get tenant branding info (requires auth)
      */
-    fastify.get('/branding', async (request, reply) => {
+    fastify.get('/branding', async (request) => {
         const authHeader = request.headers.authorization;
         const token = authHeader?.replace('Bearer ', '');
 
@@ -46,19 +80,7 @@ export const brandingRoutes: FastifyPluginAsync = async (fastify) => {
             return { success: true, data: null };
         }
 
-        const [tenant] = await db
-            .select({
-                name: schema.tenants.name,
-                logo: schema.tenants.logo,
-                phone: schema.tenants.phone,
-                email: schema.tenants.email,
-                address: schema.tenants.address,
-                currency: schema.tenants.currency,
-                telegramBotUsername: schema.tenants.telegramBotUsername,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getBrandingByTenantId(tenantId);
 
         return { success: true, data: tenant || null };
     });
@@ -68,22 +90,21 @@ export const brandingRoutes: FastifyPluginAsync = async (fastify) => {
      */
     fastify.get<{ Params: { subdomain: string } }>('/branding/:subdomain', {
         schema: SubdomainParamsSchema
-    }, async (request, reply) => {
+    }, async (request) => {
         const [tenant] = await db
             .select({
-                name: schema.tenants.name,
-                logo: schema.tenants.logo,
-                phone: schema.tenants.phone,
-                email: schema.tenants.email,
-                address: schema.tenants.address,
-                currency: schema.tenants.currency,
-                telegramBotUsername: schema.tenants.telegramBotUsername,
+                id: schema.tenants.id,
             })
             .from(schema.tenants)
             .where(eq(schema.tenants.subdomain, request.params.subdomain))
             .limit(1);
 
-        return { success: true, data: tenant || null };
+        if (!tenant?.id) {
+            return { success: true, data: null };
+        }
+
+        const branding = await getBrandingByTenantId(tenant.id);
+        return { success: true, data: branding || null };
     });
 
     /**
@@ -91,7 +112,7 @@ export const brandingRoutes: FastifyPluginAsync = async (fastify) => {
      */
     fastify.get('/support', {
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         const [tenant] = await db

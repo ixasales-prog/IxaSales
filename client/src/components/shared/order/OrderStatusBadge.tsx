@@ -1,6 +1,18 @@
 import { type Component, Show } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
-import * as LucideIcons from 'lucide-solid';
+import {
+  AlertCircle,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  File,
+  Package,
+  Play,
+  ShoppingBag,
+  Truck,
+  XCircle,
+} from 'lucide-solid';
 import { getOrderStatusConfig } from './constants';
 
 interface OrderStatusBadgeProps {
@@ -16,6 +28,20 @@ const OrderStatusBadge: Component<OrderStatusBadgeProps> = (props) => {
   const variant = () => props.variant || 'badge';
   const size = () => props.size || 'md';
   const showIcon = () => props.showIcon !== false;
+  const statusIcons = {
+    AlertCircle,
+    Calendar,
+    CheckCircle2,
+    Clock,
+    DollarSign,
+    File,
+    Package,
+    Play,
+    ShoppingBag,
+    Truck,
+    XCircle,
+  } as const;
+  const StatusIcon = () => statusIcons[statusConfig().icon as keyof typeof statusIcons] || Clock;
 
   // Size classes
   const sizeClasses = {
@@ -30,7 +56,7 @@ const OrderStatusBadge: Component<OrderStatusBadgeProps> = (props) => {
       class={`${statusConfig().bg} ${statusConfig().text} ${sizeClasses[size()]} rounded-full font-medium inline-flex items-center gap-1.5 ${props.className || ''}`}
     >
       <Show when={showIcon()}>
-        <Dynamic component={LucideIcons[statusConfig().icon as keyof typeof LucideIcons] as any} class="w-3.5 h-3.5" />
+        <Dynamic component={StatusIcon()} class="w-3.5 h-3.5" />
       </Show>
       {props.status.replace('_', ' ')}
     </span>

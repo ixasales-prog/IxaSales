@@ -72,6 +72,9 @@ type GetUserAnalyticsQuery = Static<typeof GetUserAnalyticsQuerySchema>;
 // ============================================================================
 
 export const userActivityRoutes: FastifyPluginAsync = async (fastify) => {
+    const canReadTenantActivity = (request: typeof fastify extends any ? any : never) =>
+        !!request.user?.permissions?.includes('activity.read');
+
     // ----------------------------------------------------------------
     // BATCH INSERT USER ACTIVITY EVENTS
     // ----------------------------------------------------------------
@@ -277,16 +280,17 @@ export const userActivityRoutes: FastifyPluginAsync = async (fastify) => {
         const { userId, startDate, endDate, limit = 20, offset = 0 } = request.query;
 
         try {
-            // Authorization check
+            const canViewTenantActivity = canReadTenantActivity(request);
             let targetUserId = userId;
-            if (user.role === 'user' && userId && userId !== user.id) {
+
+            if (!canViewTenantActivity && userId && userId !== user.id) {
                 return reply.code(403).send({
                     success: false,
                     error: { code: 'FORBIDDEN', message: 'Access denied' }
                 });
             }
 
-            if (user.role === 'user') {
+            if (!canViewTenantActivity) {
                 targetUserId = user.id;
             }
 
@@ -339,16 +343,17 @@ export const userActivityRoutes: FastifyPluginAsync = async (fastify) => {
         const { sessionId, userId, eventType, startDate, endDate, limit = 100, offset = 0 } = request.query;
 
         try {
-            // Authorization check
+            const canViewTenantActivity = canReadTenantActivity(request);
             let targetUserId = userId;
-            if (user.role === 'user' && userId && userId !== user.id) {
+
+            if (!canViewTenantActivity && userId && userId !== user.id) {
                 return reply.code(403).send({
                     success: false,
                     error: { code: 'FORBIDDEN', message: 'Access denied' }
                 });
             }
 
-            if (user.role === 'user') {
+            if (!canViewTenantActivity) {
                 targetUserId = user.id;
             }
 
@@ -402,7 +407,7 @@ export const userActivityRoutes: FastifyPluginAsync = async (fastify) => {
     // GET USER ANALYTICS SUMMARY (WITH STRICT GUARDRAILS)
     // ----------------------------------------------------------------
     fastify.get<{ Querystring: GetUserAnalyticsQuery }>('/analytics/summary', {
-        preHandler: [fastify.authenticate, fastify.requireRole(['supervisor', 'tenant_admin'])],
+        preHandler: [fastify.authenticate, fastify.requirePermission('activity.read')],
         schema: { querystring: GetUserAnalyticsQuerySchema },
     }, async (request, reply) => {
         const user = request.user!;
@@ -546,7 +551,7 @@ export const userActivityRoutes: FastifyPluginAsync = async (fastify) => {
     // GET RETENTION POLICY (ADMIN-VISIBLE)
     // ----------------------------------------------------------------
     fastify.get('/retention-policy', {
-        preHandler: [fastify.authenticate, fastify.requireRole(['supervisor', 'tenant_admin'])]
+        preHandler: [fastify.authenticate, fastify.requirePermission('activity.read')]
     }, async (request, reply) => {
         const user = request.user!;
 

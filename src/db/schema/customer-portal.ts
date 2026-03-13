@@ -1,5 +1,6 @@
-import { pgTable, uuid, varchar, text, timestamp, boolean, integer, unique } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, timestamp, boolean, integer, unique, index } from 'drizzle-orm/pg-core';
 import { tenants } from './core';
+import { users } from './core';
 import { customers } from './customers';
 import { products } from './products';
 
@@ -87,4 +88,39 @@ export const pushSubscriptions = pgTable('push_subscriptions', {
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+// ============================================================================
+// CUSTOMER REGISTRATION REQUESTS (PUBLIC -> ADMIN APPROVAL)
+// ============================================================================
+
+export const customerRegistrationRequests = pgTable('customer_registration_requests', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    phone: varchar('phone', { length: 50 }).notNull(),
+    telegramChatId: varchar('telegram_chat_id', { length: 50 }),
+    telegramUsername: varchar('telegram_username', { length: 255 }),
+    telegramUserId: varchar('telegram_user_id', { length: 50 }),
+    telegramFirstName: varchar('telegram_first_name', { length: 255 }),
+    telegramLastName: varchar('telegram_last_name', { length: 255 }),
+    telegramLanguageCode: varchar('telegram_language_code', { length: 16 }),
+    registrationSource: varchar('registration_source', { length: 32 }).default('web'),
+    consentGiven: boolean('consent_given').default(false),
+    consentAt: timestamp('consent_at'),
+    requestIp: varchar('request_ip', { length: 64 }),
+    requestUserAgent: text('request_user_agent'),
+    notes: text('notes'),
+    status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | approved | rejected
+    reviewedBy: uuid('reviewed_by').references(() => users.id),
+    reviewedAt: timestamp('reviewed_at'),
+    rejectionReason: text('rejection_reason'),
+    customerId: uuid('customer_id').references(() => customers.id),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+    idxRegTenantStatus: index('idx_reg_req_tenant_status').on(t.tenantId, t.status),
+    idxRegTenantPhone: index('idx_reg_req_tenant_phone').on(t.tenantId, t.phone),
+    idxRegTenantSource: index('idx_reg_req_tenant_source').on(t.tenantId, t.registrationSource),
+    idxRegTenantTelegramUser: index('idx_reg_req_tenant_telegram_user').on(t.tenantId, t.telegramUserId),
+}));
 

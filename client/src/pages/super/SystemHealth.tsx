@@ -80,6 +80,23 @@ const SystemHealth: Component = () => {
             : 'text-red-400';
     };
 
+    const getDatabaseLatencyWidth = () => {
+        const latencyMs = health()?.database.latencyMs ?? 0;
+        return Math.min(100, latencyMs / 2);
+    };
+
+    const getMemoryUsageWidth = () => {
+        const rss = health()?.memory.rss ?? 0;
+        const totalMem = health()?.system.totalMem ?? 1024;
+        return Math.min(100, (rss / totalMem) * 100);
+    };
+
+    const getFreeMemoryWidth = () => {
+        const freeMem = health()?.system.freeMem ?? 0;
+        const totalMem = health()?.system.totalMem ?? 1;
+        return Math.min(100, (freeMem / totalMem) * 100);
+    };
+
     return (
         <div class="p-6 lg:p-8">
             <div class="flex items-center justify-between mb-8">
@@ -150,8 +167,8 @@ const SystemHealth: Component = () => {
                             </div>
                             <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                 <div
-                                    class={`h-full transition-all duration-500 ${health()?.database.latencyMs! > 100 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                                    style={{ width: `${Math.min(100, (health()?.database.latencyMs || 0) / 2)}%` }} // Scale: 200ms = 100%
+                                    class={`h-full transition-all duration-500 ${(health()?.database.latencyMs ?? 0) > 100 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                    style={{ width: `${getDatabaseLatencyWidth()}%` }} // Scale: 200ms = 100%
                                 />
                             </div>
                         </div>
@@ -177,7 +194,7 @@ const SystemHealth: Component = () => {
                                 <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                     <div
                                         class="bg-blue-500 h-full transition-all duration-500"
-                                        style={{ width: `${Math.min(100, (health()?.memory.rss! / (health()?.system.totalMem! || 1024)) * 100)}%` }}
+                                        style={{ width: `${getMemoryUsageWidth()}%` }}
                                     />
                                 </div>
                             </div>
@@ -189,7 +206,7 @@ const SystemHealth: Component = () => {
                                 <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                     <div
                                         class="bg-purple-500 h-full transition-all duration-500"
-                                        style={{ width: `${Math.min(100, (health()?.system.freeMem! / (health()?.system.totalMem! || 1)) * 100)}%` }}
+                                        style={{ width: `${getFreeMemoryWidth()}%` }}
                                     />
                                 </div>
                             </div>

@@ -486,6 +486,62 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // ----------------------------------------------------------------
+    // TIER CHANGE HISTORY
+    // ----------------------------------------------------------------
+
+    // List tier change logs (upgrades, downgrades, manual)
+    fastify.get<{ Querystring: { tierId?: string; customerId?: string; limit?: string } }>('/tiers/change-history', {
+        preHandler: [fastify.authenticate],
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin', 'supervisor'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { tierId, customerId, limit: limitStr = '100' } = request.query;
+        const limit = Math.min(parseInt(limitStr) || 100, 500);
+
+        const conditions: any[] = [eq(schema.tierChangeLogs.tenantId, user.tenantId)];
+        if (tierId) {
+            conditions.push(
+                sql`(${schema.tierChangeLogs.fromTierId} = ${tierId} OR ${schema.tierChangeLogs.toTierId} = ${tierId})`
+            );
+        }
+        if (customerId) {
+            conditions.push(eq(schema.tierChangeLogs.customerId, customerId));
+        }
+
+        const logs = await db
+            .select({
+                id: schema.tierChangeLogs.id,
+                customerId: schema.tierChangeLogs.customerId,
+                customerName: schema.customers.name,
+                fromTierId: schema.tierChangeLogs.fromTierId,
+                toTierId: schema.tierChangeLogs.toTierId,
+                fromTierName: sql<string>`ft.name`,
+                toTierName: sql<string>`tt.name`,
+                changeType: schema.tierChangeLogs.changeType,
+                reason: schema.tierChangeLogs.reason,
+                executedAt: schema.tierChangeLogs.executedAt,
+            })
+            .from(schema.tierChangeLogs)
+            .innerJoin(schema.customers, eq(schema.tierChangeLogs.customerId, schema.customers.id))
+            .innerJoin(
+                sql`${schema.customerTiers} AS ft`,
+                sql`ft.id = ${schema.tierChangeLogs.fromTierId}`
+            )
+            .innerJoin(
+                sql`${schema.customerTiers} AS tt`,
+                sql`tt.id = ${schema.tierChangeLogs.toTierId}`
+            )
+            .where(and(...conditions))
+            .orderBy(desc(schema.tierChangeLogs.executedAt))
+            .limit(limit);
+
+        return { success: true, data: logs };
+    });
+
+    // ----------------------------------------------------------------
     // TERRITORIES
     // ----------------------------------------------------------------
 
@@ -494,25 +550,40 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [fastify.authenticate],
     }, async (request, reply) => {
         const user = request.user!;
-        const territories = user.role === 'sales_rep'
-            ? (await db
-                .select()
-                .from(schema.territories)
-                .innerJoin(
-                    schema.userTerritories,
-                    eq(schema.userTerritories.territoryId, schema.territories.id)
-                )
-                .where(and(
-                    eq(schema.territories.tenantId, user.tenantId),
-                    eq(schema.userTerritories.userId, user.id)
-                ))
-                .orderBy(schema.territories.name))
-                .map((row) => row.territories)
-            : await db
+        let territories;
+        if (user.role === 'sales_rep') {
+            const assignedRows = await db.select({ territoryId: schema.userTerritories.territoryId })
+                .from(schema.userTerritories)
+                .where(eq(schema.userTerritories.userId, user.id));
+
+            if (assignedRows.length > 0) {
+                territories = (await db
+                    .select()
+                    .from(schema.territories)
+                    .innerJoin(
+                        schema.userTerritories,
+                        eq(schema.userTerritories.territoryId, schema.territories.id)
+                    )
+                    .where(and(
+                        eq(schema.territories.tenantId, user.tenantId),
+                        eq(schema.userTerritories.userId, user.id)
+                    ))
+                    .orderBy(schema.territories.name))
+                    .map((row) => row.territories);
+            } else {
+                territories = await db
+                    .select()
+                    .from(schema.territories)
+                    .where(eq(schema.territories.tenantId, user.tenantId))
+                    .orderBy(schema.territories.name);
+            }
+        } else {
+            territories = await db
                 .select()
                 .from(schema.territories)
                 .where(eq(schema.territories.tenantId, user.tenantId))
                 .orderBy(schema.territories.name);
+        }
 
         return { success: true, data: territories };
     });
@@ -804,8 +875,9 @@ export const customerRoutes: FastifyPluginAsync = async (fastify) => {
                 .from(schema.userTerritories)
                 .where(eq(schema.userTerritories.userId, user.id));
 
+            const hasAssignments = userTerritories.length > 0;
             const validTerritory = userTerritories.some(t => t.territoryId === territoryId);
-            if (!validTerritory) {
+            if (hasAssignments && !validTerritory) {
                 return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only create customers in your assigned territories' } });
             }
         }

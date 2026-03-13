@@ -1,75 +1,191 @@
 /**
- * Structured Logger
- * 
- * Provides consistent logging across the application.
- * Use logger.info/debug/warn/error instead of console.log.
- * 
- * In production, debug logs are suppressed unless LOG_LEVEL=debug.
+ * Structured Logging Utility
+ * Provides consistent logging with levels and structured data
  */
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export enum LogLevel {
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3,
+}
 
-const LOG_LEVELS: Record<LogLevel, number> = {
-    debug: 0,
-    info: 1,
-    warn: 2,
-    error: 3,
-};
+interface LogEntry {
+  level: LogLevel;
+  message: string;
+  timestamp: string;
+  context?: Record<string, any>;
+  error?: Error;
+}
 
-// Default to 'info' in production, 'debug' in development
-const currentLogLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) ||
-    (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
+class Logger {
+  private minLevel: LogLevel;
+  private context: Record<string, any>;
 
-interface Logger {
-    debug: (msg: string, data?: Record<string, any>) => void;
-    info: (msg: string, data?: Record<string, any>) => void;
-    warn: (msg: string, data?: Record<string, any>) => void;
-    error: (msg: string, data?: Record<string, any>) => void;
+  constructor(minLevel: LogLevel = LogLevel.INFO) {
+    this.minLevel = minLevel;
+    this.context = {};
+  }
+
+  /**
+   * Set default context for all logs
+   */
+  setContext(context: Record<string, any>) {
+    this.context = { ...this.context, ...context };
+  }
+
+  /**
+   * Clear context
+   */
+  clearContext() {
+    this.context = {};
+  }
+
+  /**
+   * Log a debug message
+   */
+  debug(message: string, context?: Record<string, any>) {
+    this.log(LogLevel.DEBUG, message, context);
+  }
+
+  /**
+   * Log an info message
+   */
+  info(message: string, context?: Record<string, any>) {
+    this.log(LogLevel.INFO, message, context);
+  }
+
+  /**
+   * Log a warning message
+   */
+  warn(message: string, context?: Record<string, any>) {
+    this.log(LogLevel.WARN, message, context);
+  }
+
+  /**
+   * Log an error message
+   */
+  error(message: string, error?: Error, context?: Record<string, any>) {
+    this.log(LogLevel.ERROR, message, { ...context, error: this.formatError(error) });
+  }
+
+  /**
+   * Internal log method
+   */
+  private log(level: LogLevel, message: string, context?: Record<string, any>) {
+    if (level < this.minLevel) {
+      return;
+    }
+
+    const entry: LogEntry = {
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+      context: { ...this.context, ...context },
+    };
+
+    const formatted = this.formatLog(entry);
+    
+    switch (level) {
+      case LogLevel.DEBUG:
+        console.debug(formatted);
+        break;
+      case LogLevel.INFO:
+        console.info(formatted);
+        break;
+      case LogLevel.WARN:
+        console.warn(formatted);
+        break;
+      case LogLevel.ERROR:
+        console.error(formatted);
+        break;
+    }
+  }
+
+  /**
+   * Format log entry for output
+   */
+  private formatLog(entry: LogEntry): string {
+    const levelName = LogLevel[entry.level];
+    const contextStr = entry.context && Object.keys(entry.context).length > 0
+      ? ` ${JSON.stringify(entry.context)}`
+      : '';
+
+    return `[${entry.timestamp}] [${levelName}] ${entry.message}${contextStr}`;
+  }
+
+  /**
+   * Format error for logging
+   */
+  private formatError(error?: Error): Record<string, any> | undefined {
+    if (!error) return undefined;
+
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  /**
+   * Create a child logger with additional context
+   */
+  child(context: Record<string, any>): Logger {
+    const childLogger = new Logger(this.minLevel);
+    childLogger.setContext({ ...this.context, ...context });
+    return childLogger;
+  }
+}
+
+// Create default logger instance
+export const logger = new Logger(
+  process.env.LOG_LEVEL === 'debug' ? LogLevel.DEBUG :
+  process.env.LOG_LEVEL === 'warn' ? LogLevel.WARN :
+  process.env.LOG_LEVEL === 'error' ? LogLevel.ERROR :
+  LogLevel.INFO
+);
+
+// Payroll-specific logger with context
+export const payrollLogger = logger.child({ module: 'payroll' });
+
+// Auth-specific logger with context
+export const authLogger = logger.child({ module: 'auth' });
+
+// Customer Portal logger with context
+export const customerPortalLogger = logger.child({ module: 'customer-portal' });
+
+/**
+ * Create a logger for a specific service
+ */
+export function createServiceLogger(serviceName: string): Logger {
+  return logger.child({ service: serviceName });
 }
 
 /**
- * Create a logger with a specific prefix
+ * Log payroll operation
  */
-export function createLogger(prefix: string): Logger {
-    const shouldLog = (level: LogLevel): boolean => {
-        return LOG_LEVELS[level] >= LOG_LEVELS[currentLogLevel];
-    };
+export function logPayrollOperation(
+  operation: string,
+  details: Record<string, any>,
+  level: LogLevel = LogLevel.INFO
+) {
+  const logContext = {
+    operation,
+    ...details,
+  };
 
-    const log = (level: LogLevel, message: string, data?: Record<string, any>) => {
-        if (!shouldLog(level)) return;
-
-        const timestamp = new Date().toISOString();
-        const logPrefix = `[${timestamp}] [${prefix}] [${level.toUpperCase()}]`;
-        const logData = data ? ` ${JSON.stringify(data)}` : '';
-
-        if (level === 'error') {
-            console.error(`${logPrefix} ${message}${logData}`);
-        } else if (level === 'warn') {
-            console.warn(`${logPrefix} ${message}${logData}`);
-        } else {
-            console.log(`${logPrefix} ${message}${logData}`);
-        }
-    };
-
-    return {
-        debug: (msg, data) => log('debug', msg, data),
-        info: (msg, data) => log('info', msg, data),
-        warn: (msg, data) => log('warn', msg, data),
-        error: (msg, data) => log('error', msg, data),
-    };
+  switch (level) {
+    case LogLevel.DEBUG:
+      payrollLogger.debug(`Payroll operation: ${operation}`, logContext);
+      break;
+    case LogLevel.INFO:
+      payrollLogger.info(`Payroll operation: ${operation}`, logContext);
+      break;
+    case LogLevel.WARN:
+      payrollLogger.warn(`Payroll operation: ${operation}`, logContext);
+      break;
+    case LogLevel.ERROR:
+      payrollLogger.error(`Payroll operation: ${operation}`, undefined, logContext);
+      break;
+  }
 }
-
-// Default loggers for common modules
-export const customerPortalLogger = createLogger('CustomerPortal');
-export const ordersLogger = createLogger('Orders');
-export const telegramLogger = createLogger('Telegram');
-export const authLogger = createLogger('Auth');
-export const paymentLogger = createLogger('Payment');
-export const backupLogger = createLogger('Backup');
-export const cleanupLogger = createLogger('Cleanup');
-export const schedulerLogger = createLogger('Scheduler');
-
-// Default logger for general use
-export const logger = createLogger('App');
-
-

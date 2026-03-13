@@ -1,8 +1,10 @@
 import { type Component } from 'solid-js';
 import { A, useLocation } from '@solidjs/router';
 import { LayoutDashboard, CheckCircle2, Users, BarChart3 } from 'lucide-solid';
+import { useI18n } from '../../i18n';
 
 const MobileSupervisorLayout: Component<{ children: any }> = (props) => {
+    const { t } = useI18n();
     const location = useLocation();
 
     const activeClass = (path: string, exact = false) => {
@@ -23,22 +25,22 @@ const MobileSupervisorLayout: Component<{ children: any }> = (props) => {
             <nav class="fixed bottom-0 left-0 right-0 h-16 bg-slate-900/80 backdrop-blur-md border-t border-slate-800/50 flex items-center justify-around px-2 z-50 pb-safe">
                 <A href="/supervisor" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/supervisor', true)}`}>
                     <LayoutDashboard size={22} />
-                    <span class="text-[10px] font-medium">Overview</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.supervisor.overview')}</span>
                 </A>
 
                 <A href="/supervisor/approvals" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/supervisor/approvals')}`}>
                     <CheckCircle2 size={22} />
-                    <span class="text-[10px] font-medium">Approvals</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.supervisor.approvals')}</span>
                 </A>
 
                 <A href="/supervisor/team" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/supervisor/team')}`}>
                     <Users size={22} />
-                    <span class="text-[10px] font-medium">Team</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.supervisor.team')}</span>
                 </A>
 
                 <A href="/supervisor/insights" class={`flex flex-col items-center gap-1 p-2 transition-all ${activeClass('/supervisor/insights')}`}>
                     <BarChart3 size={22} />
-                    <span class="text-[10px] font-medium">Insights</span>
+                    <span class="text-[10px] font-medium">{t('layoutNav.supervisor.insights')}</span>
                 </A>
             </nav>
         </div>

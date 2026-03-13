@@ -16,7 +16,7 @@ export const userRoleEnum = pgEnum('user_role', [
     'driver'
 ]);
 
-export const userTypeEnum = pgEnum('user_type', ['user', 'customer_user']);
+export const userTypeEnum = pgEnum('user_type', ['user', 'customer_user', 'customer']);
 
 // ============================================================================
 // TENANTS

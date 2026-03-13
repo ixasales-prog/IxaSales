@@ -1,16 +1,24 @@
 import { type Component, For, Show, createSignal, createResource, createMemo } from 'solid-js';
-import * as LucideIcons from 'lucide-solid';
 import {
+    AlertCircle,
+    Calendar,
+    CheckCircle2,
+    Clock,
     Search,
     Filter,
     Eye,
+    File,
+    Play,
+    ShoppingBag,
     Truck,
     Package,
     Loader2,
     ChevronLeft,
     ChevronRight,
+    XCircle,
     Navigation
 } from 'lucide-solid';
+import { Dynamic } from 'solid-js/web';
 import { api } from '../../lib/api';
 import { formatDateTime } from '../../stores/settings';
 import { getOrderStatusConfig } from '../../components/shared/order';
@@ -32,6 +40,18 @@ const Deliveries: Component = () => {
     const [statusFilter, setStatusFilter] = createSignal('');
     const [page, setPage] = createSignal(1);
     const limit = 20;
+    const statusIcons = {
+        AlertCircle,
+        Calendar,
+        CheckCircle2,
+        Clock,
+        File,
+        Package,
+        Play,
+        ShoppingBag,
+        Truck,
+        XCircle,
+    } as const;
 
     const [trips] = createResource(
         () => ({ search: search(), status: statusFilter(), page: page() }),
@@ -131,7 +151,7 @@ const Deliveries: Component = () => {
                                 <For each={tripList()}>
                                     {(trip) => {
                                         const statusConfig = getOrderStatusConfig(trip.status);
-                                        const StatusIcon = LucideIcons[statusConfig.icon as keyof typeof LucideIcons] as any;
+                                        const StatusIcon = statusIcons[statusConfig.icon as keyof typeof statusIcons] || Clock;
                                         return (
                                             <tr class="hover:bg-slate-800/30 transition-colors">
                                                 <td class="px-6 py-4">
@@ -161,7 +181,7 @@ const Deliveries: Component = () => {
                                                 </td>
                                                 <td class="px-6 py-4">
                                                     <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.text}`}>
-                                                        <StatusIcon class="w-3.5 h-3.5" />
+                                                        <Dynamic component={StatusIcon} class="w-3.5 h-3.5" />
                                                         {trip.status.replace('_', ' ')}
                                                     </span>
                                                 </td>
@@ -191,7 +211,7 @@ const Deliveries: Component = () => {
                         <For each={tripList()}>
                             {(trip) => {
                                 const statusConfig = getOrderStatusConfig(trip.status);
-                                const StatusIcon = LucideIcons[statusConfig.icon as keyof typeof LucideIcons] as any;
+                                const StatusIcon = statusIcons[statusConfig.icon as keyof typeof statusIcons] || Clock;
                                 return (
                                     <div class="p-4 hover:bg-slate-800/30 transition-colors">
                                         <div class="flex items-center justify-between mb-3">
@@ -205,7 +225,7 @@ const Deliveries: Component = () => {
                                                 </div>
                                             </div>
                                             <span class={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.text}`}>
-                                                <StatusIcon class="w-3.5 h-3.5" />
+                                                <Dynamic component={StatusIcon} class="w-3.5 h-3.5" />
                                                 {trip.status.replace('_', ' ')}
                                             </span>
                                         </div>

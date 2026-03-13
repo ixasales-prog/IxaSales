@@ -26,6 +26,15 @@ interface DiscountResult {
     newTotal: number;
 }
 
+type DiscountDescriptionInput = {
+    type: string | null;
+    value: unknown;
+    minOrderAmount: unknown;
+    minQty: unknown;
+    freeQty: unknown;
+    name: string;
+};
+
 // ============================================================================
 // SCHEMAS
 // ============================================================================
@@ -53,7 +62,7 @@ const PreviewDiscountSchema = {
 // HELPERS
 // ============================================================================
 
-function formatDiscountDescription(discount: any): string {
+function formatDiscountDescription(discount: DiscountDescriptionInput): string {
     const value = Number(discount.value || 0);
     const minOrder = discount.minOrderAmount ? Number(discount.minOrderAmount) : 0;
 
@@ -96,13 +105,16 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
 
         const now = new Date();
 
-        // Find discount by code (name is used as code)
+        // Find discount by code field (fallback to name for backward compatibility)
         const [discount] = await db
             .select()
             .from(schema.discounts)
             .where(and(
                 eq(schema.discounts.tenantId, customerAuth.tenantId),
-                sql`LOWER(${schema.discounts.name}) = ${code.toLowerCase().trim()}`,
+                or(
+                    sql`LOWER(${schema.discounts.code}) = ${code.toLowerCase().trim()}`,
+                    sql`LOWER(${schema.discounts.name}) = ${code.toLowerCase().trim()}`
+                ),
                 eq(schema.discounts.isActive, true),
                 or(
                     isNull(schema.discounts.startsAt),
@@ -166,7 +178,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
             case 'buy_x_get_y':
                 // Calculate based on items quantity
                 if (discount.minQty && discount.freeQty) {
-                    const totalQty = items?.reduce((sum: number, i: any) => sum + i.quantity, 0) || 0;
+                    const totalQty = items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
                     const sets = Math.floor(totalQty / (discount.minQty + discount.freeQty));
                     // For B2G1, free items would be calculated from average price
                     if (sets > 0 && items && items.length > 0) {
@@ -176,7 +188,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
                 }
                 break;
 
-            case 'volume':
+            case 'volume': {
                 // Fetch volume tiers and apply appropriate discount
                 const tiers = await db
                     .select()
@@ -185,7 +197,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
                     .orderBy(schema.volumeTiers.minQty);
 
                 if (tiers.length > 0) {
-                    const totalQty = items?.reduce((sum: number, i: any) => sum + i.quantity, 0) || 0;
+                    const totalQty = items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
                     // Find applicable tier
                     let applicableTier = null;
                     for (const tier of tiers) {
@@ -198,6 +210,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
                     }
                 }
                 break;
+            }
         }
 
         // Ensure discount doesn't exceed cart total
@@ -226,7 +239,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
      */
     fastify.get('/discounts/available', {
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         const now = new Date();
@@ -281,7 +294,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.post('/discounts/preview', {
         schema: PreviewDiscountSchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
         const { cartTotal, itemsCount } = request.body as { cartTotal: number; itemsCount?: number };
 
@@ -347,7 +360,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
                         }
                     }
                     break;
-                case 'volume':
+                case 'volume': {
                     const tiers = await db
                         .select()
                         .from(schema.volumeTiers)
@@ -366,6 +379,7 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
                         }
                     }
                     break;
+                }
             }
 
             discountAmount = Math.min(discountAmount, cartTotal);

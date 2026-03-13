@@ -1,4 +1,4 @@
-import { authToken, logout } from '../stores/auth';
+import { authToken, getStoredAuthToken, logout } from '../stores/auth';
 
 const RAW_BASE_URL = import.meta.env.VITE_API_URL;
 
@@ -6,6 +6,14 @@ const resolveBaseUrl = () => {
     const normalized = RAW_BASE_URL?.replace(/\/$/, '') || '/api';
     if (!RAW_BASE_URL) return normalized;
     if (typeof window === 'undefined') return normalized;
+    try {
+        const resolved = new URL(RAW_BASE_URL, window.location.origin);
+        if (import.meta.env.PROD && resolved.origin !== window.location.origin) {
+            return '/api';
+        }
+    } catch {
+        return normalized;
+    }
     return normalized;
 };
 
@@ -17,13 +25,15 @@ export const API_BASE_URL = BASE_URL;
 interface RequestOptions extends RequestInit {
     params?: Record<string, string>;
     skipAuth?: boolean;
+    timeoutMs?: number;
 }
 
 async function request<T = any>(path: string, options: RequestOptions = {}): Promise<{ data: T; response: Response; result: any }> {
-    const token = localStorage.getItem('token') || authToken();
+    const token = getStoredAuthToken() || authToken();
 
     const headers = new Headers(options.headers);
-    if (!(options.body instanceof FormData)) {
+    const hasBody = options.body !== undefined && options.body !== null;
+    if (hasBody && !(options.body instanceof FormData)) {
         headers.set('Content-Type', 'application/json');
     }
     if (token && !options.skipAuth) {
@@ -39,18 +49,40 @@ async function request<T = any>(path: string, options: RequestOptions = {}): Pro
         url += `?${searchParams.toString()}`;
     }
 
-    const response = await fetch(url, {
-        ...options,
-        headers,
-        credentials: options.credentials ?? 'include',
-    });
+    const timeoutMs = Math.max(1_000, Number(options.timeoutMs ?? 60_000));
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(`Request timeout after ${timeoutMs}ms`), timeoutMs);
+
+    let response: Response;
+    try {
+        response = await fetch(url, {
+            ...options,
+            headers,
+            credentials: options.credentials ?? 'include',
+            signal: options.signal ?? controller.signal,
+        });
+    } catch (err: any) {
+        if (err?.name === 'AbortError') {
+            throw new Error(`Request timed out (${Math.round(timeoutMs / 1000)}s): ${path}`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeoutHandle);
+    }
 
     if (response.status === 401 && token && !path.startsWith('/auth/')) {
         logout();
         throw new Error('Unauthorized');
     }
 
-    const result = await response.json();
+    let result: any = null;
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+        result = await response.json();
+    } else {
+        const text = await response.text();
+        result = { message: text };
+    }
 
     if (!response.ok) {
         throw new Error(result.error?.message || result.message || 'API Error');
@@ -88,4 +120,3 @@ api.patch = <T = any>(path: string, body: any, options: RequestOptions = {}) => 
 api.delete = <T = any>(path: string, options: RequestOptions = {}) => api<T>(path, { ...options, method: 'DELETE' });
 api.response = <T = any>(path: string, options: RequestOptions = {}) => apiResponse<T>(path, options);
 api.withResponse = <T = any>(path: string, options: RequestOptions = {}) => apiWithResponse<T>(path, options);
-

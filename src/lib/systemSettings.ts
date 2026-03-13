@@ -58,6 +58,8 @@ export interface BrandingSettings {
 
 export interface BackupSettings {
     frequency: 'never' | 'daily' | 'weekly' | 'monthly';
+    scheduleTime: string; // HH:MM
+    timezone: string;
     retentionDays: number;
     lastBackupAt: string | null;
 }
@@ -116,6 +118,8 @@ const DEFAULT_SETTINGS: AllSystemSettings = {
     },
     backup: {
         frequency: 'daily',
+        scheduleTime: '00:00',
+        timezone: 'Asia/Tashkent',
         retentionDays: 30,
         lastBackupAt: null,
     },

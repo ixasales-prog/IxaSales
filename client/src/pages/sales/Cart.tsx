@@ -120,7 +120,7 @@ const Cart: Component = () => {
     return (
         <div class="min-h-screen pb-32">
             {/* Header */}
-            <div class="fixed top-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
+            <div class="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="flex items-center justify-between px-4 py-3">
                     <div class="flex items-center gap-3">
                         <A href="/sales/catalog" class="p-2 -ml-2 text-slate-400 hover:text-white">
@@ -156,7 +156,7 @@ const Cart: Component = () => {
             </Show>
 
             {/* Content */}
-            <div class="pt-20 px-4">
+            <div class="px-4">
                 {/* Empty State */}
                 <Show when={cartCount() === 0}>
                     <div class="text-center py-16">

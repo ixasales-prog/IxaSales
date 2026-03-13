@@ -74,7 +74,7 @@ const PlanLimitsPage: Component = () => {
                     Back to Settings
                 </A>
                 <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">Plan Limits</h1>
-                <p class="text-slate-400">Configure resource limits for each subscription tier. Changes apply to new tenants only.</p>
+                <p class="text-slate-400">Configure resource limits for each subscription tier. Changes apply immediately to tenants on that plan.</p>
             </div>
 
             <Show when={planLimitsData.loading}>
@@ -169,9 +169,7 @@ const PlanLimitsPage: Component = () => {
                     </Show>
                 </div>
 
-                <p class="mt-4 text-sm text-slate-500">
-                    Changes take effect immediately for all tenants on the respective plan.
-                </p>
+                <p class="mt-4 text-sm text-slate-500">All tenants on each plan will use these limits for enforcement and usage dashboards.</p>
             </Show>
         </div>
     );

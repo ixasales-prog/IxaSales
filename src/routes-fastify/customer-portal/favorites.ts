@@ -30,7 +30,7 @@ export const favoritesRoutes: FastifyPluginAsync = async (fastify) => {
      */
     fastify.get('/favorites', {
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         const favorites = await db
@@ -88,7 +88,7 @@ export const favoritesRoutes: FastifyPluginAsync = async (fastify) => {
                 .onConflictDoNothing();
 
             return createSuccessResponse('FAVORITE_ADDED');
-        } catch (e) {
+        } catch {
             return reply.status(500).send(createErrorResponse('DB_ERROR'));
         }
     });
@@ -99,7 +99,7 @@ export const favoritesRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.delete<{ Params: { productId: string } }>('/favorites/:productId', {
         schema: ProductIdParamsSchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         await db

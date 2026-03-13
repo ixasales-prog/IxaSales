@@ -2,6 +2,9 @@ import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
 import { eq, and, sql, desc, inArray, or } from 'drizzle-orm';
+import { handleOrderStatusTransitionEffects, transitionOrderStatus } from '../services/order-workflow.service';
+import { sendApiError } from '../lib/api-errors';
+import { abortIdempotentRequest, beginIdempotentRequest, finishIdempotentRequest } from '../lib/idempotency';
 
 // Schemas
 const CreateVehicleBodySchema = Type.Object({
@@ -47,18 +50,33 @@ export const deliveryRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Create vehicle
     fastify.post<{ Body: CreateVehicleBody }>('/vehicles', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('deliveries.manage')],
         schema: { body: CreateVehicleBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
-        if (!['tenant_admin', 'super_admin', 'supervisor'].includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        const idempotency = await beginIdempotentRequest(request, 'deliveries.vehicles.create');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
         }
-        const [vehicle] = await db.insert(schema.vehicles).values({
-            tenantId: user.tenantId, name: request.body.name, plateNumber: request.body.plateNumber,
-            capacity: request.body.capacity, isActive: true,
-        }).returning();
-        return { success: true, data: vehicle };
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
+
+        try {
+            const [vehicle] = await db.insert(schema.vehicles).values({
+                tenantId: user.tenantId, name: request.body.name, plateNumber: request.body.plateNumber,
+                capacity: request.body.capacity, isActive: true,
+            }).returning();
+            const responseBody = { success: true, data: vehicle };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to create vehicle');
+        }
     });
 
     // List trips
@@ -98,14 +116,20 @@ export const deliveryRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Create trip
     fastify.post<{ Body: CreateTripBody }>('/trips', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('deliveries.manage')],
         schema: { body: CreateTripBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
         const body = request.body;
-
-        if (!['tenant_admin', 'super_admin', 'supervisor'].includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        const idempotency = await beginIdempotentRequest(request, 'deliveries.trips.create');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
         }
 
         const tripNumber = `TRIP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -118,8 +142,8 @@ export const deliveryRoutes: FastifyPluginAsync = async (fastify) => {
                         .where(and(eq(schema.orders.tenantId, user.tenantId), inArray(schema.orders.id, body.orderIds)));
 
                     if (validOrders.length !== body.orderIds.length) throw new Error('Some orders not found');
-                    const invalidStatus = validOrders.filter(o => !['approved', 'picked', 'confirmed'].includes(o.status as string));
-                    if (invalidStatus.length > 0) throw new Error('Orders must be in approved/picked/confirmed status');
+                    const invalidStatus = validOrders.filter(o => !['loaded'].includes(o.status as string));
+                    if (invalidStatus.length > 0) throw new Error('Orders must be in loaded status before trip creation');
 
                     const alreadyAssigned = await tx.select({ orderId: schema.tripOrders.orderId })
                         .from(schema.tripOrders).where(inArray(schema.tripOrders.orderId, body.orderIds));
@@ -135,14 +159,23 @@ export const deliveryRoutes: FastifyPluginAsync = async (fastify) => {
                     await tx.insert(schema.tripOrders).values(
                         body.orderIds.map((orderId, idx) => ({ tripId: trip.id, orderId, sequence: idx + 1 }))
                     );
-                    await tx.update(schema.orders).set({ status: 'picking' as any, updatedAt: new Date() })
-                        .where(inArray(schema.orders.id, body.orderIds));
                 }
                 return trip;
             });
-            return { success: true, data: result };
+            const responseBody = { success: true, data: result };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
         } catch (error: any) {
-            return reply.code(400).send({ success: false, error: { code: 'BAD_REQUEST', message: error.message } });
+            await abortIdempotentRequest(idempotency);
+            const message = typeof error?.message === 'string' ? error.message : '';
+            if (
+                message === 'Some orders not found' ||
+                message === 'Orders must be in loaded status before trip creation' ||
+                message === 'Some orders are already assigned'
+            ) {
+                return sendApiError(reply, 400, 'BAD_REQUEST', message);
+            }
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to create trip');
         }
     });
 
@@ -185,54 +218,98 @@ export const deliveryRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Update trip status
     fastify.patch<{ Params: Static<typeof TripIdParamsSchema>; Body: UpdateTripStatusBody }>('/trips/:id/status', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('deliveries.manage')],
         schema: { params: TripIdParamsSchema, body: UpdateTripStatusBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
         const { id } = request.params;
         const { status } = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'deliveries.trips.update_status');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
         const updates: any = { status, updatedAt: new Date() };
         if (status === 'in_progress') updates.startedAt = new Date();
         if (status === 'completed') updates.completedAt = new Date();
 
-        const [trip] = await db.update(schema.trips).set(updates)
-            .where(and(eq(schema.trips.id, id), eq(schema.trips.tenantId, user.tenantId)))
-            .returning();
+        try {
+            const [trip] = await db.update(schema.trips).set(updates)
+                .where(and(eq(schema.trips.id, id), eq(schema.trips.tenantId, user.tenantId)))
+                .returning();
 
-        if (!trip) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            if (!trip) {
+                await abortIdempotentRequest(idempotency);
+                return sendApiError(reply, 404, 'NOT_FOUND', 'Trip not found');
+            }
 
-        // When trip starts, notify customers and update order status
-        if (status === 'in_progress') {
-            try {
-                const [driver] = await db.select({ name: schema.users.name }).from(schema.users)
-                    .where(eq(schema.users.id, trip.driverId)).limit(1);
+            // When trip starts, notify customers and update order status
+            if (status === 'in_progress') {
+                try {
+                    const [driver] = await db.select({ name: schema.users.name }).from(schema.users)
+                        .where(eq(schema.users.id, trip.driverId)).limit(1);
 
-                const tripOrders = await db.select({
-                    orderId: schema.orders.id, orderNumber: schema.orders.orderNumber,
-                    customerName: schema.customers.name, customerChatId: schema.customers.telegramChatId,
-                }).from(schema.tripOrders)
-                    .innerJoin(schema.orders, eq(schema.tripOrders.orderId, schema.orders.id))
-                    .innerJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
-                    .where(eq(schema.tripOrders.tripId, trip.id));
+                    const tripOrders = await db.select({
+                        orderId: schema.orders.id, orderNumber: schema.orders.orderNumber,
+                        customerName: schema.customers.name, customerChatId: schema.customers.telegramChatId,
+                    }).from(schema.tripOrders)
+                        .innerJoin(schema.orders, eq(schema.tripOrders.orderId, schema.orders.id))
+                        .innerJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
+                        .where(eq(schema.tripOrders.tripId, trip.id));
 
-                const { notifyCustomerOutForDelivery } = await import('../lib/telegram');
-                for (const order of tripOrders) {
-                    if (order.customerChatId) {
-                        notifyCustomerOutForDelivery(user.tenantId, { chatId: order.customerChatId, name: order.customerName },
-                            { orderNumber: order.orderNumber, driverName: driver?.name });
+                    const { notifyCustomerOutForDelivery } = await import('../lib/telegram');
+                    for (const order of tripOrders) {
+                        if (order.customerChatId) {
+                            notifyCustomerOutForDelivery(user.tenantId, { chatId: order.customerChatId, name: order.customerName },
+                                { orderNumber: order.orderNumber, driverName: driver?.name });
+                        }
                     }
-                }
 
-                const orderIds = tripOrders.map(o => o.orderId);
-                if (orderIds.length > 0) {
-                    await db.update(schema.orders).set({ status: 'delivering' as any, updatedAt: new Date() })
-                        .where(inArray(schema.orders.id, orderIds));
-                }
-            } catch (e) { console.error('Telegram notification error:', e); }
+                    const orderIds = tripOrders.map(o => o.orderId);
+                    if (orderIds.length > 0) {
+                        const transitionResults = await db.transaction(async (tx) => {
+                            const results: Array<{ orderId: string; changed: boolean }> = [];
+                            for (const orderId of orderIds) {
+                                const transition = await transitionOrderStatus({
+                                    tx,
+                                    tenantId: user.tenantId,
+                                    orderId,
+                                    newStatus: 'delivering',
+                                    changedBy: user.id,
+                                    notes: `Trip ${trip.tripNumber} started`,
+                                });
+                                results.push({ orderId, changed: transition.changed });
+                            }
+                            return results;
+                        });
+
+                        for (const result of transitionResults) {
+                            if (!result.changed) continue;
+                            await handleOrderStatusTransitionEffects({
+                                tenantId: user.tenantId,
+                                orderId: result.orderId,
+                                newStatus: 'delivering',
+                                actorName: user.name,
+                                notes: `Trip ${trip.tripNumber} started`,
+                            });
+                        }
+                    }
+                } catch (e) { console.error('Telegram notification error:', e); }
+            }
+
+            const responseBody = { success: true, data: trip };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to update trip status');
         }
-
-        return { success: true, data: trip };
     });
 
     // Get delivery order detail

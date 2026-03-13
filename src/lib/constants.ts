@@ -2,7 +2,7 @@
  * Status constants for type-safe status handling
  */
 
-// Order statuses
+// Order statuses (must match DB enum in schema/orders.ts)
 export const ORDER_STATUS = {
     PENDING: 'pending',
     CONFIRMED: 'confirmed',
@@ -10,12 +10,54 @@ export const ORDER_STATUS = {
     PICKING: 'picking',
     PICKED: 'picked',
     LOADED: 'loaded',
-    IN_TRANSIT: 'in_transit',
+    DELIVERING: 'delivering',
     DELIVERED: 'delivered',
+    PARTIAL: 'partial',
+    RETURNED: 'returned',
     CANCELLED: 'cancelled',
 } as const;
 
 export type OrderStatus = typeof ORDER_STATUS[keyof typeof ORDER_STATUS];
+
+// Valid order status transitions — single source of truth
+export const VALID_ORDER_TRANSITIONS: Record<string, string[]> = {
+    pending: ['confirmed', 'approved', 'cancelled'],
+    confirmed: ['approved', 'picking', 'cancelled'],
+    approved: ['picking', 'cancelled'],
+    picking: ['picked'],
+    picked: ['loaded'],
+    loaded: ['delivering'],
+    delivering: ['delivered', 'partial', 'returned'],
+    delivered: [],
+    partial: ['delivered', 'returned'],
+    returned: [],
+    cancelled: [],
+};
+
+// Statuses from which an order can be cancelled
+export const CANCELLABLE_ORDER_STATUSES = ['pending', 'confirmed'] as const;
+
+// Statuses in which an order can be edited
+export const EDITABLE_ORDER_STATUSES = ['pending', 'confirmed', 'approved'] as const;
+
+// Statuses that allow driver assignment
+export const DRIVER_ASSIGNABLE_STATUSES = ['pending', 'confirmed', 'approved', 'picked', 'loaded'] as const;
+
+// Valid warehouse task transitions (subset of order transitions for warehouse role)
+export const VALID_WAREHOUSE_TRANSITIONS: Record<string, string[]> = {
+    approved: ['picking'],
+    picking: ['picked'],
+    picked: ['loaded'],
+    loaded: ['delivering'],
+};
+
+// Per-role allowed TARGET statuses for PATCH /orders/:id/status
+// Admins (tenant_admin, super_admin) can set any valid target — not listed here.
+export const ROLE_ALLOWED_TRANSITIONS: Record<string, string[]> = {
+    supervisor: ['confirmed', 'approved', 'cancelled'],
+    warehouse: ['picking', 'picked', 'loaded'],
+    driver: ['delivering', 'delivered', 'partial', 'returned'],
+};
 
 // Order payment statuses
 export const PAYMENT_STATUS = {

@@ -14,6 +14,7 @@ import {
 } from 'lucide-solid';
 import { api } from '../../lib/api';
 import { formatCurrency, formatCurrencyShort, formatDate } from '../../stores/settings';
+import { useI18n } from '../../i18n';
 
 interface VisitDurationByRep {
     salesRepId: string;
@@ -71,6 +72,7 @@ interface LowStockItem {
 }
 
 const Dashboard: Component = () => {
+    const { t } = useI18n();
     // Fetch sales by rep
     const [salesByRep] = createResource(async () => {
         const result = await api<SalesByRep[]>('/reports/sales-by-rep');
@@ -177,15 +179,15 @@ const Dashboard: Component = () => {
     };
 
     const stats = [
-        { label: 'Total Sales', value: () => formatCurrencyShort(totalSales()), icon: DollarSign, color: 'from-emerald-500 to-teal-600', change: '+12.5%', up: true },
-        { label: 'Orders', value: () => totalOrders().toString(), icon: ShoppingCart, color: 'from-blue-500 to-indigo-600', change: '+8.2%', up: true },
-        { label: 'Customer Debt', value: () => formatCurrencyShort(totalDebt()), icon: AlertTriangle, color: 'from-orange-500 to-red-600', change: '-3.1%', up: false },
-        { label: 'Inventory Value', value: () => formatCurrencyShort(inventoryValue()), icon: Package, color: 'from-purple-500 to-pink-600', change: '+5.4%', up: true },
+        { label: t('adminPages.dashboard.totalSales'), value: () => formatCurrencyShort(totalSales()), icon: DollarSign, color: 'from-emerald-500 to-teal-600', change: '+12.5%', up: true },
+        { label: t('adminPages.dashboard.orders'), value: () => totalOrders().toString(), icon: ShoppingCart, color: 'from-blue-500 to-indigo-600', change: '+8.2%', up: true },
+        { label: t('adminPages.dashboard.customerDebt'), value: () => formatCurrencyShort(totalDebt()), icon: AlertTriangle, color: 'from-orange-500 to-red-600', change: '-3.1%', up: false },
+        { label: t('adminPages.dashboard.inventoryValue'), value: () => formatCurrencyShort(inventoryValue()), icon: Package, color: 'from-purple-500 to-pink-600', change: '+5.4%', up: true },
     ];
 
     const visitStats = [
-        { label: 'Avg Visit Duration', value: () => formatDuration(avgVisitDuration()), icon: Clock, color: 'from-cyan-500 to-blue-600' },
-        { label: 'Visits Completed', value: () => totalVisitsCompleted().toString(), icon: MapPin, color: 'from-violet-500 to-purple-600' },
+        { label: t('adminPages.dashboard.avgVisitDuration'), value: () => formatDuration(avgVisitDuration()), icon: Clock, color: 'from-cyan-500 to-blue-600' },
+        { label: t('adminPages.dashboard.visitsCompleted'), value: () => totalVisitsCompleted().toString(), icon: MapPin, color: 'from-violet-500 to-purple-600' },
     ];
 
     const loading = () => salesByRep.loading || customerDebts.loading || inventory.loading || recentOrders.loading || lowStockItems.loading || visitDurationByRep.loading || visitDurationTrends.loading;
@@ -194,8 +196,8 @@ const Dashboard: Component = () => {
         <div class="p-6 pt-6 lg:p-8 lg:pt-8 mt-6 lg:mt-8">
             {/* Header */}
             <div class="mb-8">
-                <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">Dashboard</h1>
-                <p class="text-slate-400">Welcome back! Here's what's happening today.</p>
+                <h1 class="text-2xl lg:text-3xl font-bold text-white mb-2">{t('adminPages.dashboard.title')}</h1>
+                <p class="text-slate-400">{t('adminPages.dashboard.subtitle')}</p>
             </div>
 
             {/* Loading */}
@@ -248,7 +250,7 @@ const Dashboard: Component = () => {
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                     {/* Sales by Rep */}
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
-                        <h3 class="text-lg font-semibold text-white mb-4">Top Sales Reps</h3>
+                        <h3 class="text-lg font-semibold text-white mb-4">{t('adminPages.dashboard.topSalesReps')}</h3>
                         <div class="space-y-4">
                             <For each={topSalesReps()}>
                                 {(rep, index) => {
@@ -261,7 +263,7 @@ const Dashboard: Component = () => {
                                                     <span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold flex items-center justify-center">
                                                         {index() + 1}
                                                     </span>
-                                                    <span class="text-white font-medium text-sm">{rep.salesRepName || 'Unknown'}</span>
+                                                    <span class="text-white font-medium text-sm">{rep.salesRepName || t('adminPages.dashboard.unknown')}</span>
                                                 </div>
                                                 <span class="text-slate-400 text-sm">{formatCurrency(rep.totalSales)}</span>
                                             </div>
@@ -276,7 +278,7 @@ const Dashboard: Component = () => {
                                 }}
                             </For>
                             <Show when={topSalesReps().length === 0}>
-                                <div class="text-center py-8 text-slate-500">No sales data available</div>
+                                <div class="text-center py-8 text-slate-500">{t('adminPages.dashboard.noSalesData')}</div>
                             </Show>
                         </div>
                     </div>
@@ -285,7 +287,7 @@ const Dashboard: Component = () => {
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
                         <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                             <AlertTriangle class="w-5 h-5 text-orange-400" />
-                            Top Debtors
+                            {t('adminPages.dashboard.topDebtors')}
                         </h3>
                         <div class="space-y-3">
                             <For each={topDebtors()}>
@@ -312,7 +314,7 @@ const Dashboard: Component = () => {
                                                 </div>
                                                 <div class="flex justify-between mt-1 text-[10px] text-slate-500">
                                                     <span>0</span>
-                                                    <span>Limit: {formatCurrency(limit)}</span>
+                                                    <span>{t('adminPages.dashboard.limit')}: {formatCurrency(limit)}</span>
                                                 </div>
                                             </Show>
                                         </div>
@@ -320,7 +322,7 @@ const Dashboard: Component = () => {
                                 }}
                             </For>
                             <Show when={topDebtors().length === 0}>
-                                <div class="text-center py-8 text-slate-500">No outstanding debts</div>
+                                <div class="text-center py-8 text-slate-500">{t('adminPages.dashboard.noOutstandingDebts')}</div>
                             </Show>
                         </div>
                     </div>
@@ -332,7 +334,7 @@ const Dashboard: Component = () => {
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
                         <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                             <Clock class="w-5 h-5 text-cyan-400" />
-                            Visit Duration by Rep (Last 30 Days)
+                            {t('adminPages.dashboard.visitDurationByRep')}
                         </h3>
                         <div class="space-y-4">
                             <For each={topPerformersByDuration()}>
@@ -346,11 +348,11 @@ const Dashboard: Component = () => {
                                                     <span class="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-bold flex items-center justify-center">
                                                         {index() + 1}
                                                     </span>
-                                                    <span class="text-white font-medium text-sm">{rep.salesRepName || 'Unknown'}</span>
+                                                    <span class="text-white font-medium text-sm">{rep.salesRepName || t('adminPages.dashboard.unknown')}</span>
                                                 </div>
                                                 <div class="text-right">
-                                                    <span class="text-slate-400 text-sm">{formatDuration(rep.avgDurationMinutes || 0)} avg</span>
-                                                    <span class="text-slate-500 text-xs ml-2">({rep.totalVisits} visits)</span>
+                                                    <span class="text-slate-400 text-sm">{formatDuration(rep.avgDurationMinutes || 0)} {t('adminPages.dashboard.avg')}</span>
+                                                    <span class="text-slate-500 text-xs ml-2">({rep.totalVisits} {t('adminPages.dashboard.visits')})</span>
                                                 </div>
                                             </div>
                                             <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
@@ -364,7 +366,7 @@ const Dashboard: Component = () => {
                                 }}
                             </For>
                             <Show when={topPerformersByDuration().length === 0}>
-                                <div class="text-center py-8 text-slate-500">No visit data available</div>
+                                <div class="text-center py-8 text-slate-500">{t('adminPages.dashboard.noVisitData')}</div>
                             </Show>
                         </div>
                     </div>
@@ -373,7 +375,7 @@ const Dashboard: Component = () => {
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
                         <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                             <TrendingUp class="w-5 h-5 text-violet-400" />
-                            Visit Trends (Last 30 Days)
+                            {t('adminPages.dashboard.visitTrends')}
                         </h3>
                         <div class="space-y-3">
                             <For each={visitDurationTrends()}>
@@ -392,11 +394,11 @@ const Dashboard: Component = () => {
                                                         style={{ width: `${percent}%` }}
                                                     />
                                                     <div class="text-sm font-semibold text-white min-w-[60px]">
-                                                        {trend.totalVisits} visits
+                                                        {trend.totalVisits} {t('adminPages.dashboard.visits')}
                                                     </div>
                                                 </div>
                                                 <div class="text-xs text-slate-500 ml-2">
-                                                    Avg: {formatDuration(trend.avgDurationMinutes || 0)}
+                                                    {t('adminPages.dashboard.avg')}: {formatDuration(trend.avgDurationMinutes || 0)}
                                                 </div>
                                             </div>
                                         </div>
@@ -404,7 +406,7 @@ const Dashboard: Component = () => {
                                 }}
                             </For>
                             <Show when={(visitDurationTrends() || []).length === 0}>
-                                <div class="text-center py-8 text-slate-500">No trend data available</div>
+                                <div class="text-center py-8 text-slate-500">{t('adminPages.dashboard.noTrendData')}</div>
                             </Show>
                         </div>
                     </div>
@@ -415,18 +417,18 @@ const Dashboard: Component = () => {
                     {/* Recent Orders */}
                     <div class="lg:col-span-2 bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-semibold text-white">Recent Orders</h3>
-                            <a href="/admin/orders" class="text-sm text-blue-400 hover:text-blue-300">View All</a>
+                            <h3 class="text-lg font-semibold text-white">{t('adminPages.dashboard.recentOrders')}</h3>
+                            <a href="/admin/orders" class="text-sm text-blue-400 hover:text-blue-300">{t('adminPages.dashboard.viewAll')}</a>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-sm">
                                 <thead class="text-slate-400 border-b border-slate-800">
                                     <tr>
-                                        <th class="pb-3 pl-2">Order #</th>
-                                        <th class="pb-3">Customer</th>
-                                        <th class="pb-3">Status</th>
-                                        <th class="pb-3 text-right">Amount</th>
-                                        <th class="pb-3 text-right pr-2">Date</th>
+                                        <th class="pb-3 pl-2">{t('adminPages.dashboard.order')} #</th>
+                                        <th class="pb-3">{t('adminPages.dashboard.customer')}</th>
+                                        <th class="pb-3">{t('adminPages.dashboard.status')}</th>
+                                        <th class="pb-3 text-right">{t('adminPages.dashboard.amount')}</th>
+                                        <th class="pb-3 text-right pr-2">{t('adminPages.dashboard.date')}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-800">
@@ -434,14 +436,14 @@ const Dashboard: Component = () => {
                                         {(order) => (
                                             <tr class="hover:bg-slate-800/30 transition-colors">
                                                 <td class="py-3 pl-2 font-medium text-white">{order.orderNumber}</td>
-                                                <td class="py-3 text-slate-300">{order.customerName || 'Unknown'}</td>
+                                                <td class="py-3 text-slate-300">{order.customerName || t('adminPages.dashboard.unknown')}</td>
                                                 <td class="py-3">
-                                                    <span class={`px-2 py-1 rounded-full text-xs font-medium ${order.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400' :
+                                                <span class={`px-2 py-1 rounded-full text-xs font-medium ${order.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-400' :
                                                         order.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
                                                             order.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
                                                                 'bg-blue-500/20 text-blue-400'
                                                         }`}>
-                                                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                                        {t(`adminPages.orders.${order.status}`)}
                                                     </span>
                                                 </td>
                                                 <td class="py-3 text-right text-white font-medium">{formatCurrency(order.totalAmount)}</td>
@@ -454,7 +456,7 @@ const Dashboard: Component = () => {
                                     <Show when={recentOrders()?.length === 0}>
                                         <tr>
                                             <td colspan="5" class="py-8 text-center text-slate-500">
-                                                No recent orders found
+                                                {t('adminPages.dashboard.noRecentOrders')}
                                             </td>
                                         </tr>
                                     </Show>
@@ -467,7 +469,7 @@ const Dashboard: Component = () => {
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
                         <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                             <AlertTriangle class="w-5 h-5 text-red-400" />
-                            Low Stock Alerts
+                            {t('adminPages.dashboard.lowStockAlerts')}
                         </h3>
                         <div class="space-y-3">
                             <For each={lowStockItems()}>
@@ -479,7 +481,7 @@ const Dashboard: Component = () => {
                                         </div>
                                         <div class="text-right">
                                             <div class="text-red-400 font-bold text-sm">{item.stockQuantity} / {item.reorderPoint}</div>
-                                            <div class="text-xs text-slate-500">In Stock</div>
+                                            <div class="text-xs text-slate-500">{t('adminPages.dashboard.inStock')}</div>
                                         </div>
                                     </div>
                                 )}
@@ -487,7 +489,7 @@ const Dashboard: Component = () => {
                             <Show when={lowStockItems()?.length === 0}>
                                 <div class="text-center py-12 text-slate-500 flex flex-col items-center gap-2">
                                     <Check class="w-8 h-8 text-emerald-500/50" />
-                                    <p>All stock levels healthy</p>
+                                    <p>{t('adminPages.dashboard.allStockHealthy')}</p>
                                 </div>
                             </Show>
                         </div>
@@ -498,19 +500,19 @@ const Dashboard: Component = () => {
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 text-center">
                         <div class="text-3xl font-bold text-white mb-1">{(salesByRep() || []).length}</div>
-                        <div class="text-slate-400 text-sm">Active Sales Reps</div>
+                        <div class="text-slate-400 text-sm">{t('adminPages.dashboard.activeSalesReps')}</div>
                     </div>
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 text-center">
                         <div class="text-3xl font-bold text-white mb-1">{(customerDebts() || []).length}</div>
-                        <div class="text-slate-400 text-sm">Customers with Debt</div>
+                        <div class="text-slate-400 text-sm">{t('adminPages.dashboard.customersWithDebt')}</div>
                     </div>
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 text-center">
                         <div class="text-3xl font-bold text-white mb-1">{(inventory() || []).length}</div>
-                        <div class="text-slate-400 text-sm">Active Products</div>
+                        <div class="text-slate-400 text-sm">{t('adminPages.dashboard.activeProducts')}</div>
                     </div>
                     <div class="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 text-center">
                         <div class="text-3xl font-bold text-emerald-400 mb-1">98.2%</div>
-                        <div class="text-slate-400 text-sm">Delivery Rate</div>
+                        <div class="text-slate-400 text-sm">{t('adminPages.dashboard.deliveryRate')}</div>
                     </div>
                 </div>
             </Show>

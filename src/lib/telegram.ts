@@ -15,6 +15,7 @@
  */
 
 import { getTelegramSettings } from './systemSettings';
+import { getTelegramIntegration } from './tenant-integrations';
 import { db } from '../db';
 import * as schema from '../db/schema';
 import { eq, and, sql, lt, inArray } from 'drizzle-orm';
@@ -64,6 +65,14 @@ export interface BotValidationResult {
     valid: boolean;
     botInfo?: BotInfo;
     error?: string;
+}
+
+async function getTenantBotRuntime(tenantId: string): Promise<{ enabled: boolean; botToken: string | null }> {
+    const integration = await getTelegramIntegration(tenantId, true);
+    return {
+        enabled: integration.enabled,
+        botToken: integration.botToken || null,
+    };
 }
 
 // ============================================================================
@@ -692,14 +701,8 @@ export async function canSendTenantNotification(
 ): Promise<TenantNotificationCheck> {
     try {
         // Check if tenant has Telegram enabled (Super Admin control)
-        const tenant = await db.select({
-            telegramEnabled: schema.tenants.telegramEnabled,
-        })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
-
-        if (!tenant.length || !tenant[0].telegramEnabled) {
+        const integration = await getTelegramIntegration(tenantId, false);
+        if (!integration.enabled) {
             return { canSend: false, settings: null };
         }
 
@@ -1239,17 +1242,9 @@ export async function sendToCustomer(
     logContext?: TelegramMessage['logContext']
 ): Promise<boolean> {
     try {
-        // Get tenant's bot token
-        const [tenant] = await db
-            .select({
-                telegramBotToken: schema.tenants.telegramBotToken,
-                telegramEnabled: schema.tenants.telegramEnabled,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantBotRuntime(tenantId);
 
-        if (!tenant || !tenant.telegramEnabled || !tenant.telegramBotToken) {
+        if (!tenant.enabled || !tenant.botToken) {
             return false;
         }
 
@@ -1260,7 +1255,7 @@ export async function sendToCustomer(
         }
 
         const response = await fetch(
-            `https://api.telegram.org/bot${tenant.telegramBotToken}/sendMessage`,
+            `https://api.telegram.org/bot${tenant.botToken}/sendMessage`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1586,15 +1581,13 @@ export async function processOverdueDebtNotifications(): Promise<{ processed: nu
     let sent = 0;
 
     try {
-        // Get all tenants with notifications enabled
+        // Iterate active tenants; integration state is checked inside canSendTenantNotification.
         const tenants = await db
             .select({
                 id: schema.tenants.id,
                 currency: schema.tenants.currency,
-                telegramEnabled: schema.tenants.telegramEnabled,
             })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.telegramEnabled, true));
+            .from(schema.tenants);
 
         for (const tenant of tenants) {
             // Check if this tenant has due debt notifications enabled
@@ -1696,28 +1689,17 @@ export async function validateBotToken(botToken: string): Promise<BotValidationR
  */
 export async function validateTenantBot(tenantId: string): Promise<BotValidationResult> {
     try {
-        const [tenant] = await db
-            .select({
-                telegramBotToken: schema.tenants.telegramBotToken,
-                telegramEnabled: schema.tenants.telegramEnabled,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantBotRuntime(tenantId);
 
-        if (!tenant) {
-            return { valid: false, error: 'Tenant not found' };
-        }
-
-        if (!tenant.telegramEnabled) {
+        if (!tenant.enabled) {
             return { valid: false, error: 'Telegram is not enabled for this tenant' };
         }
 
-        if (!tenant.telegramBotToken) {
+        if (!tenant.botToken) {
             return { valid: false, error: 'No bot token configured' };
         }
 
-        return validateBotToken(tenant.telegramBotToken);
+        return validateBotToken(tenant.botToken);
     } catch (error) {
         return {
             valid: false,
@@ -1773,21 +1755,14 @@ export async function sendToCustomerWithKeyboard(
     logContext?: TelegramMessage['logContext']
 ): Promise<boolean> {
     try {
-        const [tenant] = await db
-            .select({
-                telegramBotToken: schema.tenants.telegramBotToken,
-                telegramEnabled: schema.tenants.telegramEnabled,
-            })
-            .from(schema.tenants)
-            .where(eq(schema.tenants.id, tenantId))
-            .limit(1);
+        const tenant = await getTenantBotRuntime(tenantId);
 
-        if (!tenant || !tenant.telegramEnabled || !tenant.telegramBotToken) {
+        if (!tenant.enabled || !tenant.botToken) {
             return false;
         }
 
         const response = await fetch(
-            `https://api.telegram.org/bot${tenant.telegramBotToken}/sendMessage`,
+            `https://api.telegram.org/bot${tenant.botToken}/sendMessage`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1988,17 +1963,9 @@ export async function retryFailedNotifications(): Promise<{ processed: number; s
         for (const notif of failedNotifs) {
             processed++;
 
-            // Get tenant's bot token
-            const [tenant] = await db
-                .select({
-                    telegramBotToken: schema.tenants.telegramBotToken,
-                    telegramEnabled: schema.tenants.telegramEnabled,
-                })
-                .from(schema.tenants)
-                .where(eq(schema.tenants.id, notif.tenantId))
-                .limit(1);
+            const tenant = await getTenantBotRuntime(notif.tenantId);
 
-            if (!tenant || !tenant.telegramEnabled || !tenant.telegramBotToken) {
+            if (!tenant.enabled || !tenant.botToken) {
                 // Mark as permanently failed - tenant doesn't have telegram anymore
                 await db
                     .update(schema.notificationLogs)
@@ -2029,7 +1996,7 @@ export async function retryFailedNotifications(): Promise<{ processed: number; s
             try {
                 // Attempt to send
                 const response = await fetch(
-                    `https://api.telegram.org/bot${tenant.telegramBotToken}/sendMessage`,
+                    `https://api.telegram.org/bot${tenant.botToken}/sendMessage`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },

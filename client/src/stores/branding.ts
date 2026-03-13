@@ -24,6 +24,14 @@ const resolveBaseUrl = () => {
     const normalized = RAW_BASE_URL?.replace(/\/$/, '') || '/api';
     if (!RAW_BASE_URL) return normalized;
     if (typeof window === 'undefined') return normalized;
+    try {
+        const resolved = new URL(RAW_BASE_URL, window.location.origin);
+        if (import.meta.env.PROD && resolved.origin !== window.location.origin) {
+            return '/api';
+        }
+    } catch {
+        return normalized;
+    }
     return normalized;
 };
 

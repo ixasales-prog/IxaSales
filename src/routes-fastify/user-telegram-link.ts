@@ -14,7 +14,8 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { db, schema } from '../db';
-import { eq, and, gt, sql } from 'drizzle-orm';
+import { eq, and, gt } from 'drizzle-orm';
+import { getTelegramIntegration } from '../lib/tenant-integrations';
 
 // Generate a 6-character alphanumeric code (uppercase for readability)
 function generateLinkCode(): string {
@@ -53,13 +54,8 @@ export const userTelegramLinkRoutes: FastifyPluginAsync = async (fastify) => {
             // Get tenant's bot info
             let botUsername: string | null = null;
             if (user.tenantId) {
-                const [tenant] = await db.select({
-                    telegramBotUsername: schema.tenants.telegramBotUsername,
-                    telegramEnabled: schema.tenants.telegramEnabled,
-                    hasBotToken: sql<boolean>`${schema.tenants.telegramBotToken} IS NOT NULL`,
-                }).from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
-
-                botUsername = tenant?.telegramBotUsername || null;
+                const tenant = await getTelegramIntegration(user.tenantId, false);
+                botUsername = tenant.botUsername || null;
             }
 
             return {
@@ -107,12 +103,9 @@ export const userTelegramLinkRoutes: FastifyPluginAsync = async (fastify) => {
             }
 
             // Check if tenant has Telegram configured
-            const [tenant] = await db.select({
-                telegramBotToken: schema.tenants.telegramBotToken,
-                telegramBotUsername: schema.tenants.telegramBotUsername,
-            }).from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
+            const tenant = await getTelegramIntegration(user.tenantId, false);
 
-            if (!tenant?.telegramBotToken) {
+            if (!tenant.hasBotToken) {
                 return reply.code(400).send({
                     success: false,
                     error: { code: 'BOT_NOT_CONFIGURED', message: 'Telegram bot is not configured for this tenant' },
@@ -168,9 +161,9 @@ export const userTelegramLinkRoutes: FastifyPluginAsync = async (fastify) => {
                     code: code!,
                     expiresAt,
                     expiresInMinutes: 15,
-                    botUsername: tenant.telegramBotUsername,
-                    instructions: tenant.telegramBotUsername
-                        ? `Open Telegram, search for @${tenant.telegramBotUsername}, and send the code: ${code!}`
+                    botUsername: tenant.botUsername,
+                    instructions: tenant.botUsername
+                        ? `Open Telegram, search for @${tenant.botUsername}, and send the code: ${code!}`
                         : `Open your company's Telegram bot and send this code: ${code!}`,
                 },
             };

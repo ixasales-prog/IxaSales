@@ -12,7 +12,7 @@ import {
     Package, User, LogOut, RefreshCw, CreditCard,
     ShoppingCart, Store, Heart, Loader2
 } from 'lucide-solid';
-import { customerApi } from '../../services/customer-api';
+import { createIdempotencyKey, customerApi, getSubdomain } from '../../services/customer-api';
 import type {
     CustomerProfile, Order, Product, Payment, Address, CartItem, PortalTab
 } from '../../types/customer-portal';
@@ -31,6 +31,7 @@ import { OrdersTab, ProductsTab, FavoritesTab, PaymentsTab, ProfileTab } from '.
 // Search history storage key
 const SEARCH_HISTORY_KEY = 'customer_portal_search_history';
 const MAX_SEARCH_HISTORY = 5;
+const GUEST_CART_KEY_PREFIX = 'guest_cart_';
 
 interface CustomerDashboardProps {
     token: string;
@@ -148,7 +149,33 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
         try {
             // Load cart first
             const cartData = await customerApi.cart.get();
-            if (cartData.success && cartData.data) setCart(cartData.data);
+            let serverCart = (cartData.success && cartData.data) ? cartData.data : [];
+
+            // Merge guest cart from public catalog into authenticated cart.
+            const guestCartKey = `${GUEST_CART_KEY_PREFIX}${getSubdomain()}`;
+            try {
+                const rawGuest = localStorage.getItem(guestCartKey);
+                const guestItems = rawGuest ? JSON.parse(rawGuest) as Array<{ productId: string; quantity: number }> : [];
+                if (Array.isArray(guestItems) && guestItems.length > 0) {
+                    const merged = new Map<string, number>();
+                    for (const item of serverCart) merged.set(item.product.id, item.quantity);
+                    for (const item of guestItems) {
+                        if (!item?.productId || !item?.quantity) continue;
+                        const current = merged.get(item.productId) || 0;
+                        merged.set(item.productId, current + Math.max(1, Number(item.quantity)));
+                    }
+                    await customerApi.cart.update(
+                        Array.from(merged.entries()).map(([productId, quantity]) => ({ productId, quantity }))
+                    );
+                    const refreshed = await customerApi.cart.get();
+                    if (refreshed.success && refreshed.data) serverCart = refreshed.data;
+                    localStorage.removeItem(guestCartKey);
+                }
+            } catch {
+                // Ignore guest cart parsing/merge errors.
+            }
+
+            setCart(serverCart);
 
             // Load profile and orders in parallel
             const [profileRes, ordersRes] = await Promise.all([
@@ -246,7 +273,8 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
         setCheckingOut(true);
         try {
             const items = cart().map(i => ({ productId: i.product.id, quantity: i.quantity }));
-            const result = await customerApi.orders.create(items, notes, address);
+            const idempotencyKey = createIdempotencyKey('customer-order-create');
+            const result = await customerApi.orders.create(items, notes, address, idempotencyKey);
 
             if (result.success && result.data) {
                 syncCart([]);
@@ -276,7 +304,8 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
     const handleReorder = async (id: string) => {
         setReordering(id);
         try {
-            const result = await customerApi.orders.reorder(id);
+            const idempotencyKey = createIdempotencyKey(`customer-reorder-${id}`);
+            const result = await customerApi.orders.reorder(id, idempotencyKey);
             if (result.success && result.data) {
                 // Refresh orders list - reset pagination like handleRefresh does
                 const ordersRes = await customerApi.orders.list();
@@ -444,8 +473,13 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
         }
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         if (confirm(t('modals.logout') as string)) {
+            try {
+                await customerApi.auth.logout();
+            } catch {
+                // Ignore logout transport issues and still clear local state.
+            }
             props.onLogout();
         }
     };
@@ -476,20 +510,55 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
             }>
 
                 <div class="tabs-container">
-                    <div class="tabs">
-                        <button class={`tab ${activeTab() === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+                    <div class="tabs" role="tablist" aria-label="Customer dashboard tabs">
+                        <button
+                            role="tab"
+                            id="tab-orders"
+                            aria-controls="panel-orders"
+                            aria-selected={activeTab() === 'orders'}
+                            class={`tab ${activeTab() === 'orders' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('orders')}
+                        >
                             <Package size={18} /> {t('tabs.orders')}
                         </button>
-                        <button class={`tab ${activeTab() === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>
+                        <button
+                            role="tab"
+                            id="tab-products"
+                            aria-controls="panel-products"
+                            aria-selected={activeTab() === 'products'}
+                            class={`tab ${activeTab() === 'products' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('products')}
+                        >
                             <Store size={18} /> {t('tabs.catalog')}
                         </button>
-                        <button class={`tab ${activeTab() === 'favorites' ? 'active' : ''}`} onClick={() => setActiveTab('favorites')}>
+                        <button
+                            role="tab"
+                            id="tab-favorites"
+                            aria-controls="panel-favorites"
+                            aria-selected={activeTab() === 'favorites'}
+                            class={`tab ${activeTab() === 'favorites' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('favorites')}
+                        >
                             <Heart size={18} /> {t('tabs.favorites')}
                         </button>
-                        <button class={`tab ${activeTab() === 'payments' ? 'active' : ''}`} onClick={() => setActiveTab('payments')}>
+                        <button
+                            role="tab"
+                            id="tab-payments"
+                            aria-controls="panel-payments"
+                            aria-selected={activeTab() === 'payments'}
+                            class={`tab ${activeTab() === 'payments' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('payments')}
+                        >
                             <CreditCard size={18} /> {t('tabs.payments')}
                         </button>
-                        <button class={`tab ${activeTab() === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}>
+                        <button
+                            role="tab"
+                            id="tab-profile"
+                            aria-controls="panel-profile"
+                            aria-selected={activeTab() === 'profile'}
+                            class={`tab ${activeTab() === 'profile' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('profile')}
+                        >
                             <User size={18} /> {t('tabs.profile')}
                         </button>
                     </div>
@@ -497,79 +566,89 @@ const CustomerDashboard: Component<CustomerDashboardProps> = (props) => {
 
                 {/* Orders Tab */}
                 <Show when={activeTab() === 'orders'}>
-                    <OrdersTab
-                        orders={orders()}
-                        currency={currency()}
-                        hasMore={hasMoreOrders()}
-                        loadingMore={loadingMore()}
-                        onLoadMore={loadMoreOrders}
-                        onReorder={handleReorder}
-                        onCancel={handleCancelOrder}
-                        reordering={reordering()}
-                        cancelling={cancelling()}
-                        onSwitchToProducts={() => setActiveTab('products')}
-                        setupLoadMoreObserver={setupLoadMoreObserver}
-                        debtBalance={profile()?.debtBalance}
-                    />
+                    <div id="panel-orders" role="tabpanel" aria-labelledby="tab-orders">
+                        <OrdersTab
+                            orders={orders()}
+                            currency={currency()}
+                            hasMore={hasMoreOrders()}
+                            loadingMore={loadingMore()}
+                            onLoadMore={loadMoreOrders}
+                            onReorder={handleReorder}
+                            onCancel={handleCancelOrder}
+                            reordering={reordering()}
+                            cancelling={cancelling()}
+                            onSwitchToProducts={() => setActiveTab('products')}
+                            setupLoadMoreObserver={setupLoadMoreObserver}
+                            debtBalance={profile()?.debtBalance}
+                        />
+                    </div>
                 </Show>
 
                 {/* Products Tab */}
                 <Show when={activeTab() === 'products'}>
-                    <ProductsTab
-                        products={products()}
-                        categories={categories()}
-                        currency={currency()}
-                        hasMore={hasMoreProducts()}
-                        loadingMore={loadingMore()}
-                        searchQuery={searchQuery()}
-                        selectedCategory={selectedCategory()}
-                        favorites={favorites()}
-                        cart={cart()}
-                        searchHistory={searchHistory()}
-                        onSearchChange={handleSearchChange}
-                        onCategoryChange={setSelectedCategory}
-                        onClearSearchHistory={clearSearchHistory}
-                        onSelectFromHistory={(q) => { setSearchQuery(q); setDebouncedSearch(q); }}
-                        onAddToCart={addToCart}
-                        onToggleFavorite={toggleFavorite}
-                        onSelectProduct={setSelectedProduct}
-                        setupLoadMoreObserver={setupLoadMoreObserver}
-                    />
+                    <div id="panel-products" role="tabpanel" aria-labelledby="tab-products">
+                        <ProductsTab
+                            products={products()}
+                            categories={categories()}
+                            currency={currency()}
+                            hasMore={hasMoreProducts()}
+                            loadingMore={loadingMore()}
+                            searchQuery={searchQuery()}
+                            selectedCategory={selectedCategory()}
+                            favorites={favorites()}
+                            cart={cart()}
+                            searchHistory={searchHistory()}
+                            onSearchChange={handleSearchChange}
+                            onCategoryChange={setSelectedCategory}
+                            onClearSearchHistory={clearSearchHistory}
+                            onSelectFromHistory={(q) => { setSearchQuery(q); setDebouncedSearch(q); }}
+                            onAddToCart={addToCart}
+                            onToggleFavorite={toggleFavorite}
+                            onSelectProduct={setSelectedProduct}
+                            setupLoadMoreObserver={setupLoadMoreObserver}
+                        />
+                    </div>
                 </Show>
 
                 {/* Favorites Tab */}
                 <Show when={activeTab() === 'favorites'}>
-                    <FavoritesTab
-                        favorites={favorites()}
-                        cart={cart()}
-                        currency={currency()}
-                        onAddToCart={addToCart}
-                        onToggleFavorite={toggleFavorite}
-                        onSelectProduct={setSelectedProduct}
-                        onSwitchToProducts={() => setActiveTab('products')}
-                    />
+                    <div id="panel-favorites" role="tabpanel" aria-labelledby="tab-favorites">
+                        <FavoritesTab
+                            favorites={favorites()}
+                            cart={cart()}
+                            currency={currency()}
+                            onAddToCart={addToCart}
+                            onToggleFavorite={toggleFavorite}
+                            onSelectProduct={setSelectedProduct}
+                            onSwitchToProducts={() => setActiveTab('products')}
+                        />
+                    </div>
                 </Show>
 
                 {/* Payments Tab */}
                 <Show when={activeTab() === 'payments'}>
-                    <PaymentsTab
-                        payments={payments()}
-                        totalPaid={totalPaid()}
-                        currency={currency()}
-                    />
+                    <div id="panel-payments" role="tabpanel" aria-labelledby="tab-payments">
+                        <PaymentsTab
+                            payments={payments()}
+                            totalPaid={totalPaid()}
+                            currency={currency()}
+                        />
+                    </div>
                 </Show>
 
                 {/* Profile Tab */}
                 <Show when={activeTab() === 'profile'}>
-                    <ProfileTab
-                        profile={profile()}
-                        addresses={addresses()}
-                        onSaveProfile={handleSaveProfile}
-                        onAddAddress={() => { setEditingAddress(null); setShowAddressModal(true); }}
-                        onEditAddress={handleEditAddress}
-                        onSetDefaultAddress={handleSetDefaultAddress}
-                        onDeleteAddress={handleDeleteAddress}
-                    />
+                    <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile">
+                        <ProfileTab
+                            profile={profile()}
+                            addresses={addresses()}
+                            onSaveProfile={handleSaveProfile}
+                            onAddAddress={() => { setEditingAddress(null); setShowAddressModal(true); }}
+                            onEditAddress={handleEditAddress}
+                            onSetDefaultAddress={handleSetDefaultAddress}
+                            onDeleteAddress={handleDeleteAddress}
+                        />
+                    </div>
                 </Show>
             </Show>
 

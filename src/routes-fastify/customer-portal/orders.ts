@@ -11,10 +11,40 @@ import { db } from '../../db';
 import * as schema from '../../db/schema';
 import { eq, and, desc, sql, or } from 'drizzle-orm';
 import { customerPortalLogger as logger } from '../../lib/logger';
-import { MAX_PENDING_ORDERS, type OrderItemInput } from './types';
+import { MAX_PENDING_ORDERS } from './types';
 import { createErrorResponse, createSuccessResponse } from '../../lib/error-codes';
 import { requireCustomerAuth } from './middleware';
 import { ordersService } from '../../services/orders.service';
+import type { CreateOrderResult, OrderValidationError } from '../../services/orders.service';
+import { CANCELLABLE_ORDER_STATUSES } from '../../lib/constants';
+import { transitionOrderStatus } from '../../services/order-workflow.service';
+import { abortIdempotentRequest, beginIdempotentRequest, finishIdempotentRequest } from '../../lib/idempotency';
+import type { IdempotencyStartResult } from '../../lib/idempotency';
+
+function isCreateOrderError(result: CreateOrderResult | { error: OrderValidationError }): result is { error: OrderValidationError } {
+    return 'error' in result;
+}
+
+const ORDER_STATUS_FILTERS = [
+    'pending',
+    'confirmed',
+    'approved',
+    'delivering',
+    'delivered',
+    'cancelled',
+    'returned',
+] as const;
+type OrderStatusFilter = typeof ORDER_STATUS_FILTERS[number];
+
+function isOrderStatusFilter(value: string): value is OrderStatusFilter {
+    return ORDER_STATUS_FILTERS.includes(value as OrderStatusFilter);
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number, min: number, max: number): number {
+    const parsed = Number.parseInt(value || '', 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.min(max, parsed));
+}
 
 // ============================================================================
 // SCHEMAS
@@ -39,7 +69,8 @@ const CreateOrderSchema = {
             quantity: Type.Number()
         })),
         notes: Type.Optional(Type.String()),
-        deliveryNotes: Type.Optional(Type.String())
+        deliveryNotes: Type.Optional(Type.String()),
+        discountCode: Type.Optional(Type.String())
     })
 };
 
@@ -61,12 +92,12 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.get('/orders', {
         schema: ListOrdersQuerySchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
         const query = request.query as { page?: string; limit?: string; status?: string };
 
-        const page = parseInt(query.page || '1');
-        const limit = parseInt(query.limit || '20');
+        const page = parsePositiveInt(query.page, 1, 1, 1000);
+        const limit = parsePositiveInt(query.limit, 20, 1, 100);
         const status = query.status;
         const offset = (page - 1) * limit;
 
@@ -75,8 +106,8 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             eq(schema.orders.customerId, customerAuth.customerId)
         ];
 
-        if (status && status !== 'all') {
-            conditions.push(eq(schema.orders.status, status as any));
+        if (status && status !== 'all' && isOrderStatusFilter(status)) {
+            conditions.push(eq(schema.orders.status, status));
         }
 
         const orders = await db
@@ -160,12 +191,30 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         let paymentUrl: string | undefined;
         if (order.paymentStatus !== 'paid') {
             try {
+                const remainingAmount = Number(order.totalAmount) - Number(order.paidAmount || 0);
+                if (remainingAmount <= 0) {
+                    return {
+                        success: true,
+                        data: {
+                            ...order,
+                            totalAmount: Number(order.totalAmount),
+                            paidAmount: Number(order.paidAmount || 0),
+                            remainingAmount,
+                            items: items.map(i => ({
+                                ...i,
+                                unitPrice: Number(i.unitPrice),
+                                lineTotal: Number(i.lineTotal)
+                            })),
+                            paymentUrl: undefined
+                        }
+                    };
+                }
                 const { createPaymentLink } = await import('../../lib/payment-providers');
                 const paymentResult = await createPaymentLink({
                     tenantId: customerAuth.tenantId,
                     orderId: order.id,
                     customerId: customerAuth.customerId,
-                    amount: Number(order.totalAmount) - Number(order.paidAmount || 0),
+                    amount: remainingAmount,
                     currency: 'UZS'
                 });
                 if (paymentResult) {
@@ -318,272 +367,180 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         preHandler: [requireCustomerAuth]
     }, async (request, reply) => {
         const customerAuth = request.customerAuth!;
-        const { items, notes, deliveryNotes } = request.body as {
+        const { items, notes, deliveryNotes, discountCode } = request.body as {
             items: { productId: string; quantity: number }[];
             notes?: string;
             deliveryNotes?: string;
+            discountCode?: string;
         };
-
-        if (!items || items.length === 0) {
-            return reply.status(400).send(createErrorResponse('EMPTY_CART'));
+        let idempotency: IdempotencyStartResult = { enabled: false };
+        try {
+            idempotency = await beginIdempotentRequest(request, 'customer_portal.orders.create');
+        } catch (idempotencyError) {
+            logger.warn('Idempotency initialization failed for customer order create; continuing without idempotency', {
+                customerId: customerAuth.customerId,
+                error: String(idempotencyError),
+            });
         }
-
-        // Check pending order limit
-        const [{ pendingCount }] = await db
-            .select({ pendingCount: sql<number>`count(*)` })
-            .from(schema.orders)
-            .where(and(
-                eq(schema.orders.customerId, customerAuth.customerId),
-                or(
-                    eq(schema.orders.status, 'pending'),
-                    eq(schema.orders.status, 'confirmed')
-                )
-            ));
-
-        if (Number(pendingCount) >= MAX_PENDING_ORDERS) {
-            return reply.status(400).send({
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return reply.status(409).send({
                 success: false,
                 error: {
-                    code: 'ORDER_LIMIT_REACHED',
-                    message: `Sizda ${MAX_PENDING_ORDERS} ta kutilayotgan buyurtma bor. Yangi buyurtma berish uchun avvalgilar yakunlanishi kerak.`
-                }
+                    code: 'IDEMPOTENCY_IN_PROGRESS',
+                    message: 'A request with this idempotency key is currently being processed',
+                },
+            });
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return reply.status(409).send({
+                success: false,
+                error: {
+                    code: 'IDEMPOTENCY_KEY_REUSED',
+                    message: idempotency.conflict,
+                },
             });
         }
 
-        // Use transaction
-        const result = await db.transaction(async (tx) => {
-            const productIds = items.map((i: any) => i.productId);
-            const products = await tx
-                .select({
-                    id: schema.products.id,
-                    name: schema.products.name,
-                    price: schema.products.price,
-                    stockQuantity: schema.products.stockQuantity,
-                    reservedQuantity: schema.products.reservedQuantity,
-                    isActive: schema.products.isActive,
-                })
-                .from(schema.products)
-                .where(and(
-                    eq(schema.products.tenantId, customerAuth.tenantId),
-                    sql`${schema.products.id} IN (${sql.join(productIds.map((id: string) => sql`${id}`), sql`, `)})`
-                ))
-                .for('update');
-
-            const productMap = new Map(products.map(p => [p.id, p]));
-
-            let totalAmount = 0;
-            const orderItems: OrderItemInput[] = [];
-            const errors: string[] = [];
-
-            for (const item of items) {
-                const product = productMap.get(item.productId);
-
-                if (!product) {
-                    errors.push(`Mahsulot topilmadi: ${item.productId}`);
-                    continue;
-                }
-
-                if (!product.isActive) {
-                    errors.push(`Mahsulot mavjud emas: ${product.name}`);
-                    continue;
-                }
-
-                const qty = Number(item.quantity);
-                if (qty <= 0 || qty > 1000) {
-                    errors.push(`Noto'g'ri miqdor: ${product.name}`);
-                    continue;
-                }
-
-                const availableStock = (product.stockQuantity || 0) - (product.reservedQuantity || 0);
-                if (qty > availableStock) {
-                    errors.push(`Yetarli zaxira yo'q: ${product.name} (mavjud: ${availableStock})`);
-                    continue;
-                }
-
-                const unitPrice = Number(product.price);
-                const lineTotal = unitPrice * qty;
-                totalAmount += lineTotal;
-
-                orderItems.push({
-                    productId: item.productId,
-                    qty,
-                    unitPrice,
-                    lineTotal,
-                    productName: product.name
-                });
+        try {
+            if (!items || items.length === 0) {
+                const errorBody = createErrorResponse('EMPTY_CART');
+                await finishIdempotentRequest(idempotency, 400, errorBody);
+                return reply.status(400).send(errorBody);
             }
 
-            if (orderItems.length === 0) {
-                return {
+            // Check pending order limit
+            const [{ pendingCount }] = await db
+                .select({ pendingCount: sql<number>`count(*)` })
+                .from(schema.orders)
+                .where(and(
+                    eq(schema.orders.customerId, customerAuth.customerId),
+                    or(
+                        eq(schema.orders.status, 'pending'),
+                        eq(schema.orders.status, 'confirmed')
+                    )
+                ));
+
+            if (Number(pendingCount) >= MAX_PENDING_ORDERS) {
+                const errorBody = {
+                    success: false,
                     error: {
-                        code: 'NO_VALID_ITEMS',
-                        message: "Hech qanday mahsulot qo'shilmadi",
-                        details: errors,
-                        status: 400
+                        code: 'ORDER_LIMIT_REACHED',
+                        message: `Sizda ${MAX_PENDING_ORDERS} ta kutilayotgan buyurtma bor. Yangi buyurtma berish uchun avvalgilar yakunlanishi kerak.`
                     }
                 };
+                await finishIdempotentRequest(idempotency, 400, errorBody);
+                return reply.status(400).send(errorBody);
             }
 
-            // Find and apply the best available discount using shared service
-            const totalQty = orderItems.reduce((sum, item) => sum + item.qty, 0);
-            const autoDiscount = await ordersService.findBestAutoDiscount(
-                customerAuth.tenantId,
-                customerAuth.customerId,
-                totalAmount,
-                totalQty
-            );
-
-            const discountAmount = autoDiscount?.amount || 0;
-            const finalTotal = totalAmount - discountAmount;
-
-            // Validate credit/tier limits
-            const creditError = await ordersService.validateCreditLimits(tx, customerAuth.customerId, finalTotal);
-            if (creditError) {
-                return { error: creditError };
-            }
-
-            // Generate order number using shared service
-            const orderNumber = await ordersService.generateOrderNumber(tx, customerAuth.tenantId);
-
-            // Auto-assign sales rep from customer's assigned rep (if active)
-            let salesRepId: string | undefined;
-            const [customer] = await tx
-                .select({ assignedSalesRepId: schema.customers.assignedSalesRepId })
-                .from(schema.customers)
-                .where(eq(schema.customers.id, customerAuth.customerId))
-                .limit(1);
-
-            if (customer?.assignedSalesRepId) {
-                const [rep] = await tx
-                    .select({ isActive: schema.users.isActive })
-                    .from(schema.users)
-                    .where(eq(schema.users.id, customer.assignedSalesRepId))
-                    .limit(1);
-
-                if (rep?.isActive) {
-                    salesRepId = customer.assignedSalesRepId;
+            const serviceResult = await db.transaction(async (tx) => {
+                const { canCreateResourceInTx } = await import('../../lib/planLimits');
+                const limitCheck = await canCreateResourceInTx(tx, customerAuth.tenantId, 'orders');
+                if (!limitCheck.allowed) {
+                    return {
+                        error: {
+                            code: 'LIMIT_EXCEEDED' as const,
+                            status: 403,
+                            message: `Monthly order limit reached (${limitCheck.current}/${limitCheck.max}).`,
+                        }
+                    };
                 }
+
+                return ordersService.createOrder(
+                    tx,
+                    {
+                        tenantId: customerAuth.tenantId,
+                        customerId: customerAuth.customerId,
+                        items: items.map((item) => ({
+                            productId: item.productId,
+                            quantity: Math.floor(Number(item.quantity)),
+                        })),
+                        notes,
+                        deliveryNotes,
+                        discountCode,
+                    },
+                    {
+                        mode: 'customer_portal',
+                        userId: undefined,
+                        actorRole: 'customer',
+                        applyAutoDiscount: !discountCode,
+                    }
+                );
+            });
+
+            if (isCreateOrderError(serviceResult)) {
+                const err = serviceResult.error;
+                const errorBody = {
+                    success: false,
+                    error: {
+                        code: err.code,
+                        message: err.message,
+                        details: err.details
+                    }
+                };
+                await finishIdempotentRequest(idempotency, err.status, errorBody);
+                return reply.status(err.status).send(errorBody);
             }
 
-            const [newOrder] = await tx
-                .insert(schema.orders)
-                .values({
-                    tenantId: customerAuth.tenantId,
-                    customerId: customerAuth.customerId,
-                    salesRepId,
-                    orderNumber,
-                    status: 'pending',
-                    paymentStatus: 'unpaid',
-                    subtotalAmount: String(totalAmount),
-                    discountAmount: String(discountAmount),
-                    totalAmount: String(finalTotal),
-                    paidAmount: '0',
-                    notes: autoDiscount
-                        ? `${notes || ''}\n[Chegirma qo'llanildi: ${autoDiscount.name} (-${discountAmount.toLocaleString()} so'm)]`.trim()
-                        : (notes || null),
-                    deliveryNotes: deliveryNotes || null,
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                })
-                .returning();
-
-            // Insert order items
-            for (const item of orderItems) {
-                await tx.insert(schema.orderItems).values({
-                    orderId: newOrder.id,
-                    productId: item.productId,
-                    qtyOrdered: item.qty,
-                    qtyDelivered: 0,
-                    unitPrice: String(item.unitPrice),
-                    lineTotal: String(item.lineTotal),
-                });
-            }
-
-            // Reserve stock using shared service
-            await ordersService.reserveStock(tx, orderItems.map(item => ({
-                productId: item.productId,
-                productName: item.productName,
-                unitPrice: item.unitPrice,
-                quantity: item.qty,
-                lineTotal: item.lineTotal,
-            })));
-
-            // Update customer debt using shared service
-            await ordersService.updateCustomerDebt(tx, customerAuth.customerId, finalTotal);
-
-            // Log status change using shared service
-            await ordersService.logStatusChange(tx, newOrder.id, 'pending', undefined, 'Order created via customer portal');
-
+            const orderResult: CreateOrderResult = serviceResult;
             logger.info('Order created via customer portal', {
-                orderId: newOrder.id,
-                orderNumber: newOrder.orderNumber,
+                orderId: orderResult.order.id,
+                orderNumber: orderResult.order.orderNumber,
                 customerId: customerAuth.customerId,
-                subtotal: totalAmount,
-                discountAmount,
-                discountName: autoDiscount?.name,
-                totalAmount: finalTotal,
-                itemCount: orderItems.length
+                subtotal: orderResult.subtotalAmount,
+                discountAmount: orderResult.discountAmount,
+                discountName: orderResult.discountName,
+                totalAmount: orderResult.totalAmount,
+                itemCount: orderResult.items.length
             });
 
-            return {
-                order: newOrder,
-                orderItems,
-                subtotalAmount: totalAmount,
-                discountAmount,
-                discountName: autoDiscount?.name,
-                totalAmount: finalTotal,
-                errors
-            };
-        });
+            // Notify admin
+            try {
+                const { notifyNewOrder, getTenantAdminsWithTelegram, canSendTenantNotification } = await import('../../lib/telegram');
+                const notifCheck = await canSendTenantNotification(customerAuth.tenantId, 'notifyNewOrder');
+                if (notifCheck.canSend) {
+                    const [customerInfo] = await db.select({ name: schema.customers.name, phone: schema.customers.phone })
+                        .from(schema.customers).where(eq(schema.customers.id, customerAuth.customerId)).limit(1);
+                    const [tenantInfo] = await db.select({ currency: schema.tenants.currency })
+                        .from(schema.tenants).where(eq(schema.tenants.id, customerAuth.tenantId)).limit(1);
 
-        if ('error' in result && result.error) {
-            const err = result.error;
-            return reply.status(err.status).send({
-                success: false,
-                error: {
-                    code: err.code,
-                    message: err.message,
-                    details: err.details
+                    const admins = await getTenantAdminsWithTelegram(customerAuth.tenantId);
+                    for (const admin of admins) {
+                        await notifyNewOrder(admin.telegramChatId, {
+                            orderNumber: orderResult.order.orderNumber,
+                            customerName: customerInfo?.name || "Noma'lum",
+                            customerPhone: customerInfo?.phone || undefined,
+                            total: orderResult.totalAmount,
+                            currency: tenantInfo?.currency || 'UZS',
+                            itemCount: orderResult.items.length
+                        });
+                    }
                 }
-            });
-        }
-
-        // Notify admin
-        try {
-            const { notifyNewOrder, getTenantAdminsWithTelegram, canSendTenantNotification } = await import('../../lib/telegram');
-            const notifCheck = await canSendTenantNotification(customerAuth.tenantId, 'notifyNewOrder');
-            if (notifCheck.canSend) {
-                const [customerInfo] = await db.select({ name: schema.customers.name, phone: schema.customers.phone })
-                    .from(schema.customers).where(eq(schema.customers.id, customerAuth.customerId)).limit(1);
-                const [tenantInfo] = await db.select({ currency: schema.tenants.currency })
-                    .from(schema.tenants).where(eq(schema.tenants.id, customerAuth.tenantId)).limit(1);
-
-                const admins = await getTenantAdminsWithTelegram(customerAuth.tenantId);
-                for (const admin of admins) {
-                    await notifyNewOrder(admin.telegramChatId, {
-                        orderNumber: result.order.orderNumber,
-                        customerName: customerInfo?.name || "Noma'lum",
-                        customerPhone: customerInfo?.phone || undefined,
-                        total: result.totalAmount,
-                        currency: tenantInfo?.currency || 'UZS',
-                        itemCount: result.orderItems.length
-                    });
-                }
+            } catch (e) {
+                logger.error(`Failed to send new order notification: ${String(e)}`);
             }
-        } catch (e) {
-            logger.error('Failed to send new order notification', { error: String(e) });
-        }
 
-        return createSuccessResponse('ORDER_CREATED', {
-            orderId: result.order.id,
-            orderNumber: result.order.orderNumber,
-            subtotalAmount: result.subtotalAmount,
-            discountAmount: result.discountAmount,
-            discountName: result.discountName,
-            totalAmount: result.totalAmount,
-            itemCount: result.orderItems.length,
-            warnings: result.errors.length > 0 ? result.errors : undefined
-        });
+            const responseBody = createSuccessResponse('ORDER_CREATED', {
+                orderId: orderResult.order.id,
+                orderNumber: orderResult.order.orderNumber,
+                subtotalAmount: orderResult.subtotalAmount,
+                discountAmount: orderResult.discountAmount,
+                discountName: orderResult.discountName,
+                totalAmount: orderResult.totalAmount,
+                itemCount: orderResult.items.length,
+                warnings: orderResult.warnings
+            });
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            logger.error('Customer portal order create failed', error instanceof Error ? error : new Error(String(error)), {
+                customerId: customerAuth.customerId,
+            });
+            return reply.status(500).send(createErrorResponse('SERVER_ERROR'));
+        }
     });
 
     /**
@@ -610,53 +567,35 @@ export const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             return reply.status(404).send(createErrorResponse('ORDER_NOT_FOUND'));
         }
 
-        if (order.status !== 'pending') {
+        if (!(CANCELLABLE_ORDER_STATUSES as readonly string[]).includes(order.status || '')) {
             return reply.status(400).send({
                 success: false,
                 error: {
                     code: 'CANNOT_CANCEL',
-                    message: `Faqat kutilayotgan buyurtmalarni bekor qilish mumkin. Joriy holat: ${order.status}`
+                    message: `Faqat kutilayotgan yoki tasdiqlangan buyurtmalarni bekor qilish mumkin. Joriy holat: ${order.status}`
                 }
             });
         }
 
         await db.transaction(async (tx) => {
-            const items = await tx
-                .select({
-                    productId: schema.orderItems.productId,
-                    qtyOrdered: schema.orderItems.qtyOrdered,
-                })
-                .from(schema.orderItems)
-                .where(eq(schema.orderItems.orderId, order.id));
-
-            // Release stock using shared service
-            await ordersService.releaseStock(tx, items.map(item => ({
-                productId: item.productId,
-                quantity: item.qtyOrdered,
-            })));
-
-            // Reduce customer debt using shared service (negative amount)
-            const orderTotal = Number(order.totalAmount || 0);
-            await ordersService.updateCustomerDebt(tx, customerAuth.customerId, -orderTotal);
+            await transitionOrderStatus({
+                tx,
+                tenantId: customerAuth.tenantId,
+                orderId: order.id,
+                newStatus: 'cancelled',
+                notes: `Cancelled by customer: ${body?.reason || 'No reason provided'}`,
+                validateTransition: false,
+            });
 
             await tx
                 .update(schema.orders)
                 .set({
-                    status: 'cancelled',
-                    cancelledAt: new Date(),
-                    updatedAt: new Date(),
                     notes: order.notes
                         ? `${order.notes}\n\n[Mijoz tomonidan bekor qilindi: ${body?.reason || "Sabab ko'rsatilmagan"}]`
-                        : `[Mijoz tomonidan bekor qilindi: ${body?.reason || "Sabab ko'rsatilmagan"}]`
+                        : `[Mijoz tomonidan bekor qilindi: ${body?.reason || "Sabab ko'rsatilmagan"}]`,
+                    updatedAt: new Date(),
                 })
                 .where(eq(schema.orders.id, order.id));
-
-            await tx.insert(schema.orderStatusHistory).values({
-                orderId: order.id,
-                fromStatus: order.status,
-                toStatus: 'cancelled',
-                notes: `Cancelled by customer: ${body?.reason || 'No reason provided'}`,
-            });
         });
 
         logger.info('Order cancelled by customer', {

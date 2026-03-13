@@ -2,6 +2,8 @@ import { type Component, createResource, createSignal, Show, For } from 'solid-j
 import { Loader2, RefreshCw, RotateCcw } from 'lucide-solid';
 import { api } from '../../lib/api';
 import ProcessReturnModal from './ProcessReturnModal';
+import PageHeader from '../../components/page/PageHeader';
+import PageShell from '../../components/page/PageShell';
 
 interface Return {
     id: string;
@@ -35,8 +37,8 @@ const Returns: Component = () => {
         async (params) => {
             const queryParams: Record<string, string> = { limit: '50' };
             if (params.status) queryParams.status = params.status;
-            const response = await api.get<{ data: Return[]; meta: any }>('/returns', { params: queryParams });
-            return response?.data || response || [];
+            const response = await api.get<Return[]>('/returns', { params: queryParams });
+            return response || [];
         }
     );
 
@@ -54,13 +56,14 @@ const Returns: Component = () => {
     };
 
     return (
-        <div class="p-4 pt-6 sm:p-8 sm:pt-8 space-y-8">
-            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                    <h1 class="text-3xl font-bold text-white tracking-tight">Returns</h1>
-                    <p class="text-slate-400 mt-1">Manage product returns, refunds, and restocking</p>
-                </div>
-            </div>
+        <PageShell>
+            <div class="space-y-8">
+                <PageHeader
+                    title="Returns"
+                    description="Manage product returns, refunds, and restocking."
+                    backHref="/admin"
+                    backLabel="Back to dashboard"
+                />
 
             {/* Filters */}
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row gap-4">
@@ -168,7 +171,8 @@ const Returns: Component = () => {
                     onSuccess={() => { setSelectedReturn(null); refetch(); }}
                 />
             </Show>
-        </div>
+            </div>
+        </PageShell>
     );
 };
 

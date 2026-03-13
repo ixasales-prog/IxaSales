@@ -69,7 +69,7 @@ const Customers: Component = () => {
     return (
         <div class="min-h-screen pb-20">
             {/* Header */}
-            <div class="fixed top-0 left-0 right-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
+            <div class="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/50">
                 <div class="px-4 py-3">
                     <h1 class="text-lg font-bold text-white mb-3">{t('salesApp.customers.title')}</h1>
 
@@ -96,7 +96,7 @@ const Customers: Component = () => {
             </div>
 
             {/* Content */}
-            <div class="pt-28 px-4">
+            <div class="px-4">
                 {/* Loading */}
                 <Show when={customers.loading}>
                     <div class="flex items-center justify-center py-12">

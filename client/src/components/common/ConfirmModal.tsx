@@ -1,5 +1,6 @@
 import { type Component, createSignal, Show } from 'solid-js';
 import { AlertTriangle, Loader2 } from 'lucide-solid';
+import { useI18n } from '../../i18n';
 
 interface ConfirmModalProps {
     open: boolean;
@@ -14,6 +15,7 @@ interface ConfirmModalProps {
 }
 
 export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
+    const { t } = useI18n();
     const variant = () => props.variant || 'warning';
 
     const variantStyles = {
@@ -60,7 +62,7 @@ export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
                                 disabled={props.loading}
                                 class="flex-1 px-4 py-3 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-medium transition-colors disabled:opacity-50"
                             >
-                                {props.cancelText || 'Cancel'}
+                                {props.cancelText || t('actions.cancel')}
                             </button>
                             <button
                                 onClick={props.onConfirm}
@@ -70,7 +72,7 @@ export const ConfirmModal: Component<ConfirmModalProps> = (props) => {
                                 <Show when={props.loading}>
                                     <Loader2 class="w-5 h-5 animate-spin" />
                                 </Show>
-                                {props.confirmText || 'Confirm'}
+                                {props.confirmText || t('actions.confirm')}
                             </button>
                         </div>
                     </div>

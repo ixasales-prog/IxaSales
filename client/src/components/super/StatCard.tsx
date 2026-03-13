@@ -5,6 +5,7 @@ interface StatCardProps {
     value: string;
     icon: Component<{ class?: string }>;
     color: string;
+    subtitle?: string;
 }
 
 export const StatCard: Component<StatCardProps> = (props) => {
@@ -17,6 +18,7 @@ export const StatCard: Component<StatCardProps> = (props) => {
             </div>
             <div class="text-2xl lg:text-3xl font-bold text-white mb-1">{props.value}</div>
             <div class="text-slate-400 text-sm">{props.label}</div>
+            {props.subtitle ? <div class="text-xs text-slate-500 mt-1">{props.subtitle}</div> : null}
         </div>
     );
 };

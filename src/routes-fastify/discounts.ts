@@ -16,6 +16,7 @@ const DiscountIdParamsSchema = Type.Object({ id: Type.String() });
 
 const CreateDiscountBodySchema = Type.Object({
     name: Type.String({ minLength: 2 }),
+    code: Type.Optional(Type.String({ minLength: 2 })),
     type: Type.String(),
     value: Type.Optional(Type.Number({ minimum: 0 })),
     minQty: Type.Optional(Type.Number({ minimum: 1 })),
@@ -24,6 +25,19 @@ const CreateDiscountBodySchema = Type.Object({
     maxDiscountAmount: Type.Optional(Type.Number({ minimum: 0 })),
     startsAt: Type.Optional(Type.String()),
     endsAt: Type.Optional(Type.String()),
+});
+
+const UpdateDiscountBodySchema = Type.Object({
+    name: Type.Optional(Type.String({ minLength: 2 })),
+    code: Type.Optional(Type.String()),
+    value: Type.Optional(Type.Number({ minimum: 0 })),
+    minQty: Type.Optional(Type.Number({ minimum: 1 })),
+    freeQty: Type.Optional(Type.Number({ minimum: 1 })),
+    minOrderAmount: Type.Optional(Type.Number({ minimum: 0 })),
+    maxDiscountAmount: Type.Optional(Type.Number({ minimum: 0 })),
+    startsAt: Type.Optional(Type.String()),
+    endsAt: Type.Optional(Type.String()),
+    isActive: Type.Optional(Type.Boolean()),
 });
 
 const UpdateScopesBodySchema = Type.Object({
@@ -42,6 +56,7 @@ const UpdateVolumeTiersBodySchema = Type.Object({
 
 type ListDiscountsQuery = Static<typeof ListDiscountsQuerySchema>;
 type CreateDiscountBody = Static<typeof CreateDiscountBodySchema>;
+type UpdateDiscountBody = Static<typeof UpdateDiscountBodySchema>;
 type UpdateScopesBody = Static<typeof UpdateScopesBodySchema>;
 type UpdateVolumeTiersBody = Static<typeof UpdateVolumeTiersBodySchema>;
 
@@ -100,7 +115,8 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
 
         const body = request.body;
         const [discount] = await db.insert(schema.discounts).values({
-            tenantId: user.tenantId, name: body.name, type: body.type as any,
+            tenantId: user.tenantId, name: body.name, code: body.code || null,
+            type: body.type as any,
             value: body.value?.toString(), minQty: body.minQty, freeQty: body.freeQty,
             minOrderAmount: body.minOrderAmount?.toString(), maxDiscountAmount: body.maxDiscountAmount?.toString(),
             startsAt: body.startsAt ? new Date(body.startsAt) : null, endsAt: body.endsAt ? new Date(body.endsAt) : null,
@@ -189,5 +205,68 @@ export const discountRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         return { success: true, message: 'Volume tiers updated successfully' };
+    });
+
+    // Edit discount (PATCH)
+    fastify.patch<{ Params: Static<typeof DiscountIdParamsSchema>; Body: UpdateDiscountBody }>('/:id', {
+        preHandler: [fastify.authenticate],
+        schema: { params: DiscountIdParamsSchema, body: UpdateDiscountBodySchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { id } = request.params;
+        const body = request.body;
+
+        // Verify discount belongs to tenant
+        const [existing] = await db.select().from(schema.discounts)
+            .where(and(eq(schema.discounts.id, id), eq(schema.discounts.tenantId, user.tenantId))).limit(1);
+
+        if (!existing) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+
+        const updates: Record<string, any> = { updatedAt: new Date() };
+        if (body.name !== undefined) updates.name = body.name;
+        if (body.code !== undefined) updates.code = body.code || null;
+        if (body.value !== undefined) updates.value = body.value.toString();
+        if (body.minQty !== undefined) updates.minQty = body.minQty;
+        if (body.freeQty !== undefined) updates.freeQty = body.freeQty;
+        if (body.minOrderAmount !== undefined) updates.minOrderAmount = body.minOrderAmount.toString();
+        if (body.maxDiscountAmount !== undefined) updates.maxDiscountAmount = body.maxDiscountAmount.toString();
+        if (body.startsAt !== undefined) updates.startsAt = body.startsAt ? new Date(body.startsAt) : null;
+        if (body.endsAt !== undefined) updates.endsAt = body.endsAt ? new Date(body.endsAt) : null;
+        if (body.isActive !== undefined) updates.isActive = body.isActive;
+
+        const [updated] = await db.update(schema.discounts).set(updates)
+            .where(eq(schema.discounts.id, id)).returning();
+
+        return { success: true, data: updated };
+    });
+
+    // Delete discount
+    fastify.delete<{ Params: Static<typeof DiscountIdParamsSchema> }>('/:id', {
+        preHandler: [fastify.authenticate],
+        schema: { params: DiscountIdParamsSchema },
+    }, async (request, reply) => {
+        const user = request.user!;
+        if (!['tenant_admin', 'super_admin'].includes(user.role)) {
+            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+        }
+
+        const { id } = request.params;
+
+        const [existing] = await db.select().from(schema.discounts)
+            .where(and(eq(schema.discounts.id, id), eq(schema.discounts.tenantId, user.tenantId))).limit(1);
+
+        if (!existing) return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+
+        // Cascade delete scopes, volume tiers, usages
+        await db.delete(schema.discountScopes).where(eq(schema.discountScopes.discountId, id));
+        await db.delete(schema.volumeTiers).where(eq(schema.volumeTiers.discountId, id));
+        await db.delete(schema.discountUsages).where(eq(schema.discountUsages.discountId, id));
+        await db.delete(schema.discounts).where(eq(schema.discounts.id, id));
+
+        return { success: true, message: 'Discount deleted successfully' };
     });
 };

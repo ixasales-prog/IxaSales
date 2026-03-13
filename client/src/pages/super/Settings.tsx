@@ -1,24 +1,10 @@
 import { type Component } from 'solid-js';
 import { A } from '@solidjs/router';
-import { ChevronRight, Layers, Globe, Shield, Megaphone, Mail, Send, Palette, Database } from 'lucide-solid';
+import { ChevronRight, Shield, Megaphone, Mail, Send, Palette, Database } from 'lucide-solid';
 
 const SuperAdminSettings: Component = () => {
     const settingsLinks = [
-        // Essential
-        {
-            title: 'Plan Limits',
-            description: 'Configure resource limits for each subscription tier',
-            href: '/super/plan-limits',
-            icon: Layers,
-            color: 'from-blue-500 to-indigo-600'
-        },
-        {
-            title: 'Default Settings',
-            description: 'Set default currency, timezone, tax rate for new tenants',
-            href: '/super/settings/defaults',
-            icon: Globe,
-            color: 'from-emerald-500 to-teal-600'
-        },
+        // Settings only (non-operational)
         {
             title: 'Security',
             description: 'Configure session timeout and password policies',
@@ -56,8 +42,8 @@ const SuperAdminSettings: Component = () => {
             color: 'from-fuchsia-500 to-purple-600'
         },
         {
-            title: 'Backup Schedule',
-            description: 'Configure automated backup settings',
+            title: 'Backup & Recovery',
+            description: 'Open backup operations and policy settings',
             href: '/super/settings/backup',
             icon: Database,
             color: 'from-cyan-500 to-teal-600'

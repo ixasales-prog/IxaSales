@@ -191,7 +191,7 @@ const requestLoggerPluginCallback: FastifyPluginAsync = async (fastify) => {
 
         // Log based on status
         if (log.statusCode >= 500) {
-            logger.error('API Request', { request: log });
+            logger.error('API Request', undefined, { request: log });
         } else if (log.statusCode >= 400) {
             logger.warn('API Request', { request: log });
         } else if (isSensitive(path)) {
@@ -230,7 +230,7 @@ const requestLoggerPluginCallback: FastifyPluginAsync = async (fastify) => {
             responseTimeMs: log.responseTimeMs,
         });
 
-        logger.error('API Error', { request: log, stack: error.stack });
+        logger.error('API Error', error as Error, { request: log, stack: error.stack });
     });
 };
 

@@ -1,213 +1,184 @@
 /**
  * User Location History Page
- * 
+ *
  * View historical location data for a specific user.
  */
 
-import { type Component, createSignal, createResource, Show, For } from 'solid-js';
-import { A } from '@solidjs/router';
-import { ArrowLeft, Calendar, User } from 'lucide-solid';
+import { type Component, createResource, createSignal, For, Show } from 'solid-js';
+import { Calendar, User } from 'lucide-solid';
 import { api } from '../../lib/api';
 import UserLocationMap from '../../components/gps-tracking/UserLocationMap';
+import PageHeader from '../../components/page/PageHeader';
+import PageSection from '../../components/page/PageSection';
+import PageShell from '../../components/page/PageShell';
+import PageState, { PageLoadingState } from '../../components/page/PageState';
 
 interface LocationPoint {
-    id: string;
-    latitude: number;
-    longitude: number;
-    accuracy?: number | null;
-    heading?: number | null;
-    speed?: number | null;
-    timestamp: string;
+  id: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  timestamp: string;
 }
 
-interface User {
-    id: string;
-    name: string;
-    role: string;
+interface UserRecord {
+  id: string;
+  name: string;
+  role: string;
 }
 
 const UserLocationHistory: Component = () => {
-    const [selectedUserId, setSelectedUserId] = createSignal<string>('');
-    const [startDate, setStartDate] = createSignal<string>('');
-    const [endDate, setEndDate] = createSignal<string>('');
+  const [selectedUserId, setSelectedUserId] = createSignal('');
+  const [startDate, setStartDate] = createSignal('');
+  const [endDate, setEndDate] = createSignal('');
 
-    // Fetch users (sales reps and drivers)
-    const [users] = createResource(async () => {
-        try {
-            const allUsers = await api<User[]>('/users');
-            return allUsers.filter(u => ['sales_rep', 'driver'].includes(u.role));
-        } catch (err) {
-            console.error('Failed to load users:', err);
-            return [];
-        }
-    });
-
-    // Fetch location history
-    const [history] = createResource(
-        () => selectedUserId() && startDate() && endDate(),
-        async () => {
-            if (!selectedUserId() || !startDate() || !endDate()) return [];
-            try {
-                const data = await api<LocationPoint[]>('/gps-tracking/history', {
-                    params: {
-                        userId: selectedUserId(),
-                        startDate: startDate(),
-                        endDate: endDate(),
-                    },
-                });
-                return data;
-            } catch (err: any) {
-                console.error('Failed to load history:', err);
-                return [];
-            }
-        }
-    );
-
-    // Set default dates (last 24 hours)
-    const setDefaultDates = () => {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 1);
-
-        setEndDate(end.toISOString().split('T')[0]);
-        setStartDate(start.toISOString().split('T')[0]);
-    };
-
-    // Initialize default dates
-    if (!startDate() && !endDate()) {
-        setDefaultDates();
+  const [users] = createResource(async () => {
+    try {
+      const allUsers = await api<UserRecord[]>('/users');
+      return allUsers.filter((user) => ['sales_rep', 'driver'].includes(user.role));
+    } catch {
+      return [] as UserRecord[];
     }
+  });
 
-    // const selectedUser = () => users()?.find(u => u.id === selectedUserId());
+  const [history] = createResource(
+    () => selectedUserId() && startDate() && endDate(),
+    async () => {
+      if (!selectedUserId() || !startDate() || !endDate()) return [] as LocationPoint[];
+      try {
+        return await api<LocationPoint[]>('/gps-tracking/history', {
+          params: {
+            userId: selectedUserId(),
+            startDate: startDate(),
+            endDate: endDate(),
+          },
+        });
+      } catch {
+        return [] as LocationPoint[];
+      }
+    },
+  );
 
-    return (
-        <div class="min-h-screen bg-slate-950 text-white p-6">
-            <div class="max-w-7xl mx-auto">
-                {/* Header */}
-                <div class="flex items-center gap-4 mb-6">
-                    <A href="/admin/gps-tracking" class="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-                        <ArrowLeft class="w-5 h-5" />
-                    </A>
-                    <div>
-                        <h1 class="text-2xl font-bold">Location History</h1>
-                        <p class="text-slate-400 text-sm mt-1">View historical location data for users</p>
-                    </div>
-                </div>
+  const setDefaultDates = () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 1);
 
-                {/* Filters */}
-                <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6 mb-6">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* User Selection */}
-                        <div>
-                            <label class="block text-sm text-slate-400 mb-1.5 flex items-center gap-2">
-                                <User class="w-4 h-4" />
-                                User
-                            </label>
-                            <select
-                                value={selectedUserId()}
-                                onChange={(e) => setSelectedUserId(e.currentTarget.value)}
-                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                            >
-                                <option value="">Select a user...</option>
-                                <For each={users()}>
-                                    {(user) => (
-                                        <option value={user.id}>
-                                            {user.name} ({user.role === 'sales_rep' ? 'Sales Rep' : 'Driver'})
-                                        </option>
-                                    )}
-                                </For>
-                            </select>
-                        </div>
+    setEndDate(end.toISOString().split('T')[0]);
+    setStartDate(start.toISOString().split('T')[0]);
+  };
 
-                        {/* Start Date */}
-                        <div>
-                            <label class="block text-sm text-slate-400 mb-1.5 flex items-center gap-2">
-                                <Calendar class="w-4 h-4" />
-                                Start Date
-                            </label>
-                            <input
-                                type="date"
-                                value={startDate()}
-                                onInput={(e) => setStartDate(e.currentTarget.value)}
-                                max={endDate() || undefined}
-                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                            />
-                        </div>
+  if (!startDate() && !endDate()) {
+    setDefaultDates();
+  }
 
-                        {/* End Date */}
-                        <div>
-                            <label class="block text-sm text-slate-400 mb-1.5 flex items-center gap-2">
-                                <Calendar class="w-4 h-4" />
-                                End Date
-                            </label>
-                            <input
-                                type="date"
-                                value={endDate()}
-                                onInput={(e) => setEndDate(e.currentTarget.value)}
-                                min={startDate() || undefined}
-                                max={new Date().toISOString().split('T')[0]}
-                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                            />
-                        </div>
-                    </div>
-                </div>
+  return (
+    <PageShell>
+      <div class="mx-auto max-w-7xl space-y-6">
+        <PageHeader
+          title="Location History"
+          description="Review historical GPS traces for a selected sales rep or driver."
+          backHref="/admin/gps-tracking"
+          backLabel="Back to GPS settings"
+        />
 
-                {/* Map and History */}
-                <Show when={selectedUserId() && startDate() && endDate() && history()}>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Map */}
-                        <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
-                            <h3 class="text-white font-medium mb-4">Location Path</h3>
-                            <div class="h-96 rounded-lg overflow-hidden">
-                                <UserLocationMap 
-                                    history={history()?.map(h => ({
-                                        latitude: h.latitude,
-                                        longitude: h.longitude,
-                                        timestamp: h.timestamp,
-                                    }))}
-                                />
-                            </div>
-                        </div>
-
-                        {/* History List */}
-                        <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-6">
-                            <h3 class="text-white font-medium mb-4">
-                                History ({history()?.length || 0} points)
-                            </h3>
-                            <div class="space-y-2 max-h-96 overflow-y-auto">
-                                <Show when={history() && history()!.length > 0} fallback={
-                                    <div class="text-center text-slate-400 py-8">
-                                        No location data found for selected period
-                                    </div>
-                                }>
-                                    <For each={history()}>
-                                        {(point) => (
-                                            <div class="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                                                <div class="text-sm text-white font-medium">
-                                                    {new Date(point.timestamp).toLocaleString()}
-                                                </div>
-                                                <div class="text-xs text-slate-400 mt-1">
-                                                    {point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}
-                                                    {point.accuracy && ` • Accuracy: ${Math.round(point.accuracy)}m`}
-                                                    {point.speed && ` • Speed: ${Math.round(point.speed * 3.6)} km/h`}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </For>
-                                </Show>
-                            </div>
-                        </div>
-                    </div>
-                </Show>
-
-                <Show when={!selectedUserId() || !startDate() || !endDate()}>
-                    <div class="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-12 text-center">
-                        <p class="text-slate-400">Select a user and date range to view location history</p>
-                    </div>
-                </Show>
+        <PageSection title="Filters" description="Select a user and date range to render the history path and detailed timeline.">
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label class="mb-1.5 flex items-center gap-2 text-sm text-slate-400">
+                <User class="h-4 w-4" />
+                User
+              </label>
+              <select
+                value={selectedUserId()}
+                onChange={(e) => setSelectedUserId(e.currentTarget.value)}
+                class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select a user...</option>
+                <For each={users()}>
+                  {(user) => <option value={user.id}>{user.name} ({user.role === 'sales_rep' ? 'Sales Rep' : 'Driver'})</option>}
+                </For>
+              </select>
             </div>
-        </div>
-    );
+
+            <div>
+              <label class="mb-1.5 flex items-center gap-2 text-sm text-slate-400">
+                <Calendar class="h-4 w-4" />
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={startDate()}
+                onInput={(e) => setStartDate(e.currentTarget.value)}
+                max={endDate() || undefined}
+                class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label class="mb-1.5 flex items-center gap-2 text-sm text-slate-400">
+                <Calendar class="h-4 w-4" />
+                End Date
+              </label>
+              <input
+                type="date"
+                value={endDate()}
+                onInput={(e) => setEndDate(e.currentTarget.value)}
+                min={startDate() || undefined}
+                max={new Date().toISOString().split('T')[0]}
+                class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        </PageSection>
+
+        <Show
+          when={selectedUserId() && startDate() && endDate()}
+          fallback={<PageState title="Choose filters to view history" description="Select a user plus a start and end date to load the map and timeline." />}
+        >
+          <Show when={!history.loading} fallback={<PageLoadingState title="Loading location history" description="Fetching route points for the selected filters." />}>
+            <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <PageSection class="lg:col-span-2 overflow-hidden" contentClass="p-0">
+                <div class="h-[520px] lg:h-[620px]">
+                  <UserLocationMap
+                    history={(history() || []).map((point) => ({
+                      latitude: point.latitude,
+                      longitude: point.longitude,
+                      timestamp: point.timestamp,
+                    }))}
+                  />
+                </div>
+              </PageSection>
+
+              <PageSection title={`Timeline (${history()?.length || 0} points)`} description="Chronological location points returned for the selected date range.">
+                <Show
+                  when={history() && history()!.length > 0}
+                  fallback={<PageState title="No location data found" description="No GPS points were returned for the selected user and dates." />}
+                >
+                  <div class="max-h-[620px] space-y-2 overflow-y-auto">
+                    <For each={history()}>
+                      {(point) => (
+                        <div class="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                          <div class="text-sm font-medium text-white">{new Date(point.timestamp).toLocaleString()}</div>
+                          <div class="mt-1 text-xs text-slate-400">
+                            {point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}
+                            {point.accuracy ? ` • Accuracy: ${Math.round(point.accuracy)}m` : ''}
+                            {point.speed ? ` • Speed: ${Math.round(point.speed * 3.6)} km/h` : ''}
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </PageSection>
+            </div>
+          </Show>
+        </Show>
+      </div>
+    </PageShell>
+  );
 };
 
 export default UserLocationHistory;

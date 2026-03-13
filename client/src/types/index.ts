@@ -12,7 +12,7 @@ export interface Tenant {
     plan: string;
     isActive: boolean;
     telegramEnabled?: boolean;
-    telegramBotToken?: string;
+    hasTelegramBotToken?: boolean;
     subscriptionEndAt?: string | null;
     planStatus?: 'active' | 'trial' | 'past_due' | 'cancelled';
     createdAt: string;
@@ -33,6 +33,7 @@ export interface SuperAdminStats {
     totalSystemOrders: number;
     totalTenants: number;
     activeTenants: number;
+    window?: '24h' | '7d' | '30d';
 }
 
 export interface SystemHealth {
@@ -68,6 +69,27 @@ export interface AnnouncementSettings {
     message: string;
     type: 'info' | 'warning' | 'critical';
     targetRoles: string[];
+}
+
+export interface SuperAttentionAlert {
+    id: string;
+    severity: 'critical' | 'warning' | 'info';
+    title: string;
+    description: string;
+    href: string;
+}
+
+export interface SuperAttentionData {
+    window: '24h' | '7d' | '30d';
+    generatedAt: string;
+    counts: {
+        expiringTenants: number;
+        pendingUpgradeRequests: number;
+        backupFailures: number;
+        staleBackup: boolean;
+        latestBackupAt?: string | null;
+    };
+    alerts: SuperAttentionAlert[];
 }
 
 export type AlertType = 'info' | 'warning' | 'critical';

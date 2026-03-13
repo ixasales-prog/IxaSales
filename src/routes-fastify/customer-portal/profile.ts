@@ -92,7 +92,7 @@ export const profileRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.put('/profile', {
         schema: UpdateProfileSchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
         const body = request.body as { email?: string; address?: string };
 

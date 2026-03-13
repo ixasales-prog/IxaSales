@@ -10,6 +10,8 @@ export type ErrorCode =
     | 'RATE_LIMITED'
     | 'TENANT_NOT_FOUND'
     | 'CUSTOMER_NOT_FOUND'
+    | 'REGISTRATION_PENDING'
+    | 'REGISTRATION_REJECTED'
     | 'NO_TELEGRAM'
     | 'OTP_SEND_FAILED'
     | 'INVALID_OTP'
@@ -81,6 +83,16 @@ export const ERROR_MESSAGES: Record<ErrorCode, ErrorTranslation> = {
         uz: 'Bu telefon raqami topilmadi',
         en: 'Phone number not found',
         ru: 'Номер телефона не найден'
+    },
+    REGISTRATION_PENDING: {
+        uz: 'Ro\'yxatdan o\'tish so\'rovi ko\'rib chiqilmoqda',
+        en: 'Registration request is pending approval',
+        ru: 'Р—Р°СЏРІРєР° РЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЋ РѕР¶РёРґР°РµС‚ РѕРґРѕР±СЂРµРЅРёСЏ'
+    },
+    REGISTRATION_REJECTED: {
+        uz: 'Ro\'yxatdan o\'tish so\'rovi rad etilgan',
+        en: 'Registration request was rejected',
+        ru: 'Р—Р°СЏРІРєР° РЅР° СЂРµРіРёСЃС‚СЂР°С†РёСЋ РѕС‚РєР»РѕРЅРµРЅР°'
     },
     NO_TELEGRAM: {
         uz: 'Telegram bog\'lanmagan. Iltimos, bot orqali ro\'yxatdan o\'ting.',

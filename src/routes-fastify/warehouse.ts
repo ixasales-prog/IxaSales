@@ -2,6 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
 import { and, desc, eq, inArray, sql, or } from 'drizzle-orm';
+import { VALID_WAREHOUSE_TRANSITIONS } from '../lib/constants';
+import { transitionOrderStatus } from '../services/order-workflow.service';
+import { sendApiError } from '../lib/api-errors';
+import { abortIdempotentRequest, beginIdempotentRequest, finishIdempotentRequest } from '../lib/idempotency';
 
 const ListTasksQuerySchema = Type.Object({
     page: Type.Optional(Type.String()),
@@ -37,12 +41,13 @@ const allowedRoles = ['tenant_admin', 'super_admin', 'supervisor', 'warehouse'];
 
 export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.get<{ Querystring: ListTasksQuery }>('/tasks', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: { querystring: ListTasksQuerySchema },
     }, async (request, reply) => {
         const user = request.user!;
+
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { page: pageStr = '1', limit: limitStr = '20', status } = request.query;
@@ -78,12 +83,12 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     fastify.get<{ Params: Static<typeof TaskIdParamsSchema> }>('/tasks/:id', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: { params: TaskIdParamsSchema },
     }, async (request, reply) => {
         const user = request.user!;
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { id } = request.params;
@@ -102,7 +107,7 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!order) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            return sendApiError(reply, 404, 'NOT_FOUND', 'Task not found');
         }
 
         const items = await db.select({
@@ -123,7 +128,7 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { page: pageStr = '1', limit: limitStr = '20', status } = request.query;
@@ -164,7 +169,7 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { id } = request.params;
@@ -269,8 +274,7 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
         status: Type.Union([
             Type.Literal('picking'),
             Type.Literal('picked'),
-            Type.Literal('loaded'),
-            Type.Literal('shipped')
+            Type.Literal('loaded')
         ])
     });
 
@@ -278,39 +282,67 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
         Params: Static<typeof TaskIdParamsSchema>;
         Body: Static<typeof UpdateTaskBodySchema>
     }>('/tasks/:id', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: {
             params: TaskIdParamsSchema,
             body: UpdateTaskBodySchema
         },
     }, async (request, reply) => {
         const user = request.user!;
+        const idempotency = await beginIdempotentRequest(request, 'warehouse.tasks.update_status');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
+
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { id } = request.params;
         const { status } = request.body;
 
         // Verify order exists and belongs to tenant
-        const [order] = await db.select({ id: schema.orders.id })
+        const [order] = await db.select({ id: schema.orders.id, status: schema.orders.status })
             .from(schema.orders)
             .where(and(eq(schema.orders.id, id), eq(schema.orders.tenantId, user.tenantId)))
             .limit(1);
 
         if (!order) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'NOT_FOUND', 'Task not found');
         }
 
-        // Update order status
-        await db.update(schema.orders)
-            .set({
-                status: status as any,
-                updatedAt: new Date()
-            })
-            .where(eq(schema.orders.id, id));
+        // Validate warehouse status transition
+        const currentStatus = order.status || 'pending';
+        const validTransitions = VALID_WAREHOUSE_TRANSITIONS[currentStatus] || [];
+        if (!validTransitions.includes(status)) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 400, 'INVALID_STATUS_TRANSITION', `Cannot change task status from '${currentStatus}' to '${status}'`);
+        }
 
-        return { success: true, message: 'Task status updated successfully' };
+        try {
+            await db.transaction((tx) => transitionOrderStatus({
+                tx,
+                tenantId: user.tenantId,
+                orderId: id,
+                newStatus: status,
+                changedBy: user.id,
+                notes: `Warehouse task updated to ${status}`,
+            }));
+            const responseBody = { success: true, message: 'Task status updated successfully' };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to update task status');
+        }
     });
 
     // PATCH /warehouse/receiving/:id - Update receiving (PO) status
@@ -326,15 +358,27 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
         Params: Static<typeof ReceivingIdParamsSchema>;
         Body: Static<typeof UpdateReceivingBodySchema>
     }>('/receiving/:id', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: {
             params: ReceivingIdParamsSchema,
             body: UpdateReceivingBodySchema
         },
     }, async (request, reply) => {
         const user = request.user!;
+        const idempotency = await beginIdempotentRequest(request, 'warehouse.receiving.update_status');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
+
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { id } = request.params;
@@ -347,29 +391,30 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!po) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'NOT_FOUND', 'Purchase order not found');
         }
 
         // Warehouse can only update status if PO has been approved by admin (status is 'ordered' or 'partial_received')
         if (!['ordered', 'partial_received'].includes(po.status as string)) {
-            return reply.code(400).send({
-                success: false,
-                error: {
-                    code: 'PO_NOT_READY',
-                    message: 'Purchase order must be in "ordered" status before receiving. Please contact admin to approve.'
-                }
-            });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 400, 'PO_NOT_READY', 'Purchase order must be in "ordered" status before receiving. Please contact admin to approve.');
         }
 
-        // Update PO status
-        await db.update(schema.purchaseOrders)
-            .set({
-                status: status as any,
-                updatedAt: new Date()
-            })
-            .where(eq(schema.purchaseOrders.id, id));
-
-        return { success: true, message: 'Receiving status updated successfully' };
+        try {
+            await db.update(schema.purchaseOrders)
+                .set({
+                    status: status as any,
+                    updatedAt: new Date()
+                })
+                .where(eq(schema.purchaseOrders.id, id));
+            const responseBody = { success: true, message: 'Receiving status updated successfully' };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to update receiving status');
+        }
     });
 
     // Scan item during receiving
@@ -382,7 +427,7 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
         Params: Static<typeof ReceivingIdParamsSchema>;
         Body: Static<typeof ScanReceivingBodySchema>
     }>('/receiving/:id/scan', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: {
             params: ReceivingIdParamsSchema,
             body: ScanReceivingBodySchema
@@ -391,6 +436,16 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
         const user = request.user!;
         const { id } = request.params;
         const { barcode, quantity = 1 } = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'warehouse.receiving.scan');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
         // Verify PO exists and belongs to tenant
         const [po] = await db.select({ id: schema.purchaseOrders.id, status: schema.purchaseOrders.status })
@@ -399,18 +454,14 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!po) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Purchase order not found' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'NOT_FOUND', 'Purchase order not found');
         }
 
         // Only allow receiving for 'ordered' or 'partial_received' POs
         if (!['ordered', 'partial_received'].includes(po.status as string)) {
-            return reply.code(400).send({
-                success: false,
-                error: {
-                    code: 'PO_NOT_READY',
-                    message: 'Purchase order must be in "ordered" status before receiving items. Please contact admin to approve.'
-                }
-            });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 400, 'PO_NOT_READY', 'Purchase order must be in "ordered" status before receiving items. Please contact admin to approve.');
         }
 
         // Find product by barcode or SKU
@@ -426,7 +477,8 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!product) {
-            return reply.code(404).send({ success: false, error: { code: 'PRODUCT_NOT_FOUND', message: 'Product not found' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'PRODUCT_NOT_FOUND', 'Product not found');
         }
 
         // Find PO line item
@@ -439,33 +491,41 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!poItem) {
-            return reply.code(400).send({ success: false, error: { code: 'ITEM_NOT_IN_PO', message: 'Product is not in this purchase order' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 400, 'ITEM_NOT_IN_PO', 'Product is not in this purchase order');
         }
 
         // Increment received quantity
         const newQtyReceived = (poItem.qtyReceived || 0) + quantity;
 
-        await db.update(schema.purchaseOrderItems)
-            .set({
-                qtyReceived: newQtyReceived,
-                lastScannedAt: new Date(),
-                scannedByUserId: user.id,
-                updatedAt: new Date()
-            })
-            .where(eq(schema.purchaseOrderItems.id, poItem.id));
+        try {
+            await db.update(schema.purchaseOrderItems)
+                .set({
+                    qtyReceived: newQtyReceived,
+                    lastScannedAt: new Date(),
+                    scannedByUserId: user.id,
+                    updatedAt: new Date()
+                })
+                .where(eq(schema.purchaseOrderItems.id, poItem.id));
 
-        return {
-            success: true,
-            data: {
-                productId: product.id,
-                productName: product.name,
-                qtyOrdered: poItem.qtyOrdered,
-                qtyReceived: newQtyReceived,
-                remaining: poItem.qtyOrdered - newQtyReceived,
-                isComplete: newQtyReceived >= poItem.qtyOrdered,
-                isOverReceived: newQtyReceived > poItem.qtyOrdered
-            }
-        };
+            const responseBody = {
+                success: true,
+                data: {
+                    productId: product.id,
+                    productName: product.name,
+                    qtyOrdered: poItem.qtyOrdered,
+                    qtyReceived: newQtyReceived,
+                    remaining: poItem.qtyOrdered - newQtyReceived,
+                    isComplete: newQtyReceived >= poItem.qtyOrdered,
+                    isOverReceived: newQtyReceived > poItem.qtyOrdered
+                }
+            };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to scan receiving item');
+        }
     });
 
     // ============================================================================
@@ -806,7 +866,7 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     fastify.get<{ Querystring: Static<typeof BatchPickingQuerySchema> }>('/tasks/batch', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: { querystring: BatchPickingQuerySchema },
     }, async (request, reply) => {
         const user = request.user!;
@@ -927,12 +987,24 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     fastify.patch<{ Body: Static<typeof BatchPickBodySchema> }>('/tasks/batch/pick', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: { body: BatchPickBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
+        const idempotency = await beginIdempotentRequest(request, 'warehouse.tasks.batch_pick');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
+
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { productId, orderIds, quantity } = request.body;
@@ -953,7 +1025,8 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             ));
 
         if (orderItemsList.length === 0) {
-            return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'NOT_FOUND', 'No matching order items found');
         }
 
         // Distribute picked quantity across orders (FIFO - first order first)
@@ -977,49 +1050,70 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             }
         }
 
-        // Apply updates
-        for (const update of updates) {
-            await db.update(schema.orderItems)
-                .set({ qtyPicked: update.qtyPicked, updatedAt: new Date() })
-                .where(eq(schema.orderItems.id, update.itemId));
-        }
-
-        // Check if any orders are fully picked and update their status
-        for (const orderId of [...new Set(updates.map(u => u.orderId))]) {
-            const orderItems = await db.select({
-                qtyOrdered: schema.orderItems.qtyOrdered,
-                qtyPicked: schema.orderItems.qtyPicked,
-            })
-                .from(schema.orderItems)
-                .where(eq(schema.orderItems.orderId, orderId));
-
-            const allPicked = orderItems.every(item =>
-                (item.qtyPicked || 0) >= item.qtyOrdered
-            );
-
-            if (allPicked) {
-                await db.update(schema.orders)
-                    .set({ status: 'picked', updatedAt: new Date() })
-                    .where(eq(schema.orders.id, orderId));
-            } else {
-                // Set to picking if not already
-                await db.update(schema.orders)
-                    .set({ status: 'picking', updatedAt: new Date() })
-                    .where(and(
-                        eq(schema.orders.id, orderId),
-                        inArray(schema.orders.status, ['approved'] as any)
-                    ));
+        try {
+            for (const update of updates) {
+                await db.update(schema.orderItems)
+                    .set({ qtyPicked: update.qtyPicked, updatedAt: new Date() })
+                    .where(eq(schema.orderItems.id, update.itemId));
             }
-        }
 
-        return {
-            success: true,
-            data: {
-                pickedQuantity: quantity - remainingQty,
-                unallocated: remainingQty,
-                updates
+            for (const orderId of [...new Set(updates.map(u => u.orderId))]) {
+                const orderItems = await db.select({
+                    qtyOrdered: schema.orderItems.qtyOrdered,
+                    qtyPicked: schema.orderItems.qtyPicked,
+                })
+                    .from(schema.orderItems)
+                    .where(eq(schema.orderItems.orderId, orderId));
+
+                const allPicked = orderItems.every(item =>
+                    (item.qtyPicked || 0) >= item.qtyOrdered
+                );
+
+                if (allPicked) {
+                    await db.transaction((tx) => transitionOrderStatus({
+                        tx,
+                        tenantId: user.tenantId,
+                        orderId,
+                        newStatus: 'picked',
+                        changedBy: user.id,
+                        notes: 'Warehouse batch picking completed',
+                    }));
+                } else {
+                    await db.transaction(async (tx) => {
+                        const [currentOrder] = await tx
+                            .select({ status: schema.orders.status })
+                            .from(schema.orders)
+                            .where(and(eq(schema.orders.id, orderId), eq(schema.orders.tenantId, user.tenantId)))
+                            .limit(1);
+
+                        if (currentOrder?.status === 'approved') {
+                            await transitionOrderStatus({
+                                tx,
+                                tenantId: user.tenantId,
+                                orderId,
+                                newStatus: 'picking',
+                                changedBy: user.id,
+                                notes: 'Warehouse batch picking started',
+                            });
+                        }
+                    });
+                }
             }
-        };
+
+            const responseBody = {
+                success: true,
+                data: {
+                    pickedQuantity: quantity - remainingQty,
+                    unallocated: remainingQty,
+                    updates
+                }
+            };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to perform batch picking');
+        }
     });
 
     // ============================================================================
@@ -1106,12 +1200,24 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     fastify.post<{ Body: Static<typeof CreatePoBodySchema> }>('/purchase-orders', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('warehouse.manage')],
         schema: { body: CreatePoBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
+        const idempotency = await beginIdempotentRequest(request, 'warehouse.purchase_orders.create');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
+
         if (!allowedRoles.includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const { supplierId, expectedDate, notes, items } = request.body;
@@ -1126,7 +1232,8 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             .limit(1);
 
         if (!supplier) {
-            return reply.code(404).send({ success: false, error: { code: 'SUPPLIER_NOT_FOUND', message: 'Supplier not found' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 404, 'SUPPLIER_NOT_FOUND', 'Supplier not found');
         }
 
         // Get product details for all items
@@ -1147,10 +1254,8 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
         // Validate all products exist
         for (const item of items) {
             if (!productMap.has(item.productId)) {
-                return reply.code(400).send({
-                    success: false,
-                    error: { code: 'PRODUCT_NOT_FOUND', message: `Product ${item.productId} not found` }
-                });
+                await abortIdempotentRequest(idempotency);
+                return sendApiError(reply, 400, 'PRODUCT_NOT_FOUND', `Product ${item.productId} not found`);
             }
         }
 
@@ -1174,45 +1279,50 @@ export const warehouseRoutes: FastifyPluginAsync = async (fastify) => {
             };
         });
 
-        // Create the PO
-        const [newPo] = await db.insert(schema.purchaseOrders)
-            .values({
-                tenantId: user.tenantId,
-                poNumber,
-                supplierId,
-                createdBy: user.id,
-                status: 'draft',
-                subtotalAmount: subtotal.toFixed(2),
-                taxAmount: '0',
-                totalAmount: subtotal.toFixed(2),
-                expectedDate: expectedDate || null,
-                notes: notes || null,
-            })
-            .returning();
+        try {
+            const [newPo] = await db.insert(schema.purchaseOrders)
+                .values({
+                    tenantId: user.tenantId,
+                    poNumber,
+                    supplierId,
+                    createdBy: user.id,
+                    status: 'draft',
+                    subtotalAmount: subtotal.toFixed(2),
+                    taxAmount: '0',
+                    totalAmount: subtotal.toFixed(2),
+                    expectedDate: expectedDate || null,
+                    notes: notes || null,
+                })
+                .returning();
 
-        // Create PO items
-        await db.insert(schema.purchaseOrderItems)
-            .values(itemsWithPrices.map(item => ({
-                purchaseOrderId: newPo.id,
-                productId: item.productId,
-                qtyOrdered: item.qtyOrdered,
-                qtyReceived: 0,
-                unitPrice: item.unitPrice,
-                lineTotal: item.lineTotal
-            })));
+            await db.insert(schema.purchaseOrderItems)
+                .values(itemsWithPrices.map(item => ({
+                    purchaseOrderId: newPo.id,
+                    productId: item.productId,
+                    qtyOrdered: item.qtyOrdered,
+                    qtyReceived: 0,
+                    unitPrice: item.unitPrice,
+                    lineTotal: item.lineTotal
+                })));
 
-        return {
-            success: true,
-            data: {
-                id: newPo.id,
-                poNumber: newPo.poNumber,
-                status: newPo.status,
-                supplierId: newPo.supplierId,
-                supplierName: supplier.name,
-                totalAmount: newPo.totalAmount,
-                itemCount: items.length
-            }
-        };
+            const responseBody = {
+                success: true,
+                data: {
+                    id: newPo.id,
+                    poNumber: newPo.poNumber,
+                    status: newPo.status,
+                    supplierId: newPo.supplierId,
+                    supplierName: supplier.name,
+                    totalAmount: newPo.totalAmount,
+                    itemCount: items.length
+                }
+            };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
+        } catch (error) {
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to create purchase order');
+        }
     });
 
     // ============================================================================

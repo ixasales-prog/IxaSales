@@ -371,21 +371,42 @@ export const productRoutes: FastifyPluginAsync = async (fastify) => {
         const mp = masterProduct[0];
 
         try {
-            const newProduct = await db.insert(schema.products).values({
-                tenantId: user.tenantId,
-                subcategoryId: request.body.subcategoryId,
-                brandId: request.body.brandId,
-                name: mp.name,
-                description: mp.description,
-                sku: mp.sku,
-                barcode: mp.barcode,
-                imageUrl: mp.imageUrl,
-                unit: 'piece',
-                price: price.toString(),
-                costPrice: costPrice?.toString() || '0',
-                stockQuantity: stock || 0,
-                isActive: true
-            }).returning();
+            const createResult = await db.transaction(async (tx) => {
+                const { canCreateResourceInTx } = await import('../lib/planLimits');
+                const limitCheck = await canCreateResourceInTx(tx, user.tenantId, 'products');
+                if (!limitCheck.allowed) {
+                    return { kind: 'limit' as const, limitCheck };
+                }
+
+                const [createdProduct] = await tx.insert(schema.products).values({
+                    tenantId: user.tenantId,
+                    subcategoryId: request.body.subcategoryId,
+                    brandId: request.body.brandId,
+                    name: mp.name,
+                    description: mp.description,
+                    sku: mp.sku,
+                    barcode: mp.barcode,
+                    imageUrl: mp.imageUrl,
+                    unit: 'piece',
+                    price: price.toString(),
+                    costPrice: costPrice?.toString() || '0',
+                    stockQuantity: stock || 0,
+                    isActive: true
+                }).returning();
+
+                return { kind: 'ok' as const, product: createdProduct };
+            });
+
+            if (createResult.kind === 'limit') {
+                const { buildLimitExceededError } = await import('../lib/planLimits');
+                const limitError = buildLimitExceededError('products', createResult.limitCheck.current, createResult.limitCheck.max);
+                return reply.code(403).send({
+                    success: false,
+                    error: limitError
+                });
+            }
+
+            const newProduct = [createResult.product];
 
             await logAudit('product.import', { masterId: mp.id, newId: newProduct[0].id }, user.id, user.tenantId, newProduct[0].id, 'product');
             return { success: true, data: newProduct[0] };
@@ -525,46 +546,63 @@ export const productRoutes: FastifyPluginAsync = async (fastify) => {
     }, async (request, reply) => {
         const user = request.user!;
         if (!['tenant_admin', 'super_admin'].includes(user.role)) return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
-
-        const { canCreateProduct } = await import('../lib/planLimits');
-        const limitCheck = await canCreateProduct(user.tenantId);
-        if (!limitCheck.allowed) {
-            return reply.code(403).send({
-                success: false,
-                error: {
-                    code: 'LIMIT_EXCEEDED',
-                    message: `Product limit reached (${limitCheck.current}/${limitCheck.max}). Upgrade your plan.`
+        let createResult: { kind: 'limit'; limitCheck: { allowed: boolean; current: number; max: number } } | { kind: 'conflict' } | { kind: 'ok'; product: any };
+        try {
+            createResult = await db.transaction(async (tx) => {
+                const { canCreateResourceInTx } = await import('../lib/planLimits');
+                const limitCheck = await canCreateResourceInTx(tx, user.tenantId, 'products');
+                if (!limitCheck.allowed) {
+                    return { kind: 'limit' as const, limitCheck };
                 }
+
+                const [existing] = await tx
+                    .select({ id: schema.products.id })
+                    .from(schema.products)
+                    .where(and(eq(schema.products.tenantId, user.tenantId), eq(schema.products.sku, request.body.sku)))
+                    .limit(1);
+
+                if (existing) {
+                    return { kind: 'conflict' as const };
+                }
+
+                const [createdProduct] = await tx.insert(schema.products).values({
+                    tenantId: user.tenantId,
+                    name: request.body.name,
+                    sku: request.body.sku,
+                    description: request.body.description,
+                    subcategoryId: request.body.subcategoryId,
+                    brandId: request.body.brandId,
+                    unit: request.body.unit as any,
+                    price: request.body.price.toString(),
+                    costPrice: request.body.costPrice?.toString(),
+                    taxRate: request.body.taxRate?.toString(),
+                    stockQuantity: 0,
+                    imageUrl: request.body.imageUrl,
+                    isActive: true,
+                }).returning();
+
+                return { kind: 'ok' as const, product: createdProduct };
             });
+        } catch (error: any) {
+            if (error?.code === '23505') {
+                return reply.code(409).send({ success: false, error: { code: 'CONFLICT', message: 'SKU already exists' } });
+            }
+            throw error;
         }
 
-        const [existing] = await db
-            .select({ id: schema.products.id })
-            .from(schema.products)
-            .where(and(eq(schema.products.tenantId, user.tenantId), eq(schema.products.sku, request.body.sku)))
-            .limit(1);
-
-        if (existing) {
+            if (createResult.kind === 'limit') {
+                const { buildLimitExceededError } = await import('../lib/planLimits');
+                const limitError = buildLimitExceededError('products', createResult.limitCheck.current, createResult.limitCheck.max);
+                return reply.code(403).send({
+                    success: false,
+                    error: limitError
+                });
+            }
+        if (createResult.kind === 'conflict') {
             return reply.code(409).send({ success: false, error: { code: 'CONFLICT', message: 'SKU already exists' } });
         }
 
-        const [product] = await db.insert(schema.products).values({
-            tenantId: user.tenantId,
-            name: request.body.name,
-            sku: request.body.sku,
-            description: request.body.description,
-            subcategoryId: request.body.subcategoryId,
-            brandId: request.body.brandId,
-            unit: request.body.unit as any,
-            price: request.body.price.toString(),
-            costPrice: request.body.costPrice?.toString(),
-            taxRate: request.body.taxRate?.toString(),
-            stockQuantity: 0,
-            imageUrl: request.body.imageUrl,
-            isActive: true,
-        }).returning();
-
-        return { success: true, data: product };
+        return { success: true, data: createResult.product };
     });
 
     // Get product

@@ -1,6 +1,7 @@
 import { type Component, For, Show, createSignal, createResource, createMemo, createEffect } from 'solid-js';
 import { createStore } from 'solid-js/store';
-import { currentUser, login } from '../../stores/auth';
+import { A } from '@solidjs/router';
+import { currentUser, startImpersonation } from '../../stores/auth';
 import {
     Search,
     UserPlus,
@@ -36,21 +37,15 @@ interface UserData {
     lastLoginAt: string | null;
     supervisorId?: string | null;
     tenantId?: string | null;
+    tenantName?: string | null;
     gpsTrackingEnabled?: boolean;
     lastLocationUpdateAt?: string | null;
-}
-
-interface Territory {
-    id: string;
-    name: string;
-    parentId: string | null;
-    level: number | null;
-    children?: Territory[];
 }
 
 const Users: Component = () => {
     const [search, setSearch] = createSignal('');
     const [roleFilter, setRoleFilter] = createSignal('');
+    const [tenantFilter, setTenantFilter] = createSignal('');
     const [page, setPage] = createSignal(1);
     const limit = 20;
 
@@ -74,11 +69,10 @@ const Users: Component = () => {
         phone: '',
         tenantId: '', // For super admins
         supervisorId: '', // For sales reps
-        territoryIds: [] as string[]
     });
 
     const [users, { refetch }] = createResource(
-        () => ({ search: search(), role: roleFilter(), page: page() }),
+        () => ({ search: search(), role: roleFilter(), tenantId: tenantFilter(), page: page() }),
         async (params) => {
             const queryParams: Record<string, string> = {
                 page: params.page.toString(),
@@ -86,6 +80,7 @@ const Users: Component = () => {
             };
             if (params.search) queryParams.search = params.search;
             if (params.role) queryParams.role = params.role;
+            if (currentUser()?.role === 'super_admin' && params.tenantId) queryParams.tenantId = params.tenantId;
 
             const result = await api<{ data: UserData[]; total: number }>('/users', { params: queryParams });
             return result;
@@ -100,9 +95,18 @@ const Users: Component = () => {
     });
 
     // Fetch supervisors for dropdown
-    const [supervisors] = createResource(async () => {
+    const [supervisors] = createResource(() => {
+        if (currentUser()?.role !== 'super_admin') return '__tenant_scope__';
+        return formData.tenantId || '__all__';
+    }, async (tenantScope) => {
         try {
-            const result = await api<{ id: string; name: string; email: string; phone: string | null }[]>('/users/supervisors');
+            const queryParams: Record<string, string> = {};
+            if (currentUser()?.role === 'super_admin' && tenantScope !== '__all__' && tenantScope !== '__tenant_scope__') {
+                queryParams.tenantId = tenantScope;
+            }
+            const result = await api<{ id: string; name: string; email: string; phone: string | null; tenantId?: string | null }[]>('/users/supervisors', {
+                params: queryParams,
+            });
             return result || [];
         } catch (err: any) {
             console.error('Failed to load supervisors:', err);
@@ -110,44 +114,6 @@ const Users: Component = () => {
             return [];
         }
     });
-
-    const [territoryTree] = createResource(async () => {
-        const result = await api<Territory[]>('/customers/territories/tree');
-        return result || [];
-    });
-
-    const [assignedTerritories] = createResource(
-        () => editingId(),
-        async (userId) => {
-            if (!userId) return [] as string[];
-            const result = await api<string[]>(`/users/${userId}/territories`);
-            return result || [];
-        }
-    );
-
-    const collectTerritoryIds = (node: Territory): string[] => {
-        const ids = [node.id];
-        if (node.children?.length) {
-            node.children.forEach((child) => ids.push(...collectTerritoryIds(child)));
-        }
-        return ids;
-    };
-
-    const isTerritorySelected = (id: string) => (formData.territoryIds || []).includes(id);
-
-    const toggleTerritory = (node: Territory) => {
-        const ids = collectTerritoryIds(node);
-        const current = new Set(formData.territoryIds || []);
-        const allSelected = ids.every((id) => current.has(id));
-        ids.forEach((id) => {
-            if (allSelected) {
-                current.delete(id);
-            } else {
-                current.add(id);
-            }
-        });
-        setFormData('territoryIds', Array.from(current));
-    };
 
     const userList = createMemo(() => (users() as any)?.data || users() || []);
     const total = createMemo(() => (users() as any)?.total || userList().length);
@@ -192,6 +158,11 @@ const Users: Component = () => {
         return configs[role] || configs.sales_rep;
     };
 
+    const territoryAssignmentPath = (userId: string) =>
+        currentUser()?.role === 'super_admin'
+            ? `/super/users/${userId}/territories`
+            : `/admin/users/${userId}/territories`;
+
     // Using shared formatDate from settings store (returns '-' for null values)
 
     const handleEdit = (user: UserData) => {
@@ -210,18 +181,9 @@ const Users: Component = () => {
             phone: user.phone || '',
             supervisorId: user.supervisorId || '',
             tenantId: user.tenantId || '',
-            territoryIds: []
         });
         setShowCreateModal(true);
     };
-
-    createEffect(() => {
-        if (!editingId()) return;
-        const ids = assignedTerritories();
-        if (ids) {
-            setFormData('territoryIds', ids);
-        }
-    });
 
 
     const handleDelete = async (id: string) => {
@@ -246,34 +208,20 @@ const Users: Component = () => {
                 return;
             }
             
-            if (formData.role === 'sales_rep' && (!formData.territoryIds || formData.territoryIds.length === 0)) {
-                setError('Please assign at least one territory to the sales rep.');
-                setSubmitting(false);
-                return;
-            }
-            const { territoryIds, ...userPayload } = formData;
             const normalizedPayload = {
-                ...userPayload,
-                supervisorId: userPayload.supervisorId?.trim() ? userPayload.supervisorId : null,
-            } as typeof userPayload & { supervisorId: string | null };
+                ...formData,
+                supervisorId: formData.supervisorId?.trim() ? formData.supervisorId : null,
+            } as typeof formData & { supervisorId: string | null };
             if (editingId()) {
                 delete (normalizedPayload as any).tenantId;
             }
-            const result = await api(editingId() ? `/users/${editingId()}` : '/users', {
+            await api(editingId() ? `/users/${editingId()}` : '/users', {
                 method: editingId() ? 'PATCH' : 'POST',
                 body: JSON.stringify({
                     ...normalizedPayload,
                     password: formData.password || undefined // Only send if changed
                 })
             });
-
-            const userId = editingId() || (result as any)?.data?.id;
-            if (userId && formData.role === 'sales_rep') {
-                await api(`/users/${userId}/territories`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ territoryIds: formData.territoryIds || [] })
-                });
-            }
 
             setShowCreateModal(false);
             setEditingId(null);
@@ -285,7 +233,6 @@ const Users: Component = () => {
                 phone: '',
                 tenantId: '',
                 supervisorId: '',
-                territoryIds: []
             });
             refetch();
         } catch (err: any) {
@@ -305,14 +252,18 @@ const Users: Component = () => {
                 body: JSON.stringify({ userId })
             });
 
-            login(result.token, result.user);
+            startImpersonation(result.token, result.user);
 
             // Redirect based on the impersonated user's role
             const role = result.user.role;
-            if (['sales_rep', 'supervisor'].includes(role)) {
+            if (role === 'sales_rep') {
                 window.location.href = '/sales';
+            } else if (role === 'supervisor') {
+                window.location.href = '/supervisor';
             } else if (role === 'driver') {
                 window.location.href = '/driver';
+            } else if (role === 'warehouse') {
+                window.location.href = '/warehouse';
             } else if (role === 'super_admin') {
                 window.location.href = '/super';
             } else {
@@ -329,8 +280,14 @@ const Users: Component = () => {
             {/* Header */}
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
                 <div>
-                    <h1 class="text-2xl lg:text-3xl font-bold text-white">Users</h1>
-                    <p class="text-slate-400">Manage system users and access</p>
+                    <h1 class="text-2xl lg:text-3xl font-bold text-white">
+                        {currentUser()?.role === 'super_admin' ? 'Global Users' : 'Users'}
+                    </h1>
+                    <p class="text-slate-400">
+                        {currentUser()?.role === 'super_admin'
+                            ? 'Manage users across all tenants'
+                            : 'Manage tenant users and access'}
+                    </p>
                 </div>
                 <button
                     onClick={() => {
@@ -342,7 +299,7 @@ const Users: Component = () => {
                             role: '',
                             phone: '',
                             tenantId: '',
-                            supervisorId: ''
+                            supervisorId: '',
                         });
                         setShowCreateModal(true);
                     }}
@@ -374,6 +331,18 @@ const Users: Component = () => {
                         {(option) => <option value={option.value}>{option.label}</option>}
                     </For>
                 </select>
+                <Show when={currentUser()?.role === 'super_admin'}>
+                    <select
+                        value={tenantFilter()}
+                        onChange={(e) => { setTenantFilter(e.currentTarget.value); setPage(1); }}
+                        class="px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    >
+                        <option value="">All Tenants</option>
+                        <For each={tenants()}>
+                            {(tenant) => <option value={tenant.id}>{tenant.name}</option>}
+                        </For>
+                    </select>
+                </Show>
 
                 {/* View Toggle */}
                 <div class="flex items-center gap-4">
@@ -440,6 +409,9 @@ const Users: Component = () => {
                                         <tr class="border-b border-slate-800/50">
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">User</th>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Role</th>
+                                            <Show when={currentUser()?.role === 'super_admin'}>
+                                                <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Tenant</th>
+                                            </Show>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Supervisor</th>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Status</th>
                                             <th class="text-left text-xs font-medium text-slate-400 uppercase tracking-wider px-6 py-4">Last Login</th>
@@ -471,6 +443,11 @@ const Users: Component = () => {
                                                                 {user.role.replace('_', ' ')}
                                                             </span>
                                                         </td>
+                                                        <Show when={currentUser()?.role === 'super_admin'}>
+                                                            <td class="px-6 py-4 text-slate-300 text-sm">
+                                                                {user.tenantName || user.tenantId || '-'}
+                                                            </td>
+                                                        </Show>
                                                         <td class="px-6 py-4">
                                                             <Show when={user.role === 'sales_rep' && assignedSupervisor} fallback={
                                                                 <span class="text-slate-500 text-sm">-</span>
@@ -497,6 +474,14 @@ const Users: Component = () => {
                                                         </td>
                                                         <td class="px-6 py-4">
                                                             <div class="flex items-center justify-end gap-2">
+                                                                <Show when={user.role === 'sales_rep'}>
+                                                                    <A
+                                                                        href={territoryAssignmentPath(user.id)}
+                                                                        class="px-2.5 py-1.5 text-xs text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
+                                                                    >
+                                                                        Assign Territories
+                                                                    </A>
+                                                                </Show>
                                                                 <button
                                                                     onClick={() => handleEdit(user)}
                                                                     class="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
@@ -573,8 +558,21 @@ const Users: Component = () => {
                                                     </span>
                                                 </div>
                                             </Show>
+                                            <Show when={currentUser()?.role === 'super_admin' && (user.tenantName || user.tenantId)}>
+                                                <div class="text-xs text-slate-500 mb-4 truncate">
+                                                    Tenant: {user.tenantName || user.tenantId}
+                                                </div>
+                                            </Show>
 
                                             <div class="flex items-center gap-2 pt-4 border-t border-slate-800/50">
+                                                <Show when={user.role === 'sales_rep'}>
+                                                    <A
+                                                        href={territoryAssignmentPath(user.id)}
+                                                        class="flex-1 py-2 text-sm text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors text-center"
+                                                    >
+                                                        Assign Territories
+                                                    </A>
+                                                </Show>
                                                 <button
                                                     onClick={() => handleEdit(user)}
                                                     class="flex-1 py-2 text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2"
@@ -619,6 +617,11 @@ const Users: Component = () => {
                                                 <div class={`hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-semibold ${roleConfig.bg} ${roleConfig.text}`}>
                                                     {user.role.replace('_', ' ')}
                                                 </div>
+                                                <Show when={currentUser()?.role === 'super_admin' && (user.tenantName || user.tenantId)}>
+                                                    <div class="hidden lg:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] tracking-wider font-semibold bg-slate-700/50 text-slate-300">
+                                                        {user.tenantName || user.tenantId}
+                                                    </div>
+                                                </Show>
                                                 <Show when={user.role === 'sales_rep' && assignedSupervisor}>
                                                     <div class="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-semibold bg-blue-500/10 text-blue-400">
                                                         <Shield class="w-3 h-3" />
@@ -628,6 +631,14 @@ const Users: Component = () => {
                                             </div>
 
                                             <div class="flex items-center gap-2 pl-4 border-l border-slate-800/50">
+                                                <Show when={user.role === 'sales_rep'}>
+                                                    <A
+                                                        href={territoryAssignmentPath(user.id)}
+                                                        class="px-2 py-1 text-[11px] text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded transition-colors"
+                                                    >
+                                                        Territories
+                                                    </A>
+                                                </Show>
                                                 <button
                                                     onClick={() => handleEdit(user)}
                                                     class="p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
@@ -707,46 +718,10 @@ const Users: Component = () => {
                                 </div>
                             </Show>
 
-                            {/* Territory Selection for Sales Reps */}
                             <Show when={formData.role === 'sales_rep'}>
-                                <div class="space-y-3">
-                                    <label class="text-sm font-medium text-slate-300">Assigned Territories</label>
-                                    <div class="space-y-2 max-h-64 overflow-auto border border-slate-800 rounded-xl bg-slate-950/60 p-3">
-                                        <For each={territoryTree() || []}>
-                                            {(node) => {
-                                                const renderNode = (territory: Territory, depth = 0) => (
-                                                    <div class="space-y-1">
-                                                        <label class="flex items-center gap-2 text-sm text-slate-200" style={{ 'padding-left': `${depth * 16}px` }}>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={isTerritorySelected(territory.id)}
-                                                                onChange={() => toggleTerritory(territory)}
-                                                                class="accent-blue-500"
-                                                            />
-                                                            <span>{territory.name}</span>
-                                                        </label>
-                                                        <Show when={territory.children?.length}>
-                                                            <div class="space-y-1">
-                                                                <For each={territory.children}>
-                                                                    {(child) => renderNode(child, depth + 1)}
-                                                                </For>
-                                                            </div>
-                                                        </Show>
-                                                    </div>
-                                                );
-                                                return renderNode(node, 0);
-                                            }}
-                                        </For>
-                                    </div>
-                                    <Show when={territoryTree() && territoryTree()!.length === 0}>
-                                        <p class="text-xs text-amber-400">
-                                            No territories available. Create territories first in Admin → Territories.
-                                        </p>
-                                    </Show>
-                                    <p class="text-xs text-slate-500">
-                                        Selecting a parent will toggle all child territories.
-                                    </p>
-                                </div>
+                                <p class="text-xs text-slate-500">
+                                    Territory assignment is managed on a separate page after user creation.
+                                </p>
                             </Show>
 
                             <div class="space-y-1.5">
@@ -797,7 +772,6 @@ const Users: Component = () => {
                                             // Clear supervisor if role is not sales_rep
                                             if (newRole !== 'sales_rep') {
                                                 setFormData('supervisorId', '');
-                                                setFormData('territoryIds', []);
                                             }
                                         }}
                                         class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 outline-none"

@@ -1,130 +1,299 @@
 /**
  * Plan Limits Configuration
- * 
- * This module provides dynamic plan limits that can be updated at runtime.
- * Limits are derived from the plan, not stored per-tenant.
+ *
+ * Dynamic plan limits with DB persistence and transaction-safe checks.
  */
 
 import { db, schema } from '../db';
 import { eq, sql, count, and, gte } from 'drizzle-orm';
 
-// Default plan limits
-const DEFAULT_PLAN_LIMITS: Record<string, { maxUsers: number; maxProducts: number; maxOrdersPerMonth: number }> = {
+type PlanLimit = { maxUsers: number; maxProducts: number; maxOrdersPerMonth: number };
+type PlanLimitsMap = Record<string, PlanLimit>;
+type DbExecutor = typeof db | any;
+export type LimitResource = 'users' | 'products' | 'orders';
+type LimitSource = 'plan' | 'override';
+type TenantLimitsDetailed = {
+    plan: string;
+    effective: PlanLimit;
+    planDefaults: PlanLimit;
+    source: {
+        users: LimitSource;
+        products: LimitSource;
+        orders: LimitSource;
+    };
+};
+
+const PLAN_LIMITS_SETTINGS_KEY = 'planLimits.config';
+
+const DEFAULT_PLAN_LIMITS: PlanLimitsMap = {
     free: { maxUsers: 5, maxProducts: 100, maxOrdersPerMonth: 100 },
     starter: { maxUsers: 10, maxProducts: 500, maxOrdersPerMonth: 500 },
     pro: { maxUsers: 50, maxProducts: 5000, maxOrdersPerMonth: 5000 },
     enterprise: { maxUsers: 9999, maxProducts: 99999, maxOrdersPerMonth: 99999 },
 };
 
-// In-memory cache for plan limits (can be updated via API)
-let cachedPlanLimits = { ...DEFAULT_PLAN_LIMITS };
+let cachedPlanLimits: PlanLimitsMap = { ...DEFAULT_PLAN_LIMITS };
+let isLoadedFromDb = false;
 
-/**
- * Get limits for a specific plan
- */
-export function getPlanLimits(plan: string) {
+const asPositiveInt = (value: unknown, fallback: number) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback;
+};
+
+const normalizePlanLimits = (input: unknown): PlanLimitsMap => {
+    const result: PlanLimitsMap = { ...DEFAULT_PLAN_LIMITS };
+    if (!input || typeof input !== 'object') return result;
+
+    for (const [plan, defaults] of Object.entries(DEFAULT_PLAN_LIMITS)) {
+        const rawPlan = (input as Record<string, any>)[plan];
+        if (!rawPlan || typeof rawPlan !== 'object') continue;
+
+        result[plan] = {
+            maxUsers: asPositiveInt(rawPlan.maxUsers, defaults.maxUsers),
+            maxProducts: asPositiveInt(rawPlan.maxProducts, defaults.maxProducts),
+            maxOrdersPerMonth: asPositiveInt(rawPlan.maxOrdersPerMonth, defaults.maxOrdersPerMonth),
+        };
+    }
+
+    return result;
+};
+
+export async function ensurePlanLimitsLoaded(): Promise<void> {
+    if (isLoadedFromDb) return;
+
+    try {
+        const [row] = await db
+            .select({ value: schema.systemSettings.value })
+            .from(schema.systemSettings)
+            .where(eq(schema.systemSettings.key, PLAN_LIMITS_SETTINGS_KEY))
+            .limit(1);
+
+        if (row?.value) {
+            try {
+                cachedPlanLimits = normalizePlanLimits(JSON.parse(row.value));
+            } catch {
+                cachedPlanLimits = { ...DEFAULT_PLAN_LIMITS };
+            }
+        } else {
+            cachedPlanLimits = { ...DEFAULT_PLAN_LIMITS };
+        }
+    } finally {
+        isLoadedFromDb = true;
+    }
+}
+
+export function getPlanLimits(plan: string): PlanLimit {
     return cachedPlanLimits[plan] || cachedPlanLimits.starter;
 }
 
-/**
- * Get all plan limits
- */
-export function getAllPlanLimits() {
+export function getAllPlanLimits(): PlanLimitsMap {
     return cachedPlanLimits;
 }
 
-/**
- * Update plan limits (called from /super/plan-limits API)
- */
-export function updatePlanLimits(newLimits: typeof cachedPlanLimits) {
-    cachedPlanLimits = newLimits;
+export function buildLimitExceededError(resource: LimitResource, current: number, max: number) {
+    const labels: Record<LimitResource, string> = {
+        users: 'User',
+        products: 'Product',
+        orders: 'Monthly order',
+    };
+
+    return {
+        code: 'LIMIT_EXCEEDED',
+        message: `${labels[resource]} limit reached (${current}/${max}). Upgrade your plan.`,
+        details: {
+            resource,
+            current,
+            max,
+            remaining: Math.max(0, max - current),
+            upgradeRequired: true,
+        },
+    };
+}
+
+export async function updatePlanLimits(newLimits: PlanLimitsMap): Promise<PlanLimitsMap> {
+    const previous = { ...cachedPlanLimits };
+    const normalized = normalizePlanLimits(newLimits);
+    cachedPlanLimits = normalized;
+    isLoadedFromDb = true;
+
+    await db.transaction(async (tx) => {
+        await tx
+            .insert(schema.systemSettings)
+            .values({
+                key: PLAN_LIMITS_SETTINGS_KEY,
+                value: JSON.stringify(normalized),
+                description: 'Plan limits config (users/products/orders per month)',
+            })
+            .onConflictDoUpdate({
+                target: schema.systemSettings.key,
+                set: {
+                    value: JSON.stringify(normalized),
+                    updatedAt: new Date(),
+                },
+            });
+
+        // Propagate plan-level default changes to tenants that still use old defaults.
+        // Tenants with custom limits are preserved (their values differ from previous defaults).
+        for (const [plan, nextLimits] of Object.entries(normalized)) {
+            const prevLimits = previous[plan];
+            if (!prevLimits) continue;
+
+            if (prevLimits.maxUsers !== nextLimits.maxUsers) {
+                await tx.update(schema.tenants)
+                    .set({ maxUsers: nextLimits.maxUsers, updatedAt: new Date() })
+                    .where(and(
+                        eq(schema.tenants.plan, plan as any),
+                        eq(schema.tenants.maxUsers, prevLimits.maxUsers),
+                    ));
+            }
+
+            if (prevLimits.maxProducts !== nextLimits.maxProducts) {
+                await tx.update(schema.tenants)
+                    .set({ maxProducts: nextLimits.maxProducts, updatedAt: new Date() })
+                    .where(and(
+                        eq(schema.tenants.plan, plan as any),
+                        eq(schema.tenants.maxProducts, prevLimits.maxProducts),
+                    ));
+            }
+
+            if (prevLimits.maxOrdersPerMonth !== nextLimits.maxOrdersPerMonth) {
+                await tx.update(schema.tenants)
+                    .set({ maxOrdersPerMonth: nextLimits.maxOrdersPerMonth, updatedAt: new Date() })
+                    .where(and(
+                        eq(schema.tenants.plan, plan as any),
+                        eq(schema.tenants.maxOrdersPerMonth, prevLimits.maxOrdersPerMonth),
+                    ));
+            }
+        }
+    });
+
+    return normalized;
 }
 
 /**
- * Get effective limits for a tenant (derived from plan, with optional overrides)
+ * Get effective tenant limits:
+ * base from plan + per-tenant override columns when set.
  */
-export async function getTenantLimits(tenantId: string) {
-    const [tenant] = await db
+export async function getTenantLimitsDetailed(tenantId: string, executor: DbExecutor = db): Promise<TenantLimitsDetailed> {
+    await ensurePlanLimitsLoaded();
+
+    const [tenant] = await executor
         .select({
             plan: schema.tenants.plan,
-            maxUsersOverride: schema.tenants.maxUsers,
-            maxProductsOverride: schema.tenants.maxProducts,
-            maxOrdersOverride: schema.tenants.maxOrdersPerMonth,
+            maxUsers: schema.tenants.maxUsers,
+            maxProducts: schema.tenants.maxProducts,
+            maxOrdersPerMonth: schema.tenants.maxOrdersPerMonth,
         })
         .from(schema.tenants)
         .where(eq(schema.tenants.id, tenantId))
         .limit(1);
 
     if (!tenant) {
-        return getPlanLimits('starter'); // fallback
+        const planDefaults = getPlanLimits('starter');
+        return {
+            plan: 'starter',
+            effective: planDefaults,
+            planDefaults,
+            source: {
+                users: 'plan',
+                products: 'plan',
+                orders: 'plan',
+            },
+        };
     }
 
-    const planLimits = getPlanLimits(tenant.plan || 'starter');
+    const plan = tenant.plan || 'starter';
+    const planDefaults = getPlanLimits(plan);
 
-    // Return plan limits (overrides are ignored in dynamic model)
-    return planLimits;
-}
+    const maxUsers = asPositiveInt(tenant.maxUsers, planDefaults.maxUsers);
+    const maxProducts = asPositiveInt(tenant.maxProducts, planDefaults.maxProducts);
+    const maxOrdersPerMonth = asPositiveInt(tenant.maxOrdersPerMonth, planDefaults.maxOrdersPerMonth);
 
-/**
- * Check if tenant can create more users
- */
-export async function canCreateUser(tenantId: string): Promise<{ allowed: boolean; current: number; max: number }> {
-    const limits = await getTenantLimits(tenantId);
-
-    const [result] = await db
-        .select({ count: count(schema.users.id) })
-        .from(schema.users)
-        .where(eq(schema.users.tenantId, tenantId));
-
-    const current = Number(result?.count || 0);
     return {
-        allowed: current < limits.maxUsers,
-        current,
-        max: limits.maxUsers
+        plan,
+        effective: {
+            maxUsers,
+            maxProducts,
+            maxOrdersPerMonth,
+        },
+        planDefaults,
+        source: {
+            users: maxUsers === planDefaults.maxUsers ? 'plan' : 'override',
+            products: maxProducts === planDefaults.maxProducts ? 'plan' : 'override',
+            orders: maxOrdersPerMonth === planDefaults.maxOrdersPerMonth ? 'plan' : 'override',
+        },
     };
 }
 
-/**
- * Check if tenant can create more products
- */
-export async function canCreateProduct(tenantId: string): Promise<{ allowed: boolean; current: number; max: number }> {
-    const limits = await getTenantLimits(tenantId);
-
-    const [result] = await db
-        .select({ count: count(schema.products.id) })
-        .from(schema.products)
-        .where(eq(schema.products.tenantId, tenantId));
-
-    const current = Number(result?.count || 0);
-    return {
-        allowed: current < limits.maxProducts,
-        current,
-        max: limits.maxProducts
-    };
+export async function getTenantLimits(tenantId: string, executor: DbExecutor = db): Promise<PlanLimit> {
+    const detailed = await getTenantLimitsDetailed(tenantId, executor);
+    return detailed.effective;
 }
 
-/**
- * Check if tenant can create more orders this month
- */
-export async function canCreateOrder(tenantId: string): Promise<{ allowed: boolean; current: number; max: number }> {
-    const limits = await getTenantLimits(tenantId);
+async function currentUsage(executor: DbExecutor, tenantId: string, resource: LimitResource): Promise<number> {
+    if (resource === 'users') {
+        const [result] = await executor
+            .select({ count: count(schema.users.id) })
+            .from(schema.users)
+            .where(eq(schema.users.tenantId, tenantId));
+        return Number(result?.count || 0);
+    }
 
-    // Get first day of current month
+    if (resource === 'products') {
+        const [result] = await executor
+            .select({ count: count(schema.products.id) })
+            .from(schema.products)
+            .where(eq(schema.products.tenantId, tenantId));
+        return Number(result?.count || 0);
+    }
+
     const now = new Date();
     const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const [result] = await db
+    const [result] = await executor
         .select({ count: count(schema.orders.id) })
         .from(schema.orders)
         .where(and(
             eq(schema.orders.tenantId, tenantId),
-            gte(schema.orders.createdAt, firstOfMonth)
+            gte(schema.orders.createdAt, firstOfMonth),
         ));
+    return Number(result?.count || 0);
+}
 
-    const current = Number(result?.count || 0);
-    return {
-        allowed: current < limits.maxOrdersPerMonth,
-        current,
-        max: limits.maxOrdersPerMonth
-    };
+async function lockTenantResource(executor: DbExecutor, tenantId: string, resource: LimitResource): Promise<void> {
+    await executor.execute(sql`select pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${resource}))`);
+}
+
+export async function canCreateResourceInTx(
+    executor: DbExecutor,
+    tenantId: string,
+    resource: LimitResource,
+): Promise<{ allowed: boolean; current: number; max: number }> {
+    await lockTenantResource(executor, tenantId, resource);
+    const limits = await getTenantLimits(tenantId, executor);
+    const current = await currentUsage(executor, tenantId, resource);
+    const max = resource === 'users'
+        ? limits.maxUsers
+        : resource === 'products'
+            ? limits.maxProducts
+            : limits.maxOrdersPerMonth;
+
+    return { allowed: current < max, current, max };
+}
+
+export async function canCreateUser(tenantId: string): Promise<{ allowed: boolean; current: number; max: number }> {
+    const limits = await getTenantLimits(tenantId);
+    const current = await currentUsage(db, tenantId, 'users');
+    return { allowed: current < limits.maxUsers, current, max: limits.maxUsers };
+}
+
+export async function canCreateProduct(tenantId: string): Promise<{ allowed: boolean; current: number; max: number }> {
+    const limits = await getTenantLimits(tenantId);
+    const current = await currentUsage(db, tenantId, 'products');
+    return { allowed: current < limits.maxProducts, current, max: limits.maxProducts };
+}
+
+export async function canCreateOrder(tenantId: string): Promise<{ allowed: boolean; current: number; max: number }> {
+    const limits = await getTenantLimits(tenantId);
+    const current = await currentUsage(db, tenantId, 'orders');
+    return { allowed: current < limits.maxOrdersPerMonth, current, max: limits.maxOrdersPerMonth };
 }

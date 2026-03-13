@@ -9,7 +9,7 @@ import { Type } from '@sinclair/typebox';
 import { db } from '../../db';
 import * as schema from '../../db/schema';
 import { eq } from 'drizzle-orm';
-import { createErrorResponse, createSuccessResponse } from '../../lib/error-codes';
+import { createSuccessResponse } from '../../lib/error-codes';
 import { requireCustomerAuth } from './middleware';
 
 // ============================================================================
@@ -20,7 +20,7 @@ const UpdateCartSchema = {
     body: Type.Object({
         items: Type.Array(Type.Object({
             productId: Type.String(),
-            quantity: Type.Number()
+            quantity: Type.Integer({ minimum: 1, maximum: 1000 })
         }))
     })
 };
@@ -35,7 +35,7 @@ export const cartRoutes: FastifyPluginAsync = async (fastify) => {
      */
     fastify.get('/cart', {
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
 
         // Get or create cart
@@ -95,9 +95,23 @@ export const cartRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.put('/cart', {
         schema: UpdateCartSchema,
         preHandler: [requireCustomerAuth]
-    }, async (request, reply) => {
+    }, async (request) => {
         const customerAuth = request.customerAuth!;
         const { items } = request.body as { items: { productId: string; quantity: number }[] };
+        const sanitizedItems = items.map((item) => ({
+            productId: item.productId,
+            quantity: Math.floor(Number(item.quantity)),
+        }));
+
+        if (sanitizedItems.some((item) => !Number.isFinite(item.quantity) || item.quantity < 1 || item.quantity > 1000)) {
+            return {
+                success: false,
+                error: {
+                    code: 'INVALID_INPUT',
+                    message: 'Cart item quantity must be an integer between 1 and 1000.',
+                },
+            };
+        }
 
         // Get or create cart
         let [cart] = await db
@@ -127,7 +141,7 @@ export const cartRoutes: FastifyPluginAsync = async (fastify) => {
             // Insert new items if any
             if (items.length > 0) {
                 await tx.insert(schema.cartItems).values(
-                    items.map((i: any) => ({
+                    sanitizedItems.map((i) => ({
                         cartId: cart.id,
                         productId: i.productId,
                         quantity: i.quantity,

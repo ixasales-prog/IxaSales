@@ -2,6 +2,8 @@ import { FastifyPluginAsync } from 'fastify';
 import { Type, Static } from '@sinclair/typebox';
 import { db, schema } from '../db';
 import { eq, and, sql, desc } from 'drizzle-orm';
+import { sendApiError } from '../lib/api-errors';
+import { abortIdempotentRequest, beginIdempotentRequest, finishIdempotentRequest } from '../lib/idempotency';
 
 // Schemas
 const ListMovementsQuerySchema = Type.Object({
@@ -80,14 +82,25 @@ export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Create adjustment
     fastify.post<{ Body: CreateAdjustmentBody }>('/adjustments', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('inventory.adjust')],
         schema: { body: CreateAdjustmentBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
         const body = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'inventory.adjust');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
         if (!['tenant_admin', 'super_admin', 'supervisor', 'warehouse'].includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const adjustmentNumber = `ADJ-${Date.now()}`;
@@ -127,25 +140,39 @@ export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
 
                 return adjustment;
             });
-            return { success: true, data: result };
+            const responseBody = { success: true, data: result };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
         } catch (error: any) {
+            await abortIdempotentRequest(idempotency);
             if (error.message === 'Product not found') {
-                return reply.code(404).send({ success: false, error: { code: 'NOT_FOUND' } });
+                return sendApiError(reply, 404, 'NOT_FOUND', 'Product not found');
             }
-            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR' } });
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', 'Failed to create stock adjustment');
         }
     });
 
     // Batch adjustment - adjust multiple products at once
     fastify.post<{ Body: CreateBatchAdjustmentBody }>('/adjustments/batch', {
-        preHandler: [fastify.authenticate],
+        preHandler: [fastify.authenticate, fastify.requirePermission('inventory.adjust')],
         schema: { body: CreateBatchAdjustmentBodySchema },
     }, async (request, reply) => {
         const user = request.user!;
         const body = request.body;
+        const idempotency = await beginIdempotentRequest(request, 'inventory.adjust.batch');
+        if (idempotency.enabled && idempotency.replay) {
+            return reply.code(idempotency.replay.status).send(idempotency.replay.body);
+        }
+        if (idempotency.enabled && idempotency.inProgress) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_IN_PROGRESS', 'A request with this idempotency key is currently being processed');
+        }
+        if (idempotency.enabled && idempotency.conflict) {
+            return sendApiError(reply, 409, 'IDEMPOTENCY_KEY_REUSED', idempotency.conflict);
+        }
 
         if (!['tenant_admin', 'super_admin', 'supervisor', 'warehouse'].includes(user.role)) {
-            return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN' } });
+            await abortIdempotentRequest(idempotency);
+            return sendApiError(reply, 403, 'FORBIDDEN', 'Access denied');
         }
 
         const batchNumber = `BATCH-${Date.now()}`;
@@ -231,7 +258,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
                 return { adjustments, errors, batchNumber };
             });
 
-            return {
+            const responseBody = {
                 success: true,
                 data: {
                     batchNumber: results.batchNumber,
@@ -240,9 +267,12 @@ export const inventoryRoutes: FastifyPluginAsync = async (fastify) => {
                     errors: results.errors,
                 }
             };
+            await finishIdempotentRequest(idempotency, 200, responseBody);
+            return responseBody;
         } catch (error: any) {
+            await abortIdempotentRequest(idempotency);
             console.error('[Batch Adjustment Error]', error);
-            return reply.code(500).send({ success: false, error: { code: 'SERVER_ERROR', message: error.message } });
+            return sendApiError(reply, 500, 'INTERNAL_ERROR', error.message || 'Failed to create batch stock adjustment');
         }
     });
 };
