@@ -37,6 +37,7 @@ import userActivityRoutes from './routes-fastify/user-activity';
 import { supervisorRoutes } from './routes-fastify/supervisor';
 import { warehouseRoutes } from './routes-fastify/warehouse';
 import { batchOrderRoutes } from './routes-fastify/batch-orders';
+import payrollRunRoutes from './routes-fastify/payroll-run';
 
 // Initialize Redis rate limiter (if REDIS_URL is set)
 import { initRedisRateLimiter } from './lib/rate-limit';
@@ -357,6 +358,7 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         await api.register(gpsTrackingRoutes, { prefix: '/gps-tracking' });
         await api.register(userActivityRoutes, { prefix: '/user-activity' });
         await api.register(batchOrderRoutes, { prefix: '/batch-orders' });
+        await api.register(payrollRunRoutes);
 
     }, { prefix: '/api' });
 
