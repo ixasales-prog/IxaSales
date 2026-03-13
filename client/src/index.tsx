@@ -36,12 +36,7 @@ if (isLocalhost) {
 } else {
   const enablePwa = import.meta.env.VITE_ENABLE_PWA !== 'false'
   if (enablePwa) {
-    const moduleId = 'virtual:pwa-register'
-    void import(/* @vite-ignore */ moduleId).then(({ registerSW }) => {
-      registerSW({
-        immediate: true
-      })
-    })
+    // vite-plugin-pwa injects the registration script when enabled.
   }
 }
 
