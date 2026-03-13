@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedRef)) {
 }
 
 Write-Host "Triggering staging deploy for ref '$resolvedRef'..." -ForegroundColor Cyan
-gh workflow run deploy-staging.yml --ref $resolvedRef
+gh workflow run deploy-staging.yml --ref $resolvedRef -f ref=$resolvedRef
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to trigger deploy-staging.yml."
 }
