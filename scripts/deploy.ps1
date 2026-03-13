@@ -10,6 +10,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($Environment -eq "staging") {
+    & "$PSScriptRoot\deploy-staging.ps1" @args
+    exit $LASTEXITCODE
+}
+
 # Configuration
 $SERVER_IP = "176.96.241.152"
 $SERVER_USER = "ilhom1983"

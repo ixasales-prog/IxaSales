@@ -1,12 +1,15 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type PluginOption } from 'vite'
 import solid from 'vite-plugin-solid'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 export default defineConfig({
-  plugins: [
-    solid(),
-    VitePWA({
+  plugins: (() => {
+    const plugins: PluginOption[] = [solid()]
+    const enablePwa = process.env.VITE_ENABLE_PWA !== 'false'
+
+    if (enablePwa) {
+      plugins.push(VitePWA({
       registerType: 'autoUpdate',
       manifest: {
         name: 'IxaSales',
@@ -41,8 +44,11 @@ export default defineConfig({
       devOptions: {
         enabled: false
       }
-    })
-  ],
+      }))
+    }
+
+    return plugins
+  })(),
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
