@@ -1,125 +1,107 @@
-name: Deploy to Staging
+name: Deploy Staging
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, develop]
-  workflow_dispatch:
 
 env:
-  SERVER_IP: 176.96.241.152
+  SERVER_HOST: 176.96.241.152
   SERVER_USER: ilhom1983
-  TARGET_DIR: /var/www/ixasales/staging
+  APP_ROOT: /var/www/ixasales/staging
+  FRONTEND_URL: https://dev.ixasales.uz
+  API_HEALTH_URL: https://dev-api.ixasales.uz/health
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    
+
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: 22
+          cache: npm
 
-      - name: Install dependencies
-        run: bun install
+      - name: Install root dependencies
+        run: npm ci
 
-      - name: Build frontend
-        run: |
-          cd client
-          export VITE_API_URL=https://dev-api.ixasales.uz
-          bun install
-          bun run build
-
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
+      - name: Install client dependencies
+        run: npm ci
+        working-directory: client
 
       - name: Build backend
+        run: npm run build
+
+      - name: Build frontend for staging
+        working-directory: client
+        env:
+          VITE_API_URL: https://dev-api.ixasales.uz/api
+          VITE_ENABLE_PWA: "false"
+        run: npm run build
+
+      - name: Prepare release artifact
+        id: meta
         run: |
-          bun run build
+          ARTIFACT_NAME="staging-release-${GITHUB_SHA}.tgz"
+          mkdir -p release
+          cp -R dist release/dist
+          mkdir -p release/client
+          cp -R client/dist release/client/dist
+          cp package.json package-lock.json release/
+          tar -czf "${ARTIFACT_NAME}" -C release .
+          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to server
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: ${{ steps.meta.outputs.artifact_name }}
+          if-no-files-found: error
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: .
+
+      - name: Setup SSH
         run: |
-          # Sync files
-          rsync -avz --progress \
-            --exclude 'node_modules' \
-            --exclude 'client/node_modules' \
-            --exclude '.env' \
-            --exclude 'uploads/*' \
-            --exclude '.git' \
-            --exclude 'backups' \
-            ./ ${{ env.SERVER_USER }}@${{ env.SERVER_IP }}:${{ env.TARGET_DIR }}/
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.STAGING_DEPLOY_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ env.SERVER_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Install & Restart on Server
+      - name: Upload release artifact and deploy script
         run: |
-          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
-            cd ${{ env.TARGET_DIR }}
-            # Use npm for better native module support (sharp)
-            npm install --omit=dev
-            npm run db:push
-            
-            # Rebuild sharp explicitly to ensure linux-x64 compatibility
-            npm rebuild sharp
+          scp "${{ needs.build.outputs.artifact_name }}" "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:/tmp/ixasales-staging-release.tgz"
+          scp scripts/staging-release-deploy.sh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:/tmp/ixasales-staging-release-deploy.sh"
 
-            
-            # Ensure CORS_ORIGIN is set in .env
-            if [ -f .env ]; then
-              if grep -q '^CORS_ORIGIN=' .env; then
-                sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=https://dev.ixasales.uz|' .env
-                echo "✓ Updated CORS_ORIGIN"
-              else
-                echo "" >> .env
-                echo "# CORS Configuration" >> .env
-                echo "CORS_ORIGIN=https://dev.ixasales.uz" >> .env
-                echo "✓ Added CORS_ORIGIN"
-              fi
-            else
-              echo "⚠ WARNING: .env file not found"
-            fi
-            
-            # Reload systemd daemon to pick up any service file changes
-            sudo systemctl daemon-reload
-            sudo systemctl restart ixasales-staging
-          EOF
-
-      - name: Verify CORS Configuration
+      - name: Deploy release atomically
         run: |
-          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
-            cd ${{ env.TARGET_DIR }}
-            echo "=== CORS Configuration Verification ==="
-            
-            # Check .env file
-            echo "1. CORS_ORIGIN in .env:"
-            grep '^CORS_ORIGIN=' .env || echo "   ❌ NOT FOUND"
-            
-            # Check service status
-            echo ""
-            echo "2. Service status:"
-            sudo systemctl status ixasales-staging --no-pager | head -15
-            
-            # Check service environment
-            echo ""
-            echo "3. Environment loaded by systemd:"
-            sudo systemctl show ixasales-staging --property=Environment | head -5
-          EOF
+          ssh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}" "printf '%s\n' '${{ secrets.STAGING_SUDO_PASSWORD }}' | sudo -S env \
+            APP_ROOT='${{ env.APP_ROOT }}' \
+            ARTIFACT_PATH='/tmp/ixasales-staging-release.tgz' \
+            FRONTEND_URL='${{ env.FRONTEND_URL }}' \
+            API_HEALTH_URL='${{ env.API_HEALTH_URL }}' \
+            bash /tmp/ixasales-staging-release-deploy.sh"
 
-      - name: Health Check
+      - name: Verify live staging
         run: |
-          sleep 5
-          echo "=== API Health Check ==="
-          curl -f https://dev-api.ixasales.uz/health || echo "Health check failed - server may still be starting"
-          
-          echo ""
-          echo "=== CORS Preflight Test ==="
-          curl -sS -I -X OPTIONS \
-            -H "Origin: https://dev.ixasales.uz" \
-            -H "Access-Control-Request-Method: GET" \
-            -H "Access-Control-Request-Headers: Content-Type" \
-            https://dev-api.ixasales.uz/health 2>&1 | grep -i "access-control" || echo "⚠ No CORS headers in response"
-
+          curl -fsS "${{ env.API_HEALTH_URL }}"
+          curl -fsS "${{ env.FRONTEND_URL }}/" | grep -q "/assets/index-"

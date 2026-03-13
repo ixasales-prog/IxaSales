@@ -1,14 +1,47 @@
 /* @refresh reload */
 import { render } from 'solid-js/web'
-import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
+import ErrorBoundary, { DefaultErrorFallback } from './components/ErrorBoundary'
 
 const root = document.getElementById('root')
 
-render(() => <App />, root!)
+render(
+  () => (
+    <ErrorBoundary fallback={(error, reset) => <DefaultErrorFallback error={error} reset={reset} />}>
+      <App />
+    </ErrorBoundary>
+  ),
+  root!
+)
 
-registerSW({
-  immediate: true
-})
+const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+
+if (isLocalhost) {
+  // Prevent stale PWA caches during local/mobile testing.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => {
+        void registration.unregister()
+      })
+    })
+  }
+  if ('caches' in window) {
+    caches.keys().then((keys) => {
+      keys.forEach((key) => {
+        void caches.delete(key)
+      })
+    })
+  }
+} else {
+  const enablePwa = import.meta.env.VITE_ENABLE_PWA !== 'false'
+  if (enablePwa) {
+    const moduleId = 'virtual:pwa-register'
+    void import(/* @vite-ignore */ moduleId).then(({ registerSW }) => {
+      registerSW({
+        immediate: true
+      })
+    })
+  }
+}
 
