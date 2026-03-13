@@ -7,9 +7,9 @@ FRONTEND_URL="${FRONTEND_URL:-https://dev.ixasales.uz}"
 API_HEALTH_URL="${API_HEALTH_URL:-https://dev-api.ixasales.uz/health}"
 LOCAL_HEALTH_HOST="${LOCAL_HEALTH_HOST:-127.0.0.1}"
 BLUE_PORT="${BLUE_PORT:-3001}"
-GREEN_PORT="${GREEN_PORT:-3002}"
+GREEN_PORT="${GREEN_PORT:-3102}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
-RUN_DB_PUSH="${RUN_DB_PUSH:-1}"
+RUN_DB_MIGRATE="${RUN_DB_MIGRATE:-1}"
 UPSTREAM_CONF="${UPSTREAM_CONF:-/etc/nginx/snippets/ixasales-staging-api-upstream.conf}"
 CURRENT_LINK="${APP_ROOT}/current"
 RELEASES_DIR="${APP_ROOT}/releases"
@@ -61,7 +61,8 @@ main() {
   flock -n 9 || { echo "Another deployment is already running." >&2; exit 1; }
 
   local timestamp release_dir active_slot inactive_slot old_release inactive_port active_service inactive_service
-  local js_asset css_asset current_target previous_upstream deps_hash deps_dir deps_tmp
+  local js_asset css_asset previous_upstream deps_hash deps_dir deps_tmp
+  local migrate_hash migrate_dir migrate_tmp db_status
 
   timestamp="$(date +%Y%m%d%H%M%S)"
   release_dir="${RELEASES_DIR}/${timestamp}"
@@ -72,6 +73,8 @@ main() {
   test -f "${release_dir}/client/dist/index.html"
   test -f "${release_dir}/package.json"
   test -f "${release_dir}/package-lock.json"
+  test -f "${release_dir}/drizzle.config.ts"
+  test -d "${release_dir}/drizzle"
 
   deps_hash="$(sha256sum "${release_dir}/package-lock.json" | awk '{print $1}')"
   deps_dir="${SHARED_DIR}/node_modules/${deps_hash}"
@@ -87,18 +90,42 @@ main() {
   fi
   ln -sfn "${deps_dir}" "${release_dir}/node_modules"
 
-  if [[ "${RUN_DB_PUSH}" == "1" ]]; then
+  if [[ -f "${APP_ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${APP_ROOT}/.env"
+    set +a
+  fi
+
+  if [[ "${RUN_DB_MIGRATE}" == "1" ]]; then
+    migrate_hash="${deps_hash}-migrate"
+    migrate_dir="${SHARED_DIR}/node_modules/${migrate_hash}"
+    if [[ ! -d "${migrate_dir}" ]]; then
+      migrate_tmp="${migrate_dir}.tmp-${timestamp}"
+      mkdir -p "${migrate_tmp}"
+      cp "${release_dir}/package.json" "${release_dir}/package-lock.json" "${migrate_tmp}/"
+      pushd "${migrate_tmp}" >/dev/null
+      npm ci --include=dev --omit=optional
+      popd >/dev/null
+      mv "${migrate_tmp}/node_modules" "${migrate_dir}"
+      rm -rf "${migrate_tmp}"
+    fi
+
     pushd "${release_dir}" >/dev/null
+    ln -sfn "${migrate_dir}" "${release_dir}/node_modules"
     set +e
-    npm run db:push
-    local db_status=$?
+    npm run db:migrate
+    db_status=$?
     set -e
     popd >/dev/null
     if [[ ${db_status} -ne 0 ]]; then
+      ln -sfn "${deps_dir}" "${release_dir}/node_modules"
       rm -rf "${release_dir}"
-      echo "Database push failed." >&2
+      echo "Database migration failed." >&2
       exit 1
     fi
+
+    ln -sfn "${deps_dir}" "${release_dir}/node_modules"
   fi
 
   active_slot="blue"

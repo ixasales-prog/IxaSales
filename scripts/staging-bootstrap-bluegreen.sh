@@ -8,11 +8,13 @@ FRONTEND_HOST="${FRONTEND_HOST:-dev.ixasales.uz}"
 API_HOST="${API_HOST:-dev-api.ixasales.uz}"
 SSL_CERT_HOST="${SSL_CERT_HOST:-dev.ixasales.uz}"
 BLUE_PORT="${BLUE_PORT:-3001}"
-GREEN_PORT="${GREEN_PORT:-3002}"
+GREEN_PORT="${GREEN_PORT:-3102}"
 SYSTEMD_TEMPLATE="/etc/systemd/system/ixasales-staging@.service"
 NGINX_SITE="/etc/nginx/sites-available/ixasales-staging"
 NGINX_SITE_LINK="/etc/nginx/sites-enabled/ixasales-staging"
 UPSTREAM_CONF="/etc/nginx/snippets/ixasales-staging-api-upstream.conf"
+DEPLOY_WRAPPER="/usr/local/bin/ixasales-staging-deploy"
+SUDOERS_FILE="/etc/sudoers.d/ixasales-staging-deploy"
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -170,6 +172,18 @@ EOF
   chown "${APP_USER}:${APP_GROUP}" "${APP_ROOT}/shared/backend-blue.env" "${APP_ROOT}/shared/backend-green.env"
 
   render_systemd_template
+
+  cat > "${DEPLOY_WRAPPER}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec /bin/bash /tmp/ixasales-staging-release-deploy.sh
+EOF
+  chmod 755 "${DEPLOY_WRAPPER}"
+
+  cat > "${SUDOERS_FILE}" <<EOF
+${APP_USER} ALL=(root) NOPASSWD:SETENV: ${DEPLOY_WRAPPER}
+EOF
+  chmod 440 "${SUDOERS_FILE}"
 
   cat > "${UPSTREAM_CONF}" <<EOF
 proxy_pass http://127.0.0.1:${BLUE_PORT};

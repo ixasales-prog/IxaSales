@@ -2,8 +2,18 @@ name: Deploy Staging
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, develop]
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: false
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: true
 
 env:
   SERVER_HOST: 176.96.241.152
@@ -11,17 +21,32 @@ env:
   APP_ROOT: /var/www/ixasales/staging
   FRONTEND_URL: https://dev.ixasales.uz
   API_HEALTH_URL: https://dev-api.ixasales.uz/health
+  BLUE_PORT: "3001"
+  GREEN_PORT: "3102"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     outputs:
       artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      deploy_ref: ${{ steps.meta.outputs.deploy_ref }}
 
     steps:
+      - name: Resolve deploy ref
+        id: meta
+        shell: bash
+        run: |
+          DEPLOY_REF="${{ inputs.ref }}"
+          ARTIFACT_NAME="staging-release-${DEPLOY_REF//\//-}.tgz"
+          echo "deploy_ref=${DEPLOY_REF}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.deploy_ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -47,16 +72,17 @@ jobs:
         run: npm run build
 
       - name: Prepare release artifact
-        id: meta
+        shell: bash
         run: |
-          ARTIFACT_NAME="staging-release-${GITHUB_SHA}.tgz"
-          mkdir -p release
+          mkdir -p release/client release/drizzle release/migrations
           cp -R dist release/dist
-          mkdir -p release/client
           cp -R client/dist release/client/dist
-          cp package.json package-lock.json release/
-          tar -czf "${ARTIFACT_NAME}" -C release .
-          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          cp -R drizzle release/drizzle
+          if [[ -d migrations ]]; then
+            cp -R migrations release/migrations
+          fi
+          cp package.json package-lock.json drizzle.config.ts release/
+          tar -czf "${{ steps.meta.outputs.artifact_name }}" -C release .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -67,6 +93,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     environment: staging
 
@@ -81,27 +108,35 @@ jobs:
           path: .
 
       - name: Setup SSH
+        shell: bash
         run: |
-          mkdir -p ~/.ssh
+          install -d -m 700 ~/.ssh
           printf '%s' "${{ secrets.STAGING_DEPLOY_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ env.SERVER_HOST }}" >> ~/.ssh/known_hosts
+          cp scripts/ssh/known_hosts.staging ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Upload release artifact and deploy script
+        shell: bash
         run: |
           scp "${{ needs.build.outputs.artifact_name }}" "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:/tmp/ixasales-staging-release.tgz"
           scp scripts/staging-release-deploy.sh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:/tmp/ixasales-staging-release-deploy.sh"
 
       - name: Deploy release atomically
+        shell: bash
         run: |
-          ssh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}" "printf '%s\n' '${{ secrets.STAGING_SUDO_PASSWORD }}' | sudo -S env \
+          ssh "${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}" \
+            "sudo -n \
             APP_ROOT='${{ env.APP_ROOT }}' \
             ARTIFACT_PATH='/tmp/ixasales-staging-release.tgz' \
             FRONTEND_URL='${{ env.FRONTEND_URL }}' \
             API_HEALTH_URL='${{ env.API_HEALTH_URL }}' \
-            bash /tmp/ixasales-staging-release-deploy.sh"
+            BLUE_PORT='${{ env.BLUE_PORT }}' \
+            GREEN_PORT='${{ env.GREEN_PORT }}' \
+            /usr/local/bin/ixasales-staging-deploy"
 
       - name: Verify live staging
+        shell: bash
         run: |
           curl -fsS "${{ env.API_HEALTH_URL }}"
           curl -fsS "${{ env.FRONTEND_URL }}/" | grep -q "/assets/index-"
