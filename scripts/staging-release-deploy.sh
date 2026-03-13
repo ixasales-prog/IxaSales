@@ -74,7 +74,6 @@ main() {
   test -f "${release_dir}/package.json"
   test -f "${release_dir}/package-lock.json"
   test -f "${release_dir}/drizzle.config.ts"
-  test -d "${release_dir}/drizzle"
 
   deps_hash="$(sha256sum "${release_dir}/package-lock.json" | awk '{print $1}')"
   deps_dir="${SHARED_DIR}/node_modules/${deps_hash}"
@@ -97,7 +96,7 @@ main() {
     set +a
   fi
 
-  if [[ "${RUN_DB_MIGRATE}" == "1" ]]; then
+  if [[ "${RUN_DB_MIGRATE}" == "1" && -d "${release_dir}/drizzle" ]]; then
     migrate_hash="${deps_hash}-migrate"
     migrate_dir="${SHARED_DIR}/node_modules/${migrate_hash}"
     if [[ ! -d "${migrate_dir}" ]]; then
