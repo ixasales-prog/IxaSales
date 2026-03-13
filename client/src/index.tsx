@@ -8,7 +8,7 @@ const root = document.getElementById('root')
 
 render(
   () => (
-    <ErrorBoundary fallback={(error, reset) => <DefaultErrorFallback error={error} reset={reset} />}>
+    <ErrorBoundary fallback={(error: Error, reset: () => void) => <DefaultErrorFallback error={error} reset={reset} />}>
       <App />
     </ErrorBoundary>
   ),
@@ -36,8 +36,7 @@ if (isLocalhost) {
 } else {
   const enablePwa = import.meta.env.VITE_ENABLE_PWA !== 'false'
   if (enablePwa) {
-    const moduleId = 'virtual:pwa-register'
-    void import(/* @vite-ignore */ moduleId).then(({ registerSW }) => {
+    void import('virtual:pwa-register').then(({ registerSW }) => {
       registerSW({
         immediate: true
       })
