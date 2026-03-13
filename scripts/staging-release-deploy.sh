@@ -68,6 +68,10 @@ main() {
   release_dir="${RELEASES_DIR}/${timestamp}"
   mkdir -p "${release_dir}" "${SHARED_DIR}/node_modules"
   tar -xzf "${ARTIFACT_PATH}" -C "${release_dir}"
+  mkdir -p "${SHARED_DIR}/uploads"
+  chown -R "${APP_USER:-ilhom1983}:${APP_GROUP:-ilhom1983}" "${SHARED_DIR}/uploads" || true
+  rm -rf "${release_dir}/uploads"
+  ln -sfn "${SHARED_DIR}/uploads" "${release_dir}/uploads"
 
   test -f "${release_dir}/dist/index-fastify.js"
   test -f "${release_dir}/client/dist/index.html"
