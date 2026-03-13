@@ -74,12 +74,16 @@ jobs:
       - name: Prepare release artifact
         shell: bash
         run: |
-          mkdir -p release/client release/drizzle release/migrations
+          mkdir -p release/client
           cp -R dist release/dist
           cp -R client/dist release/client/dist
-          cp -R drizzle release/drizzle
+          if [[ -d drizzle ]]; then
+            mkdir -p release/drizzle
+            cp -R drizzle/. release/drizzle/
+          fi
           if [[ -d migrations ]]; then
-            cp -R migrations release/migrations
+            mkdir -p release/migrations
+            cp -R migrations/. release/migrations/
           fi
           cp package.json package-lock.json drizzle.config.ts release/
           tar -czf "${{ steps.meta.outputs.artifact_name }}" -C release .
