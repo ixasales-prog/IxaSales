@@ -55,20 +55,54 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         } : true,
     });
 
+    const createOriginMatcher = (allowedOrigins: string[], allowedSuffixes: string[]) => {
+        const normalizedOrigins = new Set(allowedOrigins.map(origin => origin.replace(/\/$/, '')));
+        const normalizedSuffixes = allowedSuffixes.map(suffix => suffix.trim().toLowerCase()).filter(Boolean);
+
+        return (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+            if (!origin) {
+                cb(null, true);
+                return;
+            }
+
+            try {
+                const url = new URL(origin);
+                const normalizedOrigin = origin.replace(/\/$/, '');
+                const hostname = url.hostname.toLowerCase();
+                const suffixAllowed = url.protocol === 'https:' && normalizedSuffixes.some((suffix) =>
+                    hostname === suffix.replace(/^\./, '') || hostname.endsWith(suffix)
+                );
+                cb(null, normalizedOrigins.has(normalizedOrigin) || suffixAllowed);
+            } catch {
+                cb(new Error(`Invalid origin: ${origin}`), false);
+            }
+        };
+    };
+
     // CORS configuration - Enforce production-ready CORS policy
-    const corsOrigin = (() => {
+    const corsConfig = (() => {
         if (process.env.NODE_ENV === 'development') {
             // For development environments, allow specific origins or localhost
             const raw = process.env.CORS_ORIGIN;
             if (!raw || raw.trim() === '') {
                 console.log('✓ Development mode: Using default development origins');
-                return ['http://localhost:5173', 'http://localhost:3000'];
+                const defaults = ['http://localhost:5173', 'http://localhost:3000'];
+                return {
+                    debugOrigins: defaults,
+                    debugSuffixes: [] as string[],
+                    origin: defaults,
+                };
             }
 
             const origins = raw.split(',').map((s) => s.trim()).filter(Boolean);
             if (origins.length === 0) {
                 console.log('✓ Development mode: Using default development origins');
-                return ['http://localhost:5173', 'http://localhost:3000'];
+                const defaults = ['http://localhost:5173', 'http://localhost:3000'];
+                return {
+                    debugOrigins: defaults,
+                    debugSuffixes: [] as string[],
+                    origin: defaults,
+                };
             }
 
             // Validate origins for development mode
@@ -86,7 +120,11 @@ export const buildServer = async (): Promise<FastifyInstance> => {
             });
 
             console.log(`✓ CORS configured for origins: ${validatedOrigins.join(', ')}`);
-            return validatedOrigins;
+            return {
+                debugOrigins: validatedOrigins,
+                debugSuffixes: [] as string[],
+                origin: validatedOrigins,
+            };
         }
 
         // Production mode - must have explicit, validated configuration
@@ -103,6 +141,8 @@ export const buildServer = async (): Promise<FastifyInstance> => {
             console.error('💡 HINT: Set CORS_ORIGIN in your .env file with HTTPS origins only (comma-separated)');
             process.exit(1);
         }
+
+        const suffixes = (process.env.CORS_ORIGIN_SUFFIXES || '.ixasales.uz').split(',').map((s) => s.trim()).filter(Boolean);
 
         // Validate origins - reject wildcard origins in production
         const validatedOrigins = origins.map(origin => {
@@ -130,11 +170,24 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         });
 
         console.log(`✓ CORS configured for origins: ${validatedOrigins.join(', ')}`);
-        return validatedOrigins;
+        const validatedSuffixes = suffixes.map((suffix) => {
+            if (!suffix.startsWith('.')) {
+                console.error(`Invalid CORS origin suffix: ${suffix}. Expected values like .ixasales.uz`);
+                process.exit(1);
+            }
+            return suffix.toLowerCase();
+        });
+
+        console.log(`CORS configured for suffixes: ${validatedSuffixes.join(', ')}`);
+        return {
+            debugOrigins: validatedOrigins,
+            debugSuffixes: validatedSuffixes,
+            origin: createOriginMatcher(validatedOrigins, validatedSuffixes) as any,
+        };
     })();
 
     await fastify.register(cors, {
-        origin: corsOrigin,
+        origin: corsConfig.origin,
         credentials: true,
         methods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'PATCH'],
         allowedHeaders: [
@@ -191,7 +244,8 @@ export const buildServer = async (): Promise<FastifyInstance> => {
         // Show CORS info in development or when debug=true
         if (process.env.NODE_ENV === 'development' || showDebug) {
             response.cors = {
-                configured_origins: Array.isArray(corsOrigin) ? corsOrigin : [corsOrigin],
+                configured_origins: corsConfig.debugOrigins,
+                configured_suffixes: corsConfig.debugSuffixes,
                 env_var_set: !!process.env.CORS_ORIGIN,
                 env_var_value: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.substring(0, 50) : null,
             };
